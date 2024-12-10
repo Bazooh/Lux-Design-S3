@@ -1,6 +1,7 @@
 import abc
 from typing import Any, Literal
 from lux.utils import Vector2
+from lux.observation import Observation
 import numpy as np
 
 
@@ -20,9 +21,14 @@ class Agent:
         self.discovered_relic_nodes_ids: set[int] = set()
         self.unit_explore_locations: dict[int, Any] = (
             dict()
-        )  # Any should be Vector2 but for some reason they put a tuple of ints so I'm not sure it work because they are doing a subtraction operation on it
+        )  # "Any" should be "Vector2" but for some reason they put a tuple of ints so I'm not sure it work because they are doing a subtraction operation on it
 
     @abc.abstractmethod
+    def actions(
+        self, obs: Observation, remainingOverageTime: int
+    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]: ...
+
     def act(
         self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
-    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]: ...
+    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
+        return self.actions(Observation(obs, self.team_id, step), remainingOverageTime)

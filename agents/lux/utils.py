@@ -1,11 +1,10 @@
 from enum import IntEnum
-from typing import Literal
 
 import sys
 import numpy as np
 
 
-Vector2 = np.ndarray[tuple[Literal[2]], np.dtype[np.int32]]
+Vector2 = np.ndarray[int, np.dtype[np.int32]]
 
 
 class Direction(IntEnum):
@@ -14,6 +13,13 @@ class Direction(IntEnum):
     RIGHT = 2
     DOWN = 3
     LEFT = 4
+
+
+class Tiles(IntEnum):
+    UNKNOWN = -1
+    EMPTY = 0
+    NEBULA = 1
+    ASTEROID = 2
 
 
 def direction_to(src: Vector2, target: Vector2) -> Direction:
