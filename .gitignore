@@ -3,5 +3,7 @@ src/*episode.json
 src/episodes/
 src/dist/
 
+agents/replay.html
+
 __pycache__/
 episodes/

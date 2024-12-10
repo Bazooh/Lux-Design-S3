@@ -5,6 +5,7 @@ import os.path as osp
 import time
 from argparse import Namespace
 from subprocess import Popen
+import traceback
 
 from luxai_runner.ext_to_command import ext_to_command
 from luxai_runner.logger import Logger
@@ -23,6 +24,7 @@ class Bot:
         """
         if direct_import_python_bots is True, will directly import the python agents and call their agent_fn functions.
         """
+        
         self.main_file_path = main_file_path
         self.file_ext = osp.splitext(self.main_file_path)[-1]
         if self.file_ext not in ext_to_command:
@@ -67,7 +69,7 @@ class Bot:
         )
         stderr = None
         try:
-            if self.direct_import_python_bots and self.command == "python":
+            if self.direct_import_python_bots and self.command == "python3.10":
                 env_cfg = None
                 if "env_cfg" in info:
                     env_cfg = observations["info"]["env_cfg"]
@@ -83,6 +85,7 @@ class Bot:
         except asyncio.TimeoutError:
             action = None
         except:
+            self.log.err(f"Exception occurred: {traceback.format_exc()}")
             import ipdb
 
             ipdb.set_trace()
