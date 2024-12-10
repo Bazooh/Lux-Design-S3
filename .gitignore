@@ -1,0 +1,7 @@
+src/*.egg-info/
+src/*episode.json
+src/episodes/
+src/dist/
+
+__pycache__/
+episodes/
