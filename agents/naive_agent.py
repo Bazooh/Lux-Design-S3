@@ -16,18 +16,18 @@ class NaiveAgent(Agent):
         unit_positions = np.array(
             obs["units"]["position"][self.team_id]
         )  # shape (max_units, 2)
-        unit_energys = np.array(
-            obs["units"]["energy"][self.team_id]
-        )  # shape (max_units, 1)
+        # unit_energys = np.array(
+        #     obs["units"]["energy"][self.team_id]
+        # )  # shape (max_units, 1)
         observed_relic_node_positions = np.array(
             obs["relic_nodes"]
         )  # shape (max_relic_nodes, 2)
         observed_relic_nodes_mask = np.array(
             obs["relic_nodes_mask"]
         )  # shape (max_relic_nodes, )
-        team_points = np.array(
-            obs["team_points"]
-        )  # points of each team, team_points[self.team_id] is the points of the your team
+        # team_points = np.array(
+        #     obs["team_points"]
+        # )  # points of each team, team_points[self.team_id] is the points of the your team
 
         # ids of units you can control at this timestep
         available_unit_ids = np.where(unit_mask)[0]
@@ -49,7 +49,7 @@ class NaiveAgent(Agent):
         # unit ids range from 0 to max_units - 1
         for unit_id in available_unit_ids:
             unit_pos: Vector2 = unit_positions[unit_id]
-            unit_energy = unit_energys[unit_id]
+            # unit_energy = unit_energys[unit_id]
 
             if len(self.relic_node_positions) > 0:
                 nearest_relic_node_position = self.relic_node_positions[0]

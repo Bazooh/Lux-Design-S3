@@ -1,6 +1,7 @@
 from enum import IntEnum
 from typing import Literal
 
+import sys
 import numpy as np
 
 
@@ -33,3 +34,7 @@ def direction_to(src: Vector2, target: Vector2) -> Direction:
             return Direction.DOWN
         else:
             return Direction.UP
+
+
+def print_debug(*values: object, sep: str | None = " ", end: str | None = "\n") -> None:
+    print(*values, sep=sep, end=end, file=sys.stderr)
