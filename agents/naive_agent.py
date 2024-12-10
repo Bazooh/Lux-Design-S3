@@ -1,24 +1,13 @@
-from typing import Any, Literal
+from typing import Any
 from lux.utils import direction_to, Vector2
 import numpy as np
+from base_agent import Agent, N_Actions
 
 
-class Agent:
-    def __init__(self, player: str, env_cfg: dict[str, int]) -> None:
-        self.player = player
-        self.opp_player = "player_1" if self.player == "player_0" else "player_0"
-        self.team_id = 0 if self.player == "player_0" else 1
-        self.opp_team_id = 1 if self.team_id == 0 else 0
-        np.random.seed(0)
-        self.env_cfg = env_cfg
-
-        self.relic_node_positions: list[Vector2] = []
-        self.discovered_relic_nodes_ids: set[int] = set()
-        self.unit_explore_locations: dict[int, Any] = (
-            dict()
-        )  # Any should be Vector2 but for some reason they put a tuple of ints so I'm not sure it work because they are doing a subtraction operation on it
-
-    def act(self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60):
+class NaiveAgent(Agent):
+    def act(
+        self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
+    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.
 
         step is the current timestep number of the game starting from 0 going up to max_steps_in_match * match_count_per_episode - 1.

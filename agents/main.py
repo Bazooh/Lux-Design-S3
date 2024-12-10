@@ -1,7 +1,7 @@
 import json
 from argparse import Namespace
 
-from naive_agent import Agent
+from naive_agent import NaiveAgent as Agent
 
 from lux.kit import from_json
 
@@ -17,21 +17,21 @@ def agent_fn(observation, configurations):
     agent definition for kaggle submission.
     """
     global agent_dict
-    
+
     obs = observation.obs
     if type(obs) is str:
         obs = json.loads(obs)
-    
+
     step = observation.step
     player = observation.player
     remainingOverageTime = observation.remainingOverageTime
-    
+
     if step == 0:
         agent_dict[player] = Agent(player, configurations["env_cfg"])
-    
+
     agent = agent_dict[player]
     actions = agent.act(step, from_json(obs), remainingOverageTime)
-    
+
     return dict(action=actions.tolist())
 
 
@@ -62,13 +62,13 @@ if __name__ == "__main__":
                 info=raw_input["info"],
             )
         )
-        
+
         if i == 0:
             env_cfg = raw_input["info"]["env_cfg"]
             player_id = raw_input["player"]
-        
+
         i += 1
-        
+
         actions = agent_fn(observation, dict(env_cfg=env_cfg))
         # send actions to engine
         print(json.dumps(actions))
