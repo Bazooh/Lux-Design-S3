@@ -48,17 +48,17 @@ class LuxAIPygameRenderer:
                         else:
                             render_state = "running"
                     elif event.text == "r":
-                        self.display_options["show_relic_spots"] = (
-                            not self.display_options["show_relic_spots"]
-                        )
+                        self.display_options[
+                            "show_relic_spots"
+                        ] = not self.display_options["show_relic_spots"]
                     elif event.text == "s":
-                        self.display_options["show_sensor_mask"] = (
-                            not self.display_options["show_sensor_mask"]
-                        )
+                        self.display_options[
+                            "show_sensor_mask"
+                        ] = not self.display_options["show_sensor_mask"]
                     elif event.text == "e":
-                        self.display_options["show_energy_field"] = (
-                            not self.display_options["show_energy_field"]
-                        )
+                        self.display_options[
+                            "show_energy_field"
+                        ] = not self.display_options["show_energy_field"]
             else:
                 if render_state == "paused":
                     self.clock.tick(60)
@@ -94,7 +94,9 @@ class LuxAIPygameRenderer:
             for x in range(params.map_width):
                 for y in range(params.map_height):
                     if mask[x, y] > 0:
-                        rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+                        rect = pygame.Rect(
+                            x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE
+                        )
                         draw_rect_alpha(self.surface, (255, 215, 0, 50), rect)
 
         # Draw energy nodes

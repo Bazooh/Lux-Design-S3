@@ -112,11 +112,10 @@ def main():
         tournament_config.ranking_system = getattr(
             args, "tournament_cfg_ranking_system"
         )
-        tournament_config.max_episodes = getattr(
-            args, "tournament_cfg_max_episodes"
-        )
+        tournament_config.max_episodes = getattr(args, "tournament_cfg_max_episodes")
         tourney = Tournament(
-            cfg=tournament_config, episode_cfg=cfg  # the base/default episode config
+            cfg=tournament_config,
+            episode_cfg=cfg,  # the base/default episode config
         )
         # import ipdb;ipdb.set_trace()
         asyncio.run(tourney.run())
