@@ -1,5 +1,4 @@
 from flax import struct
-import jax
 
 MAP_TYPES = ["dev0", "random"]
 
@@ -75,7 +74,7 @@ class EnvParams:
     """
     # TODO (stao): allow other kinds of symmetric drifts?
 
-    energy_node_drift_speed: int = 0.02
+    energy_node_drift_speed: float = 0.02
     """
     how fast energy nodes will move around over time
     """
