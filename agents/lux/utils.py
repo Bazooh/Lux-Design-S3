@@ -1,4 +1,5 @@
 from enum import IntEnum
+import re
 from colorama import Fore
 
 import sys
@@ -54,7 +55,7 @@ def print_debug(
 
     print(
         color,
-        (end + color).join(sep.join(map(str, values)).split(end)),
+        re.sub(end, end + color, sep.join(map(str, values))),
         sep="",
         end=end,
         file=sys.stderr,
