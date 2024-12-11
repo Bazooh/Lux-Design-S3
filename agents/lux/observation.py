@@ -2,8 +2,6 @@ from colorama import Back, Fore, Style
 import numpy as np
 from typing import Any
 
-from regex import T
-
 from lux.utils import Vector2, Tiles
 
 
@@ -26,17 +24,20 @@ class UnitsObservation(PartialObservation):
         self.positions = positions
         self.energies = energies
 
-    def get_position_of(self, team: int, unit_id: int) -> Vector2:
-        return self.positions[team, unit_id]
+    def get_position_of(self, unit_id: int) -> Vector2:
+        return self.positions[unit_id]
 
-    def get_energy_of(self, team: int, unit_id: int) -> int:
-        return self.energies[team, unit_id]
+    def get_energy_of(self, unit_id: int) -> int:
+        return self.energies[unit_id]
 
     def avaible_positions(self):
         return self._avaible(self.positions)
 
     def avaible_energies(self):
         return self._avaible(self.energies)
+
+    def get_units_id_at(self, x: int, y: int):
+        return np.where((self.positions[0] == x) & (self.positions[1] == y))[0]
 
 
 class MapObservation(PartialObservation):
