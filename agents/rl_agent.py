@@ -23,8 +23,6 @@ class RLAgent(Agent):
         self, obs: Observation, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
         result = self.model(self.tensor_converter.convert(obs))
-        
-        print_debug(result.shape)
 
         actions = np.zeros((self.env_cfg.max_units, 3), dtype=np.int32)
         actions[:, 0] = result.argmax(dim=1).numpy()
