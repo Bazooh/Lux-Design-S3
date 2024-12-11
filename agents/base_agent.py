@@ -1,7 +1,8 @@
 import abc
 from typing import Any, Literal
-from lux.utils import Vector2
+from lux.utils import Vector2, print_debug
 from lux.observation import Observation
+from lux.env_config import EnvConfig
 import numpy as np
 
 
@@ -15,7 +16,7 @@ class Agent:
         self.team_id = 0 if self.player == "player_0" else 1
         self.opp_team_id = 1 if self.team_id == 0 else 0
         np.random.seed(0)
-        self.env_cfg = env_cfg
+        self.env_cfg = EnvConfig(env_cfg)
 
         self.relic_node_positions: list[Vector2] = []
         self.discovered_relic_nodes_ids: set[int] = set()

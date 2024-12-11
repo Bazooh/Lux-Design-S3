@@ -1,4 +1,5 @@
 from enum import IntEnum
+from colorama import Fore
 
 import sys
 import numpy as np
@@ -42,5 +43,19 @@ def direction_to(src: Vector2, target: Vector2) -> Direction:
             return Direction.UP
 
 
-def print_debug(*values: object, sep: str | None = " ", end: str | None = "\n") -> None:
-    print(*values, sep=sep, end=end, file=sys.stderr)
+def print_debug(
+    *values: object,
+    sep: str | None = " ",
+    end: str | None = "\n",
+    color: str = Fore.WHITE,
+) -> None:
+    sep = sep if sep else ""
+    end = end if end else ""
+
+    print(
+        color,
+        (end + color).join(sep.join(map(str, values)).split(end)),
+        sep="",
+        end=end,
+        file=sys.stderr,
+    )

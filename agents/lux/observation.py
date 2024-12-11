@@ -1,5 +1,8 @@
+from colorama import Back, Fore, Style
 import numpy as np
 from typing import Any
+
+from regex import T
 
 from lux.utils import Vector2, Tiles
 
@@ -41,6 +44,8 @@ class MapObservation(PartialObservation):
         super().__init__(sensor_mask)
         self.energies = map_features["energy"]
         self.tiles = map_features["tile_type"]
+        self.height = self.tiles.shape[0]
+        self.width = self.tiles.shape[1]
 
     def get_energy_at(self, x: int, y: int) -> int:
         return self.energies[x, y]
@@ -53,6 +58,21 @@ class MapObservation(PartialObservation):
 
     def avaible_energies(self):
         return self._avaible(self.energies)
+
+    def __str__(self) -> str:
+        tiles_symbol = {
+            Tiles.UNKNOWN: Back.BLACK + "?",
+            Tiles.EMPTY: Back.BLACK + " ",
+            Tiles.NEBULA: Back.MAGENTA + " ",
+            Tiles.ASTEROID: Back.WHITE + " ",
+        }
+
+        string = "Map :\n\n"
+        for i in range(self.tiles.shape[0]):
+            for j in range(self.tiles.shape[1]):
+                string += f"{tiles_symbol[self.get_tile_at(j, i)]}"
+            string += Style.RESET_ALL + "\n"
+        return string
 
 
 class RelicObservation(PartialObservation):
@@ -96,3 +116,59 @@ class Observation:
             "steps"
         ]  # No idea if there is a difference between the twos
         self.match_steps: int = observation["match_steps"]
+
+    def get_n_units_at(self, team: int, x: int, y: int) -> int:
+        if team == self.team_id:
+            return np.sum(
+                (self.allied_units.positions[0] == x)
+                & (self.allied_units.positions[1] == y)
+            )
+        else:
+            return np.sum(
+                (self.opposite_units.positions[0] == x)
+                & (self.opposite_units.positions[1] == y)
+            )
+
+    def get_team_points(self):
+        return self.team_points[self.team_id]
+
+    def get_team_wins(self):
+        return self.team_wins[self.team_id]
+
+    def get_opposite_team_points(self):
+        return self.team_points[self.opposite_team_id]
+
+    def get_opposite_team_wins(self):
+        return self.team_wins[self.opposite_team_id]
+
+    def __str__(self) -> str:
+        string = f"Observation at step {self.step} :\n"
+        string += f"Team {self.team_id} wins : {self.get_team_wins()} points : {self.get_team_points()}\n"
+        string += f"Team {self.opposite_team_id} wins : {self.get_opposite_team_wins()} points : {self.get_opposite_team_points()}\n"
+
+        tiles_color = {
+            Tiles.UNKNOWN: Back.BLACK,
+            Tiles.EMPTY: Back.BLACK,
+            Tiles.NEBULA: Back.MAGENTA,
+            Tiles.ASTEROID: Back.WHITE,
+        }
+
+        for y in range(self.map.height):
+            for x in range(self.map.width):
+                n_units = self.get_n_units_at(self.team_id, x, y) - self.get_n_units_at(
+                    self.opposite_team_id, x, y
+                )
+                unit_color = (
+                    Fore.GREEN
+                    if n_units > 0
+                    else Fore.RED
+                    if n_units < 0
+                    else Fore.BLACK
+                )
+
+                tile = self.map.get_tile_at(x, y)
+                unit_char = str(abs(n_units)) if n_units != 0 else " "
+
+                string += f"{tiles_color[tile]}{unit_color}{unit_char if tile != Tiles.UNKNOWN else '?'}"
+            string += Style.RESET_ALL + "\n"
+        return string
