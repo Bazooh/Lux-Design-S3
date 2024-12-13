@@ -1,7 +1,7 @@
-from lux.utils import direction_to, Vector2
-from lux.observation import Observation
+from agents.lux.utils import direction_to, Vector2
+from agents.lux.observation import Observation
 import numpy as np
-from base_agent import Agent, N_Actions
+from agents.base_agent import Agent, N_Actions
 
 
 class NaiveAgent(Agent):

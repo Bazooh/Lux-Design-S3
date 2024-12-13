@@ -1,8 +1,8 @@
 import abc
 from typing import Any, Literal
-from lux.utils import Vector2, print_debug
-from lux.observation import Observation
-from lux.env_config import EnvConfig
+from agents.lux.utils import Vector2, print_debug
+from agents.lux.observation import Observation
+from agents.lux.env_config import EnvConfig
 import numpy as np
 
 

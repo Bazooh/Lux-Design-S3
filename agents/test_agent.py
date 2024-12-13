@@ -1,8 +1,8 @@
 from random import randint
 import numpy as np
-from lux.observation import Observation
-from lux.utils import Direction, print_debug
-from base_agent import Agent, N_Actions
+from agents.lux.observation import Observation
+from agents.lux.utils import Direction
+from agents.base_agent import Agent, N_Actions
 
 
 class TestAgent(Agent):
