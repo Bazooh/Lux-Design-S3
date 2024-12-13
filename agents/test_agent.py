@@ -2,13 +2,13 @@ from random import randint
 import numpy as np
 from agents.lux.observation import Observation
 from agents.lux.utils import Direction
-from agents.base_agent import Agent, N_Actions
+from agents.base_agent import Agent, N_Actions, N_Agents
 
 
 class TestAgent(Agent):
     def actions(
         self, obs: Observation, remainingOverageTime: int = 60
-    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
+    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         direction1 = Direction.UP if self.team_id == 1 else Direction.DOWN
         direction2 = Direction.LEFT if self.team_id == 1 else Direction.RIGHT
 
