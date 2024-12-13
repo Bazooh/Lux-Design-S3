@@ -34,6 +34,10 @@ class LuxAIS3GymEnv(gym.Env):
             )
         )
 
+        self.observation_space = gym.spaces.Box(
+            low=0, high=1, shape=(23, 24, 24), dtype=np.float32
+        )
+
     def render(self):
         self.jax_env.render(self.state, self.env_params)
 

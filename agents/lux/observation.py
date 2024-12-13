@@ -2,7 +2,7 @@ from colorama import Back, Fore, Style
 import numpy as np
 from typing import Any
 
-from lux.utils import Vector2, Tiles
+from agents.lux.utils import Vector2, Tiles
 
 
 class PartialObservation:

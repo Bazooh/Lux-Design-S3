@@ -1,6 +1,6 @@
 import abc
 from typing import Any, Literal
-from lux.utils import Vector2
+from lux.utils import Vector2, print_debug
 from lux.observation import Observation
 from lux.env_config import EnvConfig
 import numpy as np
@@ -32,4 +32,5 @@ class Agent:
     def act(
         self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
+        print_debug(obs)
         return self.actions(Observation(obs, self.team_id, step), remainingOverageTime)

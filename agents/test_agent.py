@@ -14,9 +14,6 @@ class TestAgent(Agent):
 
         direction = direction1 if randint(0, 1) == 0 else direction2
 
-        if obs.step == 90:
-            print_debug(obs)
-
         return np.array(
             [
                 [
