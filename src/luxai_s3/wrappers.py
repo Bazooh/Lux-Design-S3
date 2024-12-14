@@ -1,7 +1,7 @@
 # TODO (stao): Add lux ai s3 env to gymnax api wrapper, which is the old gym api
 import json
 import os
-from typing import Any, SupportsFloat
+from typing import Any, Literal, SupportsFloat
 import flax
 import flax.serialization
 import gymnasium as gym
@@ -10,9 +10,9 @@ import gymnax.environments.spaces
 import jax
 import numpy as np
 import dataclasses
-from luxai_s3.env import LuxAIS3Env
+from luxai_s3.env import LuxAIS3Env, PlayerName, Actions
 from luxai_s3.params import EnvParams, env_params_ranges
-from luxai_s3.state import serialize_env_actions, serialize_env_states
+from luxai_s3.state import EnvObs, serialize_env_actions, serialize_env_states
 from luxai_s3.utils import to_numpy
 
 
@@ -38,12 +38,14 @@ class LuxAIS3GymEnv(gym.Env):
             low=0, high=1, shape=(23, 24, 24), dtype=np.float32
         )
 
+        self.n_agents = 16
+
     def render(self):
         self.jax_env.render(self.state, self.env_params)
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[Any, dict[str, Any]]:
+    ) -> tuple[dict[PlayerName, EnvObs], dict[str, Any]]:
         if seed is not None:
             self.rng_key = jax.random.key(seed)
         self.rng_key, reset_key = jax.random.split(self.rng_key)
@@ -85,8 +87,15 @@ class LuxAIS3GymEnv(gym.Env):
         )
 
     def step(
-        self, action: Any
-    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+        self,
+        action: Actions,
+    ) -> tuple[
+        dict[PlayerName, EnvObs],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.int32]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
+        dict[str, Any],
+    ]:
         self.rng_key, step_key = jax.random.split(self.rng_key)
         obs, self.state, reward, terminated, truncated, info = self.jax_env.step(
             step_key, self.state, action, self.env_params

@@ -1,5 +1,5 @@
 import functools
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union, Literal
 
 import chex
 import gymnax
@@ -22,6 +22,12 @@ from luxai_s3.state import (
     gen_state,
 )
 from luxai_s3.pygame_render import LuxAIPygameRenderer
+
+
+PlayerName = Literal["player_0", "player_1"]
+Actions = dict[
+    PlayerName, np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
+]
 
 
 class LuxAIS3Env(environment.Environment):
@@ -230,12 +236,14 @@ class LuxAIS3Env(environment.Environment):
         self,
         key: chex.PRNGKey,
         state: EnvState,
-        action: Union[int, float, chex.Array],
+        player_actions: dict[
+            PlayerName, np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
+        ],
         params: EnvParams,
     ) -> Tuple[EnvObs, EnvState, jnp.ndarray, jnp.ndarray, jnp.ndarray, Dict[Any, Any]]:
         state = self.compute_energy_features(state, params)
 
-        action = jnp.stack([action["player_0"], action["player_1"]])
+        action = jnp.stack([player_actions["player_0"], player_actions["player_1"]])
 
         # remove all units if the match ended in the previous step indicated by a reset of match_steps to 0
         state = state.replace(
@@ -822,7 +830,9 @@ class LuxAIS3Env(environment.Environment):
         self,
         key: chex.PRNGKey,
         state: EnvState,
-        action: Union[int, float, chex.Array],
+        action: dict[
+            PlayerName, np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
+        ],
         params: Optional[EnvParams] = None,
     ) -> Tuple[EnvObs, EnvState, jnp.ndarray, jnp.ndarray, Dict[Any, Any]]:
         """Performs step transitions in the environment."""
