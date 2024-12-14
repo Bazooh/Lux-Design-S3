@@ -5,12 +5,10 @@ from typing import Any, Literal, SupportsFloat
 import flax
 import flax.serialization
 import gymnasium as gym
-import gymnax
-import gymnax.environments.spaces
 import jax
 import numpy as np
 import dataclasses
-from luxai_s3.env import LuxAIS3Env, PlayerName, Actions
+from luxai_s3.env import LuxAIS3Env, PlayerName, PlayerAction, Actions
 from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import EnvObs, serialize_env_actions, serialize_env_states
 from luxai_s3.utils import to_numpy
@@ -116,7 +114,7 @@ class RecordEpisode(gym.Wrapper):
     def __init__(
         self,
         env: LuxAIS3GymEnv,
-        save_dir: str = None,
+        save_dir: str | None = None,
         save_on_close: bool = True,
         save_on_reset: bool = True,
     ):

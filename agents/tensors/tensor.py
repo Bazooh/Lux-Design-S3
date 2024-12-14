@@ -1,10 +1,11 @@
+import numpy as np
 import torch
-from lux.utils import Tiles
-from luxai_s3.state import EnvObs
+from agents.lux.utils import Tiles
+from src.luxai_s3.state import EnvObs
 
 
 class TensorConverter:
-    def convert(self, obs: EnvObs):
+    def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
         """
         Shape : (23, width, height)
 
@@ -17,21 +18,41 @@ class TensorConverter:
         6 - 22: Units (0-1: Unit energy / max_unit_energy)
         """
 
-        tensor = torch.zeros(23, obs.map.width, obs.map.height, dtype=torch.float32)
+        tensor = torch.zeros(
+            23,
+            obs.map_features.energy.shape[0],
+            obs.map_features.energy.shape[1],
+            dtype=torch.float32,
+        )
 
-        tensor[0] = torch.tensor(~obs.map.mask, dtype=torch.float32)
-        tensor[1] = torch.tensor(obs.map.tiles == Tiles.ASTEROID, dtype=torch.float32)
-        tensor[2] = torch.tensor(obs.map.tiles == Tiles.NEBULA, dtype=torch.float32)
-        for relic in obs.relics.avaible_positions():
-            tensor[3, relic[0], relic[1]] = 1
-        tensor[4] = torch.tensor(obs.map.energies / 400, dtype=torch.float32)
-        for id in obs.opposite_units.avaible_ids():
+        tensor[0] = torch.tensor(
+            ~np.array(obs.sensor_mask, dtype=bool), dtype=torch.float32
+        )
+        tensor[1] = torch.tensor(
+            np.array(obs.map_features.tile_type, dtype=np.int32) == Tiles.ASTEROID,
+            dtype=torch.float32,
+        )
+        tensor[2] = torch.tensor(
+            np.array(obs.map_features.tile_type, dtype=np.int32) == Tiles.NEBULA,
+            dtype=torch.float32,
+        )
+        for relic_id in obs.get_avaible_relics():
+            x = obs.relic_nodes[relic_id][0].item()
+            y = obs.relic_nodes[relic_id][1].item()
+            tensor[3, x, y] = 1
+        tensor[4] = torch.tensor(
+            np.array(obs.map_features.energy, dtype=np.float32) / 20,
+            dtype=torch.float32,
+        )
+        for id in obs.get_avaible_units(1 - team_id):
             tensor[5] += torch.tensor(
-                obs.opposite_units.get_energy_of(id) / 400, dtype=torch.float32
+                np.array(obs.units.energy[1 - team_id][id], dtype=np.float32) / 400,
+                dtype=torch.float32,
             )
-        for id in obs.allied_units.avaible_ids():
+        for id in obs.get_avaible_units(team_id):
             tensor[6 + id] = torch.tensor(
-                obs.allied_units.get_energy_of(id) / 400, dtype=torch.float32
+                np.array(obs.units.energy[team_id][id], dtype=np.float32) / 400,
+                dtype=torch.float32,
             )
 
         return tensor

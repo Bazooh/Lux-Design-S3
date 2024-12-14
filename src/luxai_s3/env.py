@@ -25,9 +25,8 @@ from luxai_s3.pygame_render import LuxAIPygameRenderer
 
 
 PlayerName = Literal["player_0", "player_1"]
-Actions = dict[
-    PlayerName, np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
-]
+PlayerAction = np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
+Actions = dict[PlayerName, PlayerAction]
 
 
 class LuxAIS3Env(environment.Environment):

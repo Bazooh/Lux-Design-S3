@@ -7,7 +7,7 @@ env = LuxAIS3GymEnv()
 
 obs, config = env.reset()
 
-print(config['params'])
+print(type(obs['player_0'].units.position))
 
 
 # actions: Actions = {

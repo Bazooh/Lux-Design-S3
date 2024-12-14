@@ -21,6 +21,6 @@ class CNN(nn.Module):
         x = x.view(-1, 128 * 4 * 4)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        x = x.view(16, 5)
+        x = x.view(-1, 16, 5)
 
         return x

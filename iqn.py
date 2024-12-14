@@ -4,55 +4,87 @@ from typing import Literal
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from tqdm import tqdm
+
 from agents.models.dense import CNN
-from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerName, Actions
+from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent
 
-USE_WANDB = True  # if enabled, logs data on wandb server
+USE_WANDB = False  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:
-    def __init__(self, buffer_limit):
-        self.buffer = collections.deque(maxlen=buffer_limit)
+    def __init__(self, buffer_limit: int):
+        self.buffer: collections.deque[
+            tuple[
+                torch.Tensor,
+                PlayerAction,
+                np.ndarray[Literal[16], np.dtype[np.int32]],
+                torch.Tensor,
+                bool,
+            ]
+        ] = collections.deque(maxlen=buffer_limit)
 
-    def put(self, transition):
-        self.buffer.append(transition)
+    def put(
+        self,
+        obs: torch.Tensor,
+        actions: PlayerAction,
+        reward: np.ndarray[Literal[16], np.dtype[np.int32]],
+        next_obs: torch.Tensor,
+        done: bool,
+    ):
+        self.buffer.append((obs, actions, reward, next_obs, done))
 
     def sample(self, n):
+        """obs, actions, reward, next_obs, done"""
         mini_batch = random.sample(self.buffer, n)
-        s_lst, a_lst, r_lst, s_prime_lst, done_mask_lst = [], [], [], [], []
+        s_tensor = torch.empty((n, *mini_batch[0][0].shape), dtype=torch.float)
+        a_tensor = torch.empty((n, *mini_batch[0][1].shape), dtype=torch.float)
+        r_tensor = torch.empty((n, *mini_batch[0][2].shape), dtype=torch.float)
+        s_prime_tensor = torch.empty((n, *mini_batch[0][3].shape), dtype=torch.float)
+        done_mask_tensor = torch.empty((n,), dtype=torch.float)
 
-        for transition in mini_batch:
-            s, a, r, s_prime, done = transition
-            s_lst.append(s)
-            a_lst.append(a)
-            r_lst.append(r)
-            s_prime_lst.append(s_prime)
-            done_mask_lst.append((np.ones(len(done)) - done).tolist())
+        for i, (s, a, r, s_prime, done) in enumerate(mini_batch):
+            s_tensor[i] = s
+            a_tensor[i] = torch.tensor(a)
+            r_tensor[i] = torch.tensor(r)
+            s_prime_tensor[i] = s_prime
+            done_mask_tensor[i] = not done
 
         return (
-            torch.tensor(s_lst, dtype=torch.float),
-            torch.tensor(a_lst, dtype=torch.float),
-            torch.tensor(r_lst, dtype=torch.float),
-            torch.tensor(s_prime_lst, dtype=torch.float),
-            torch.tensor(done_mask_lst, dtype=torch.float),
+            s_tensor,
+            a_tensor,
+            r_tensor,
+            s_prime_tensor,
+            done_mask_tensor,
         )
 
     def size(self):
         return len(self.buffer)
 
 
-def train(q, q_target, memory, optimizer, gamma, batch_size, update_iter=10):
+def train(
+    q: nn.Module,
+    q_target: nn.Module,
+    memory: ReplayBuffer,
+    optimizer: optim.Optimizer,
+    gamma: float,
+    batch_size: int,
+    update_iter: int = 10,
+):
     for _ in range(update_iter):
         s, a, r, s_prime, done_mask = memory.sample(batch_size)
 
-        q_out = q(s)
-        q_a = q_out.gather(2, a.unsqueeze(-1).long()).squeeze(-1)
+        q_out: torch.Tensor = q(s)
+
+        q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
         max_q_prime = q_target(s_prime).max(dim=2)[0]
-        target = r + gamma * max_q_prime * done_mask
+
+        target = r + gamma * max_q_prime * done_mask.unsqueeze(-1)
         loss = F.smooth_l1_loss(q_a, target.detach())
 
         optimizer.zero_grad()
@@ -60,23 +92,34 @@ def train(q, q_target, memory, optimizer, gamma, batch_size, update_iter=10):
         optimizer.step()
 
 
-def test(env, num_episodes, q):
-    score = np.zeros(env.n_agents)
-    for episode_i in range(num_episodes):
-        state = env.reset()
-        done = [False for _ in range(env.n_agents)]
-        while not all(done):
-            action = (
-                q.sample_action(torch.Tensor(state).unsqueeze(0), epsilon=0)[0]
-                .data.cpu()
-                .numpy()
-                .tolist()
-            )
-            next_state, reward, done, info = env.step(action)
-            score += np.array(reward)
-            state = next_state
+def test(env: LuxAIS3GymEnv, num_episodes: int, network: CNN):
+    score: float = 0
 
-    return sum(score / num_episodes)
+    for episode_i in range(num_episodes):
+        obs, config = env.reset()
+        agent_0 = BasicRLAgent("player_0", config["params"], network)
+        agent_1 = BasicRLAgent("player_1", config["params"], network)
+
+        done = False
+        while not done:
+            obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
+            obs_tensor_1 = agent_1.obs_to_tensor(obs["player_1"])
+
+            actions: Actions = {
+                "player_0": agent_0.sample_action(obs_tensor_0, epsilon=0)[0]
+                .data.cpu()
+                .numpy(),
+                "player_1": agent_1.sample_action(obs_tensor_1, epsilon=0)[0]
+                .data.cpu()
+                .numpy(),
+            }
+            next_obs, reward, _, truncated, _ = env.step(actions)
+            done = truncated["player_0"].item() or truncated["player_1"].item()
+
+            score += reward["player_0"].item() - reward["player_1"].item()
+            obs = next_obs
+
+    return score / num_episodes
 
 
 def main(
@@ -95,8 +138,10 @@ def main(
 ):
     env = LuxAIS3GymEnv()
     network = CNN()
+    network_target = CNN()
+    network_target.load_state_dict(network.state_dict())
 
-    # test_env = gym.make(env_name)
+    test_env = LuxAIS3GymEnv()
     # if monitor:
     #     test_env = Monitor(
     #         test_env,
@@ -107,8 +152,8 @@ def main(
 
     optimizer = optim.Adam(network.parameters(), lr=lr)
 
-    score = np.zeros(env.n_agents)
-    for episode_i in range(max_episodes):
+    score: float = 0
+    for episode_i in tqdm(range(max_episodes)):
         epsilon = max(
             min_epsilon,
             max_epsilon
@@ -118,59 +163,76 @@ def main(
         agent_0 = BasicRLAgent("player_0", config["params"], network)
         agent_1 = BasicRLAgent("player_1", config["params"], network)
 
-        truncated: dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]] = {}
-        while not all(truncated):
+        done = False
+        while not done:
+            obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
+            obs_tensor_1 = agent_1.obs_to_tensor(obs["player_1"])
+
             actions: Actions = {
-                "player_0": agent_0.sample_action(obs["player_0"], epsilon)[0]
+                "player_0": agent_0.sample_action(obs_tensor_0, epsilon)[0]
                 .data.cpu()
-                .numpy()
-                .tolist(),
-                "player_1": agent_1.sample_action(obs["player_1"], epsilon)[0]
+                .numpy(),
+                "player_1": agent_1.sample_action(obs_tensor_1, epsilon)[0]
                 .data.cpu()
-                .numpy()
-                .tolist(),
+                .numpy(),
             }
             next_obs, reward, _, truncated, _ = env.step(actions)
+            done = truncated["player_0"].item() or truncated["player_1"].item()
+
             memory.put(
-                (
-                    obs,
-                    [actions["player_0"].tolist(), actions["player_1"].tolist()],
-                    [reward["player_0"].item(), reward["player_1"].item()],
-                    next_obs,
-                    truncated["player_0"].item(),
-                )
+                obs_tensor_0,
+                actions["player_0"],
+                # Each agent get the reward of the score of the game
+                np.array(reward["player_0"]).repeat(16),
+                agent_0.obs_to_tensor(next_obs["player_0"]),
+                done,
             )
-            score += np.array(reward)
+            memory.put(
+                obs_tensor_1,
+                actions["player_1"],
+                np.array(reward["player_1"]).repeat(16),
+                agent_1.obs_to_tensor(next_obs["player_1"]),
+                done,
+            )
+
+            score += reward["player_0"].item() - reward["player_1"].item()
             obs = next_obs
 
         if memory.size() > warm_up_steps:
-            train(q, q_target, memory, optimizer, gamma, batch_size, update_iter)
+            train(
+                network,
+                network_target,
+                memory,
+                optimizer,
+                gamma,
+                batch_size,
+                update_iter,
+            )
 
         if episode_i % log_interval == 0 and episode_i != 0:
-            # q_target.load_state_dict(q.state_dict())
-            # test_score = test(test_env, test_episodes, q)
+            network_target.load_state_dict(network.state_dict())
+            test_score = test(test_env, test_episodes, network)
             print(
-                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {sum(score / log_interval):.1f}, test score: {0:.1f} n_buffer : {memory.size()}, eps : {epsilon:.1f}"
+                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f} n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
             if USE_WANDB:
                 wandb.log(
                     {
                         "episode": episode_i,
-                        # "test-score": test_score,
+                        "test-score": test_score,
                         "buffer-size": memory.size(),
                         "epsilon": epsilon,
-                        "train-score": sum(score / log_interval),
+                        "train-score": score / log_interval,
                     }
                 )
-            score = np.zeros(env.n_agents)
+            score = 0
 
     env.close()
-    # test_env.close()
+    test_env.close()
 
 
 if __name__ == "__main__":
     kwargs = {
-        "env_name": "ma_gym:Switch2-v1",
         "lr": 0.0005,
         "batch_size": 32,
         "gamma": 0.99,

@@ -1,9 +1,9 @@
 import numpy as np
 import torch
 from luxai_s3.state import EnvObs
-from models.dense import CNN
-from tensors.tensor import TensorConverter
-from base_agent import Agent, N_Actions, N_Agents
+from agents.models.dense import CNN
+from agents.tensors.tensor import TensorConverter
+from agents.base_agent import Agent, N_Actions, N_Agents
 
 
 class RLAgent(Agent):
@@ -21,28 +21,27 @@ class RLAgent(Agent):
     def actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        result = self.model(self.tensor_converter.convert(obs))
+        result = self.model(self.tensor_converter.convert(obs, self.team_id))
 
         actions = np.zeros((self.env_cfg.max_units, 3), dtype=np.int32)
         actions[:, 0] = result.argmax(dim=1).numpy()
 
         return actions
 
-    def forward(self, obs: EnvObs) -> torch.Tensor:
-        return self.model(self.tensor_converter.convert(obs))
+    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float):
+        # ! WARNING ! : This function does not use the sap action (it only moves the units)
+        out = self.model(obs_tensor)
 
-    def sample_action(self, obs: EnvObs, epsilon: float):
-        out = self.forward(obs)
-        mask = torch.rand((out.shape[0],)) <= epsilon
-        action = torch.empty(
-            (
-                out.shape[0],
-                out.shape[1],
-            )
-        )
-        action[mask] = torch.randint(0, out.shape[2], action[mask].shape).float()
-        action[~mask] = out[~mask].argmax(dim=2).float()
+        batch_size, n_agents, n_actions = out.shape
+
+        mask = torch.rand((batch_size,)) <= epsilon
+        action = torch.zeros((batch_size, n_agents, 3), dtype=torch.int32)
+        action[mask, :, 0] = torch.randint(0, n_actions, action[mask].shape[:2]).int()
+        action[~mask, :, 0] = out[~mask].argmax(dim=2).int()
         return action
+
+    def obs_to_tensor(self, obs: EnvObs) -> torch.Tensor:
+        return self.tensor_converter.convert(obs, self.team_id)
 
 
 class BasicRLAgent(RLAgent):

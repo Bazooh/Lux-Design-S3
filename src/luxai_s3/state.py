@@ -22,9 +22,9 @@ ENERGY_NODE_FNS = [
 @struct.dataclass
 class UnitState:
     position: chex.Array
-    """Position of the unit with shape (2) for x, y"""
-    energy: int
-    """Energy of the unit"""
+    """Position of the unit with shape (2, 16, 2) for x, y"""
+    energy: chex.Array
+    """Energy of the units with shape (2, 16)"""
 
 
 @struct.dataclass
@@ -123,6 +123,12 @@ class EnvObs:
     """steps taken in the environment"""
     match_steps: int = 0
     """steps taken in the current match"""
+
+    def get_avaible_relics(self):
+        return np.where(self.relic_nodes_mask)[0]
+
+    def get_avaible_units(self, team_id):
+        return np.where(self.units_mask[team_id])[0]
 
     @staticmethod
     def from_dict(observation: dict[str, Any]) -> "EnvObs":

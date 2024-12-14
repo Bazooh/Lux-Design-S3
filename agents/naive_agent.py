@@ -19,14 +19,14 @@ class NaiveAgent(Agent):
         # and information about where relic nodes are found are saved for the next match
 
         # save any new relic nodes that we discover for the rest of the game.
-        for id in obs.relics.avaible_ids():
+        for id in obs.get_avaible_relics():
             if id not in self.discovered_relic_nodes_ids:
                 self.discovered_relic_nodes_ids.add(id)
-                self.relic_node_positions.append(obs.relics.positions[id])
+                self.relic_node_positions.append(obs.relic_nodes[id])
 
         # unit ids range from 0 to max_units - 1
-        for unit_id in obs.allied_units.avaible_ids():
-            unit_pos: Vector2 = obs.allied_units.positions[unit_id]
+        for unit_id in obs.get_avaible_units(self.team_id):
+            unit_pos: Vector2 = obs.units.position[team_id, unit_id]
 
             if len(self.relic_node_positions) > 0:
                 nearest_relic_node_position = self.relic_node_positions[0]
@@ -47,7 +47,10 @@ class NaiveAgent(Agent):
                     ]
             else:
                 # randomly explore by picking a random location on the map and moving there for about 20 steps
-                if obs.step % 20 == 0 or unit_id not in self.unit_explore_locations:
+                if (
+                    obs.match_steps % 20 == 0
+                    or unit_id not in self.unit_explore_locations
+                ):
                     rand_loc = (
                         np.random.randint(0, self.env_cfg.map_width),
                         np.random.randint(0, self.env_cfg.map_height),
