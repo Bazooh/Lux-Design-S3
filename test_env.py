@@ -1,6 +1,6 @@
 import numpy as np
-from luxai_s3.wrappers import LuxAIS3GymEnv
-from luxai_s3.env import Actions
+from src.luxai_s3.wrappers import LuxAIS3GymEnv
+from src.luxai_s3.env import Actions
 
 
 env = LuxAIS3GymEnv()

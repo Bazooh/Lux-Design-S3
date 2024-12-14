@@ -1,5 +1,6 @@
 import collections
 import random
+from typing import Literal
 
 import numpy as np
 import torch
@@ -7,9 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import gymnasium as gym
-
-from luxai_s3.wrappers import LuxAIS3GymEnv
+from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerName, Actions
+from agents.tensors.tensor import TensorConverter
 
 USE_WANDB = True  # if enabled, logs data on wandb server
 
@@ -125,7 +125,6 @@ def test(env, num_episodes, q):
 
 
 def main(
-    env: LuxAIS3GymEnv,
     lr: float,
     gamma: float,
     batch_size: int,
@@ -139,6 +138,8 @@ def main(
     update_iter: int,
     monitor: bool = False,
 ):
+    env = LuxAIS3GymEnv()
+
     # test_env = gym.make(env_name)
     # if monitor:
     #     test_env = Monitor(
@@ -160,27 +161,35 @@ def main(
             max_epsilon
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
-        state = env.reset()
-        done = [False for _ in range(env.n_agents)]
-        while not all(done):
-            action = (
-                q.sample_action(torch.Tensor(state).unsqueeze(0), epsilon)[0]
+        obs, _ = env.reset()
+        truncated: dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]] = {}
+        while not all(truncated):
+            actions: Actions = {
+                "player_0": q.sample_action(
+                    torch.Tensor(obs["player_0"]).unsqueeze(0), epsilon
+                )[0]
                 .data.cpu()
                 .numpy()
-                .tolist()
-            )
-            next_state, reward, done, info = env.step(action)
+                .tolist(),
+                "player_1": q.sample_action(
+                    torch.Tensor(obs["player_1"]).unsqueeze(0), epsilon
+                )[0]
+                .data.cpu()
+                .numpy()
+                .tolist(),
+            }
+            next_obs, reward, _, truncated, _ = env.step(actions)
             memory.put(
                 (
-                    state,
-                    action,
+                    obs,
+                    actions,
                     (np.array(reward)).tolist(),
-                    next_state,
-                    np.array(done, dtype=int).tolist(),
+                    next_obs,
+                    np.array(truncated, dtype=int).tolist(),
                 )
             )
             score += np.array(reward)
-            state = next_state
+            obs = next_obs
 
         if memory.size() > warm_up_steps:
             train(q, q_target, memory, optimizer, gamma, batch_size, update_iter)
