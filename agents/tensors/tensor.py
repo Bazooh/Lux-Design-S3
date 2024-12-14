@@ -1,10 +1,10 @@
 import torch
 from lux.utils import Tiles
-from lux.observation import Observation
+from luxai_s3.state import EnvObs
 
 
 class TensorConverter:
-    def convert(self, obs: Observation):
+    def convert(self, obs: EnvObs):
         """
         Shape : (23, width, height)
 

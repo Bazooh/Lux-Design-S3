@@ -1,4 +1,5 @@
 import functools
+from typing import Any
 import chex
 import flax
 import jax
@@ -7,7 +8,6 @@ import numpy as np
 from flax import struct
 
 from luxai_s3.params import MAP_TYPES, EnvParams
-from luxai_s3.utils import to_numpy
 
 EMPTY_TILE = 0
 NEBULA_TILE = 1
@@ -123,6 +123,27 @@ class EnvObs:
     """steps taken in the environment"""
     match_steps: int = 0
     """steps taken in the current match"""
+
+    @staticmethod
+    def from_dict(observation: dict[str, Any]) -> "EnvObs":
+        return EnvObs(
+            units=UnitState(
+                position=observation["units"]["position"],
+                energy=observation["units"]["energy"],
+            ),
+            units_mask=observation["units_mask"],
+            sensor_mask=observation["sensor_mask"],
+            map_features=MapTile(
+                energy=observation["map_features"]["energy"],
+                tile_type=observation["map_features"]["tile_type"],
+            ),
+            relic_nodes=observation["relic_nodes"],
+            relic_nodes_mask=observation["relic_nodes_mask"],
+            team_points=observation["team_points"],
+            team_wins=observation["team_wins"],
+            steps=observation["steps"],
+            match_steps=observation["match_steps"],
+        )
 
 
 def serialize_env_states(env_states: list[EnvState]):

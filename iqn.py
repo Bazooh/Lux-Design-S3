@@ -4,12 +4,12 @@ from typing import Literal
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from agents.models.dense import CNN
 from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerName, Actions
-from agents.tensors.tensor import TensorConverter
+from agents.rl_agent import BasicRLAgent
 
 USE_WANDB = True  # if enabled, logs data on wandb server
 
@@ -43,51 +43,6 @@ class ReplayBuffer:
 
     def size(self):
         return len(self.buffer)
-
-
-class QNet(nn.Module):
-    def __init__(self, observation_space, action_space):
-        super(QNet, self).__init__()
-        self.num_agents = len(observation_space)
-        for agent_i in range(self.num_agents):
-            n_obs = observation_space[agent_i].shape[0]
-            setattr(
-                self,
-                "agent_{}".format(agent_i),
-                nn.Sequential(
-                    nn.Linear(n_obs, 128),
-                    nn.ReLU(),
-                    nn.Linear(128, 64),
-                    nn.ReLU(),
-                    nn.Linear(64, action_space[agent_i].n),
-                ),
-            )
-
-    def forward(self, obs):
-        q_values = [
-            torch.empty(
-                obs.shape[0],
-            )
-        ] * self.num_agents
-        for agent_i in range(self.num_agents):
-            q_values[agent_i] = getattr(self, "agent_{}".format(agent_i))(
-                obs[:, agent_i, :]
-            ).unsqueeze(1)
-
-        return torch.cat(q_values, dim=1)
-
-    def sample_action(self, obs, epsilon):
-        out = self.forward(obs)
-        mask = torch.rand((out.shape[0],)) <= epsilon
-        action = torch.empty(
-            (
-                out.shape[0],
-                out.shape[1],
-            )
-        )
-        action[mask] = torch.randint(0, out.shape[2], action[mask].shape).float()
-        action[~mask] = out[~mask].argmax(dim=2).float()
-        return action
 
 
 def train(q, q_target, memory, optimizer, gamma, batch_size, update_iter=10):
@@ -139,6 +94,7 @@ def main(
     monitor: bool = False,
 ):
     env = LuxAIS3GymEnv()
+    network = CNN()
 
     # test_env = gym.make(env_name)
     # if monitor:
@@ -149,10 +105,7 @@ def main(
     #     )
     memory = ReplayBuffer(buffer_limit)
 
-    q = QNet(env.observation_space, env.action_space)
-    q_target = QNet(env.observation_space, env.action_space)
-    q_target.load_state_dict(q.state_dict())
-    optimizer = optim.Adam(q.parameters(), lr=lr)
+    optimizer = optim.Adam(network.parameters(), lr=lr)
 
     score = np.zeros(env.n_agents)
     for episode_i in range(max_episodes):
@@ -161,19 +114,18 @@ def main(
             max_epsilon
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
-        obs, _ = env.reset()
+        obs, config = env.reset()
+        agent_0 = BasicRLAgent("player_0", config["params"], network)
+        agent_1 = BasicRLAgent("player_1", config["params"], network)
+
         truncated: dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]] = {}
         while not all(truncated):
             actions: Actions = {
-                "player_0": q.sample_action(
-                    torch.Tensor(obs["player_0"]).unsqueeze(0), epsilon
-                )[0]
+                "player_0": agent_0.sample_action(obs["player_0"], epsilon)[0]
                 .data.cpu()
                 .numpy()
                 .tolist(),
-                "player_1": q.sample_action(
-                    torch.Tensor(obs["player_1"]).unsqueeze(0), epsilon
-                )[0]
+                "player_1": agent_1.sample_action(obs["player_1"], epsilon)[0]
                 .data.cpu()
                 .numpy()
                 .tolist(),
@@ -182,10 +134,10 @@ def main(
             memory.put(
                 (
                     obs,
-                    actions,
-                    (np.array(reward)).tolist(),
+                    [actions["player_0"].tolist(), actions["player_1"].tolist()],
+                    [reward["player_0"].item(), reward["player_1"].item()],
                     next_obs,
-                    np.array(truncated, dtype=int).tolist(),
+                    truncated["player_0"].item(),
                 )
             )
             score += np.array(reward)
@@ -195,7 +147,7 @@ def main(
             train(q, q_target, memory, optimizer, gamma, batch_size, update_iter)
 
         if episode_i % log_interval == 0 and episode_i != 0:
-            q_target.load_state_dict(q.state_dict())
+            # q_target.load_state_dict(q.state_dict())
             # test_score = test(test_env, test_episodes, q)
             print(
                 f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {sum(score / log_interval):.1f}, test score: {0:.1f} n_buffer : {memory.size()}, eps : {epsilon:.1f}"

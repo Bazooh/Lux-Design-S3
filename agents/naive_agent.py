@@ -1,13 +1,13 @@
 from agents.lux.utils import direction_to, Vector2
-from agents.lux.observation import Observation
 import numpy as np
-from agents.base_agent import Agent, N_Actions
+from agents.base_agent import Agent, N_Actions, N_Agents
+from luxai_s3.state import EnvObs
 
 
 class NaiveAgent(Agent):
     def actions(
-        self, obs: Observation, remainingOverageTime: int
-    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
+        self, obs: EnvObs, remainingOverageTime: int
+    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.
 
         step is the current timestep number of the game starting from 0 going up to max_steps_in_match * match_count_per_episode - 1.

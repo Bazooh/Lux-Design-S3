@@ -1,9 +1,10 @@
 import abc
 from typing import Any, Literal
 from agents.lux.utils import Vector2, print_debug
-from agents.lux.observation import Observation
 from agents.lux.env_config import EnvConfig
 import numpy as np
+
+from luxai_s3.state import EnvObs
 
 
 N_Actions = Literal[3]
@@ -27,11 +28,11 @@ class Agent:
 
     @abc.abstractmethod
     def actions(
-        self, obs: Observation, remainingOverageTime: int
-    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]: ...
+        self, obs: EnvObs, remainingOverageTime: int
+    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]: ...
 
     def act(
         self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
-    ) -> np.ndarray[tuple[int, N_Actions], np.dtype[np.int32]]:
+    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         print_debug(obs)
-        return self.actions(Observation(obs, self.team_id, step), remainingOverageTime)
+        return self.actions(EnvObs.from_dict(obs), remainingOverageTime)
