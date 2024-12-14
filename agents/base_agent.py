@@ -7,6 +7,7 @@ import numpy as np
 
 
 N_Actions = Literal[3]
+N_Agents = Literal[16]
 
 
 class Agent:
