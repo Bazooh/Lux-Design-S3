@@ -3,6 +3,8 @@ src/*episode.json
 src/episodes/
 src/dist/
 
+.DS_Store
+
 records/
 replay.html
 
