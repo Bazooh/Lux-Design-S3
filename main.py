@@ -1,9 +1,9 @@
 import json
 from argparse import Namespace
 
-# from naive_agent import NaiveAgent as Agent
-from agents.test_agent import TestAgent as Agent
-# from rl_agent import BasicRLAgent as Agent
+from agents.naive_agent import NaiveAgent as Agent
+# from agents.test_agent import TestAgent as Agent
+# from agents.rl_agent import BasicRLAgent as Agent
 
 from agents.lux.kit import from_json
 

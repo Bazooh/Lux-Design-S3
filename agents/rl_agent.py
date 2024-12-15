@@ -29,6 +29,7 @@ class RLAgent(Agent):
         return actions
 
     def sample_action(self, obs_tensor: torch.Tensor, epsilon: float):
+        """Returns a tensor of shape (batch_size, n_agents, 3) with the actions to take"""
         # ! WARNING ! : This function does not use the sap action (it only moves the units)
         out = self.model(obs_tensor)
 

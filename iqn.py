@@ -11,8 +11,9 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from agents.models.dense import CNN
-from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerAction, Actions
+from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent
+from agents.naive_agent import NaiveAgent
 
 USE_WANDB = False  # if enabled, logs data on wandb server
 
@@ -92,26 +93,24 @@ def train(
         optimizer.step()
 
 
-def test(env: LuxAIS3GymEnv, num_episodes: int, network: CNN):
+def test(env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: CNN):
     score: float = 0
 
     for episode_i in range(num_episodes):
         obs, config = env.reset()
         agent_0 = BasicRLAgent("player_0", config["params"], network)
-        agent_1 = BasicRLAgent("player_1", config["params"], network)
+        agent_1 = NaiveAgent("player_1", config["params"])
 
         done = False
         while not done:
             obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
-            obs_tensor_1 = agent_1.obs_to_tensor(obs["player_1"])
 
             actions: Actions = {
-                "player_0": agent_0.sample_action(obs_tensor_0, epsilon=0)[0]
+                "player_0": agent_0.sample_action(obs_tensor_0, epsilon=0)
+                .squeeze(0)
                 .data.cpu()
                 .numpy(),
-                "player_1": agent_1.sample_action(obs_tensor_1, epsilon=0)[0]
-                .data.cpu()
-                .numpy(),
+                "player_1": agent_1.actions(obs["player_1"]),
             }
             next_obs, reward, _, truncated, _ = env.step(actions)
             done = truncated["player_0"].item() or truncated["player_1"].item()
@@ -142,12 +141,11 @@ def main(
     network_target.load_state_dict(network.state_dict())
 
     test_env = LuxAIS3GymEnv()
-    # if monitor:
-    #     test_env = Monitor(
-    #         test_env,
-    #         directory="recordings/idqn/{}".format(env_name),
-    #         video_callable=lambda episode_id: episode_id % 50 == 0,
-    #     )
+    if monitor:
+        test_env = RecordEpisode(
+            test_env,
+            save_dir="records",
+        )
     memory = ReplayBuffer(buffer_limit)
 
     optimizer = optim.Adam(network.parameters(), lr=lr)
@@ -211,6 +209,8 @@ def main(
 
         if episode_i % log_interval == 0 and episode_i != 0:
             network_target.load_state_dict(network.state_dict())
+            torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
+
             test_score = test(test_env, test_episodes, network)
             print(
                 f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f} n_buffer : {memory.size()}, eps : {epsilon:.1f}"
@@ -244,7 +244,7 @@ if __name__ == "__main__":
         "test_episodes": 5,
         "warm_up_steps": 2000,
         "update_iter": 10,
-        "monitor": False,
+        "monitor": True,
     }
     if USE_WANDB:
         import wandb

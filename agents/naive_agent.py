@@ -6,7 +6,7 @@ from luxai_s3.state import EnvObs
 
 class NaiveAgent(Agent):
     def actions(
-        self, obs: EnvObs, remainingOverageTime: int
+        self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.
 
@@ -26,7 +26,7 @@ class NaiveAgent(Agent):
 
         # unit ids range from 0 to max_units - 1
         for unit_id in obs.get_avaible_units(self.team_id):
-            unit_pos: Vector2 = obs.units.position[team_id, unit_id]
+            unit_pos: Vector2 = obs.units.position[self.team_id, unit_id]
 
             if len(self.relic_node_positions) > 0:
                 nearest_relic_node_position = self.relic_node_positions[0]

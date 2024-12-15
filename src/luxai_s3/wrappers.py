@@ -132,7 +132,7 @@ class RecordEpisode(gym.Wrapper):
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[Any, dict[str, Any]]:
+    ) -> tuple[dict[PlayerName, EnvObs], dict[str, Any]]:
         if self.save_on_reset and self.episode_steps > 0:
             self._save_episode_and_reset()
         obs, info = self.env.reset(seed=seed, options=options)
@@ -144,7 +144,13 @@ class RecordEpisode(gym.Wrapper):
 
     def step(
         self, action: Any
-    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
+    ) -> tuple[
+        dict[PlayerName, EnvObs],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.int32]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
+        dict[str, Any],
+    ]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.episode_steps += 1
         self.episode["states"].append(info["final_state"])

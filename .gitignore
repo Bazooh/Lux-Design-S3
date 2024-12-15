@@ -3,7 +3,10 @@ src/*episode.json
 src/episodes/
 src/dist/
 
+records/
 replay.html
+
+models_weights/
 
 __pycache__/
 episodes/
