@@ -118,7 +118,7 @@ class RecordEpisode(gym.Wrapper):
         save_dir: str | None = None,
         save_on_close: bool = True,
         save_on_reset: bool = True,
-        format: Literal["json", "html"] = "json",
+        save_format: Literal["json", "html"] = "json",
     ):
         super().__init__(env)
         self.episode = dict(states=[], actions=[], metadata=dict())
@@ -127,7 +127,7 @@ class RecordEpisode(gym.Wrapper):
         self.save_on_close = save_on_close
         self.save_on_reset = save_on_reset
         self.episode_steps = 0
-        self.format = format
+        self.save_format: Literal["json", "html"] = save_format
         if save_dir is not None:
             from pathlib import Path
 
@@ -174,7 +174,7 @@ class RecordEpisode(gym.Wrapper):
     def save_episode(self, save_path: str):
         episode = self.serialize_episode_data()
         with open(save_path, "w") as f:
-            if self.format == "json":
+            if self.save_format == "json":
                 json.dump(episode, f)
             else:
                 f.write(json_to_html(episode))
@@ -183,7 +183,7 @@ class RecordEpisode(gym.Wrapper):
     def _save_episode_and_reset(self):
         """saves to generated path based on self.save_dir and episoe id and updates relevant counters"""
         self.save_episode(
-            os.path.join(self.save_dir, f"episode_{self.episode_id}.json")
+            os.path.join(self.save_dir, f"episode_{self.episode_id}.{self.save_format}")
         )
         self.episode_id += 1
         self.episode_steps = 0

@@ -32,16 +32,19 @@ actions: Actions = {
 #     "player_1": np.zeros((16, 3), dtype=np.int32),
 # }
 
-print(actions)
 
-obs, reward, terminated, truncated, infos = env.step(actions)
+# print(actions)
 
-# for i in range(503):
-#     actions: Actions = {
-#         "player_0": agent_0.actions(obs["player_0"]),
-#         "player_1": agent_1.actions(obs["player_1"]),
-#     }
-#     obs, reward, terminated, truncated, infos = env.step(actions)
+# obs, reward, terminated, truncated, infos = env.step(actions)
+
+for i in range(503):
+    actions: Actions = {
+        "player_0": agent_0.actions(obs["player_0"]),
+        "player_1": agent_1.actions(obs["player_1"]),
+    }
+    obs, reward, terminated, truncated, infos = env.step(actions)
+
+    print(obs["player_0"].units_mask[0][:5])
 
 # obs, reward, terminated, truncated, infos = env.step(actions)
 # print(reward, terminated, truncated, sep='\n')
