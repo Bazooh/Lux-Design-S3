@@ -134,6 +134,7 @@ def main(
     warm_up_steps: int,
     update_iter: int,
     monitor: bool = False,
+    format: Literal["json", "html"] = "json",
 ):
     env = LuxAIS3GymEnv()
     network = CNN()
@@ -145,6 +146,7 @@ def main(
         test_env = RecordEpisode(
             test_env,
             save_dir="records",
+            format=format,
         )
     memory = ReplayBuffer(buffer_limit)
 
@@ -245,6 +247,7 @@ if __name__ == "__main__":
         "warm_up_steps": 2000,
         "update_iter": 10,
         "monitor": True,
+        "format": "html",
     }
     if USE_WANDB:
         import wandb

@@ -1,9 +1,9 @@
 import json
 from argparse import Namespace
 
-from agents.naive_agent import NaiveAgent as Agent
+# from agents.naive_agent import NaiveAgent as Agent
 # from agents.test_agent import TestAgent as Agent
-# from agents.rl_agent import BasicRLAgent as Agent
+from agents.rl_agent import BasicRLAgent as Agent
 
 from agents.lux.kit import from_json
 
@@ -12,6 +12,11 @@ agent_dict = (
     dict()
 )  # store potentially multiple dictionaries as kaggle imports code directly
 agent_prev_obs = dict()
+
+agent_kwargs = {
+    "model": None,
+    "model_path": "models_weights/network_8100.pth",
+}
 
 
 def agent_fn(observation, configurations):
@@ -29,7 +34,7 @@ def agent_fn(observation, configurations):
     remainingOverageTime = observation.remainingOverageTime
 
     if step == 0:
-        agent_dict[player] = Agent(player, configurations["env_cfg"])
+        agent_dict[player] = Agent(player, configurations["env_cfg"], **agent_kwargs)
 
     agent = agent_dict[player]
     actions = agent.act(step, from_json(obs), remainingOverageTime)

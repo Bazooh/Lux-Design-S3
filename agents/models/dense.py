@@ -1,5 +1,8 @@
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from agents.lux.utils import print_debug
 
 
 class CNN(nn.Module):
@@ -12,7 +15,7 @@ class CNN(nn.Module):
         self.fc2 = nn.Linear(128, 16 * 5)
         self.pool = nn.MaxPool2d(2, 2)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = self.pool(x)

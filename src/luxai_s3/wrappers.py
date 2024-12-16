@@ -8,6 +8,7 @@ import gymnasium as gym
 import jax
 import numpy as np
 import dataclasses
+from luxai_runner.episode import json_to_html
 from luxai_s3.env import LuxAIS3Env, PlayerName, PlayerAction, Actions
 from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import EnvObs, serialize_env_actions, serialize_env_states
@@ -117,6 +118,7 @@ class RecordEpisode(gym.Wrapper):
         save_dir: str | None = None,
         save_on_close: bool = True,
         save_on_reset: bool = True,
+        format: Literal["json", "html"] = "json",
     ):
         super().__init__(env)
         self.episode = dict(states=[], actions=[], metadata=dict())
@@ -125,6 +127,7 @@ class RecordEpisode(gym.Wrapper):
         self.save_on_close = save_on_close
         self.save_on_reset = save_on_reset
         self.episode_steps = 0
+        self.format = format
         if save_dir is not None:
             from pathlib import Path
 
@@ -171,7 +174,10 @@ class RecordEpisode(gym.Wrapper):
     def save_episode(self, save_path: str):
         episode = self.serialize_episode_data()
         with open(save_path, "w") as f:
-            json.dump(episode, f)
+            if self.format == "json":
+                json.dump(episode, f)
+            else:
+                f.write(json_to_html(episode))
         self.episode = dict(states=[], actions=[], metadata=dict())
 
     def _save_episode_and_reset(self):

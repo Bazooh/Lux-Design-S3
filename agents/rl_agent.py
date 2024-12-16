@@ -21,12 +21,12 @@ class RLAgent(Agent):
     def actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        result = self.model(self.tensor_converter.convert(obs, self.team_id))
-
-        actions = np.zeros((self.env_cfg.max_units, 3), dtype=np.int32)
-        actions[:, 0] = result.argmax(dim=1).numpy()
-
-        return actions
+        return (
+            self.sample_action(self.obs_to_tensor(obs), epsilon=0)
+            .squeeze(0)
+            .detach()
+            .numpy()
+        )
 
     def sample_action(self, obs_tensor: torch.Tensor, epsilon: float):
         """Returns a tensor of shape (batch_size, n_agents, 3) with the actions to take"""
@@ -46,7 +46,21 @@ class RLAgent(Agent):
 
 
 class BasicRLAgent(RLAgent):
-    def __init__(self, player: str, env_cfg: dict[str, int], model: CNN | None) -> None:
+    def __init__(
+        self,
+        player: str,
+        env_cfg: dict[str, int],
+        model: CNN | None = None,
+        model_path: str | None = None,
+    ) -> None:
+        assert (
+            model is None or model_path is None
+        ), "Only one of model or model_path can be provided"
+
+        if model_path is not None:
+            model = CNN()
+            model.load_state_dict(torch.load(model_path))
+
         super().__init__(
             player, env_cfg, model if model is not None else CNN(), TensorConverter()
         )
