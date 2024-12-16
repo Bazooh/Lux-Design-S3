@@ -13,7 +13,7 @@ from tqdm import tqdm
 from agents.models.dense import CNN
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent
-from agents.naive_agent import NaiveAgent
+from naive.naive_agent import NaiveAgent
 
 USE_WANDB = False  # if enabled, logs data on wandb server
 

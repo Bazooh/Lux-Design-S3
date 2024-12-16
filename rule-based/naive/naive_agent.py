@@ -1,8 +1,9 @@
+from agents.lux.kit import from_json
 from agents.lux.utils import direction_to, Vector2
 import numpy as np
 from agents.base_agent import Agent, N_Actions, N_Agents
 from luxai_s3.state import EnvObs
-
+from typing import Any, Literal
 
 class NaiveAgent(Agent):
     def actions(
@@ -63,3 +64,4 @@ class NaiveAgent(Agent):
                 ]
 
         return actions
+    
