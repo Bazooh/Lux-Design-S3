@@ -1,0 +1,1 @@
+Code for the rule based agent "Relicbound" https://www.kaggle.com/code/egrehbbt/relicbound-bot-for-lux-ai-s3-competition
