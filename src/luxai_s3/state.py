@@ -29,9 +29,9 @@ class UnitState:
 
 @struct.dataclass
 class MapTile:
-    energy: int
+    energy: chex.Array
     """Energy of the tile, generated via energy_nodes and energy_node_fns"""
-    tile_type: int
+    tile_type: chex.Array
     """Type of the tile"""
 
 

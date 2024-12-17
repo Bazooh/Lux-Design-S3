@@ -21,7 +21,7 @@ class TensorConverter:
 
     def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
         """
-        Shape : (23, width, height)
+        Shape : (22, width, height)
 
         0: Unknown    (0: Known, 1: Unknown)
         1: Asteroid   (0: Empty or unknown, 1: Asteroid)
@@ -29,11 +29,11 @@ class TensorConverter:
         3: Relic      (0: Empty or unknown, 1: Relic)
         4: Energy     (0-1: Energy amount / max_unit_energy)
         5: Enemy      (0-max_units: Sum enemy unit energy / max_unit_energy)
-        6 - 22: Units (0-1: Unit energy / max_unit_energy)
+        6 - 21: Units (0-1: Unit energy / max_unit_energy)
         """
 
         tensor = torch.zeros(
-            23,
+            22,
             obs.map_features.energy.shape[0],
             obs.map_features.energy.shape[1],
             dtype=torch.float32,

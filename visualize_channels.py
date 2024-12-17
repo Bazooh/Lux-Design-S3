@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from agents.tensors.tensor import TensorConverter
-from luxai_s3.state import EnvObs
 from luxai_s3.wrappers import LuxAIS3GymEnv
-import torch
 import numpy as np
 from rule_based.naive.naive_agent import NaiveAgent
 
@@ -23,10 +21,12 @@ tensor_converter = TensorConverter()
 
 # Collect observations
 for _ in range(100):
-    observations_player0.append(observation['player_0'])
-    observations_player1.append(observation['player_1'])
-    actions = {'player_0': agent0.actions(observation['player_0']),
-               'player_1': agent1.actions(observation['player_1'])}
+    observations_player0.append(observation["player_0"])
+    observations_player1.append(observation["player_1"])
+    actions = {
+        "player_0": agent0.actions(observation["player_0"]),
+        "player_1": agent1.actions(observation["player_1"]),
+    }
     observation, reward, terminated, truncated, info = env.step(actions)
 
 # Prepare tensors for both players
@@ -50,6 +50,7 @@ assert tensors_player1.shape == (100, 23, 24, 24)
 # Set up the plot for both players (4 rows, 12 columns)
 fig, axes = plt.subplots(4, 12, figsize=(20, 12))
 
+
 # Function to plot tensor features
 def plot_player_features(tensor, axes_rows, title_prefix):
     """Plots the tensor features across 2 rows of 12 subplots."""
@@ -58,9 +59,12 @@ def plot_player_features(tensor, axes_rows, title_prefix):
         col = i % 12  # Column index
         ax = row[col]
         ax.clear()
-        ax.imshow(tensor[i], aspect='auto')
-        ax.set_title(f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6)
-        ax.axis('off')
+        ax.imshow(tensor[i], aspect="auto")
+        ax.set_title(
+            f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6
+        )
+        ax.axis("off")
+
 
 # Update function for animation
 def update(frame):
@@ -70,6 +74,7 @@ def update(frame):
     plot_player_features(tensors_player0[frame], axes[0:2], "P0 - Channel")
     # Player 1 (Rows 2-3)
     plot_player_features(tensors_player1[frame], axes[2:4], "P1 - Channel")
+
 
 # Create animation
 anim = FuncAnimation(fig, update, frames=len(tensors_player0), interval=100)
