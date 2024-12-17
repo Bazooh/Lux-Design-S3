@@ -6,7 +6,6 @@ from src.luxai_s3.state import EnvObs
 from jax.dlpack import to_dlpack
 from torch.utils.dlpack import from_dlpack
 
-
 class TensorConverter:
     def __init__(self):
         self.channel_names = [
@@ -32,13 +31,14 @@ class TensorConverter:
         5: Enemy      (0-max_units: Sum enemy unit energy / max_unit_energy)
         6 - 21: Units (0-1: Unit energy / max_unit_energy)
         """
+        device = str(obs.map_features.tile_type.device)
 
         tensor = torch.zeros(
             22,
             obs.map_features.energy.shape[0],
             obs.map_features.energy.shape[1],
             dtype=torch.float32,
-        )
+        ).to(device)
 
         tensor[0] = from_dlpack(to_dlpack(~obs.sensor_mask))
         tensor[1] = from_dlpack(to_dlpack(obs.map_features.tile_type == Tiles.ASTEROID))
