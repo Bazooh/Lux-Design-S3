@@ -11,6 +11,8 @@ profile.prof
 
 models_weights/
 
+*.gif
+
 __pycache__/
 episodes/
 report.log

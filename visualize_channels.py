@@ -44,8 +44,8 @@ for i in range(100):
 tensors_player0 = np.stack(tensors_player0)
 tensors_player1 = np.stack(tensors_player1)
 
-assert tensors_player0.shape == (100, 23, 24, 24)
-assert tensors_player1.shape == (100, 23, 24, 24)
+assert tensors_player0.shape == (100, 22, 24, 24)
+assert tensors_player1.shape == (100, 22, 24, 24)
 
 # Set up the plot for both players (4 rows, 12 columns)
 fig, axes = plt.subplots(4, 12, figsize=(20, 12))
@@ -54,7 +54,7 @@ fig, axes = plt.subplots(4, 12, figsize=(20, 12))
 # Function to plot tensor features
 def plot_player_features(tensor, axes_rows, title_prefix):
     """Plots the tensor features across 2 rows of 12 subplots."""
-    for i in range(23):
+    for i in range(22):
         row = axes_rows[0] if i < 12 else axes_rows[1]  # Top or bottom row
         col = i % 12  # Column index
         ax = row[col]

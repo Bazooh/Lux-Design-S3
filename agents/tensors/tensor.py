@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import jax.numpy as jnp
 from agents.lux.utils import Tiles
 from src.luxai_s3.state import EnvObs
 from jax.dlpack import to_dlpack
@@ -47,14 +48,23 @@ class TensorConverter:
             y = obs.relic_nodes[relic_id][1].item()
             tensor[3, x, y] = 1
         tensor[4] = from_dlpack(to_dlpack(obs.map_features.energy / 20))
-        for id in obs.get_avaible_units(1 - team_id):
-            pos = obs.units.position[1 - team_id][id]
-            x, y = pos[0].item(), pos[1].item()
-            tensor[5, x, y] += float(obs.units.energy[1 - team_id][id] / 400)
 
-        for id in obs.get_avaible_units(team_id):
-            pos = obs.units.position[team_id][id]
-            x, y = pos[0].item(), pos[1].item()
-            tensor[6 + id, x, y] = float(obs.units.energy[team_id][id] / 400)
+        mask = obs.units_mask[1 - team_id]
+        masked_positions = np.array(obs.units.position[1 - team_id][mask])
+
+        tensor[
+            5,
+            masked_positions[:, 0],
+            masked_positions[:, 1],
+        ] += from_dlpack(to_dlpack(obs.units.energy[1 - team_id][mask] / 400))
+
+        mask = obs.units_mask[team_id]
+        masked_positions = np.array(obs.units.position[team_id][mask])
+
+        tensor[
+            6 + np.where(mask)[0],
+            masked_positions[:, 0],
+            masked_positions[:, 1],
+        ] = from_dlpack(to_dlpack(obs.units.energy[team_id][mask] / 400))
 
         return tensor
