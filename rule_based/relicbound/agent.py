@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+
 import copy
 import numpy as np
 from sys import stderr
@@ -5,7 +8,7 @@ from scipy.signal import convolve2d
 
 from agents.base_agent import Agent
 
-from utils import (
+from rule_based.relicbound.utils import (
     Global,
     NodeType,
     ActionType,

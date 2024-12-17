@@ -5,6 +5,17 @@ from src.luxai_s3.state import EnvObs
 
 
 class TensorConverter:
+    def __init__(self):
+        self.channel_names = [
+            "Unknown",
+            "Asteroid",
+            "Nebula",
+            "Relic",
+            "Energy_Field",
+            "Enemy_Units",
+        ]
+        self.channel_names += [f"Ally_Unit_{i}" for i in range(1, 17)]
+        self.channel_names.append("Dummy")
     def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
         """
         Shape : (23, width, height)
@@ -45,14 +56,13 @@ class TensorConverter:
             dtype=torch.float32,
         )
         for id in obs.get_avaible_units(1 - team_id):
-            tensor[5] += torch.tensor(
-                np.array(obs.units.energy[1 - team_id][id], dtype=np.float32) / 400,
-                dtype=torch.float32,
-            )
+            pos = obs.units.position[1 - team_id][id]
+            x, y = pos[0].item(), pos[1].item()
+            tensor[5, x, y] +=  float(obs.units.energy[1 - team_id][id] / 400)
+
         for id in obs.get_avaible_units(team_id):
-            tensor[6 + id] = torch.tensor(
-                np.array(obs.units.energy[team_id][id], dtype=np.float32) / 400,
-                dtype=torch.float32,
-            )
+            pos = obs.units.position[team_id][id]
+            x, y = pos[0].item(), pos[1].item()
+            tensor[6 + id, x, y] = float(obs.units.energy[team_id][id] / 400)
 
         return tensor
