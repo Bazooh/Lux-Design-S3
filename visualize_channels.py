@@ -60,6 +60,8 @@ def update(frame):
     plot_player_features(tensors[1][frame], axes[2:4], "P1 - Channel")
 
 def main():
+    global tensors
+    
     observations = rollout()
     tensors = get_tensors(observations)
 
