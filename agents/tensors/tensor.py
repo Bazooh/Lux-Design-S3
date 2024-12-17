@@ -7,6 +7,18 @@ from torch.utils.dlpack import from_dlpack
 
 
 class TensorConverter:
+    def __init__(self):
+        self.channel_names = [
+            "Unknown",
+            "Asteroid",
+            "Nebula",
+            "Relic",
+            "Energy_Field",
+            "Enemy_Units",
+        ]
+        self.channel_names += [f"Ally_Unit_{i}" for i in range(1, 17)]
+        self.channel_names.append("Dummy")
+
     def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
         """
         Shape : (23, width, height)
@@ -36,8 +48,13 @@ class TensorConverter:
             tensor[3, x, y] = 1
         tensor[4] = from_dlpack(to_dlpack(obs.map_features.energy / 20))
         for id in obs.get_avaible_units(1 - team_id):
-            tensor[5] += from_dlpack(to_dlpack(obs.units.energy[1 - team_id][id] / 400))
+            pos = obs.units.position[1 - team_id][id]
+            x, y = pos[0].item(), pos[1].item()
+            tensor[5, x, y] += float(obs.units.energy[1 - team_id][id] / 400)
+
         for id in obs.get_avaible_units(team_id):
-            tensor[6 + id] = from_dlpack(to_dlpack(obs.units.energy[team_id][id] / 400))
+            pos = obs.units.position[team_id][id]
+            x, y = pos[0].item(), pos[1].item()
+            tensor[6 + id, x, y] = float(obs.units.energy[team_id][id] / 400)
 
         return tensor
