@@ -15,6 +15,7 @@ from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Action
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 
+PROFILE = True  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -27,6 +28,7 @@ class ReplayBuffer:
                 np.ndarray[Literal[16], np.dtype[np.int32]],
                 torch.Tensor,
                 np.ndarray[Literal[16], np.dtype[np.bool_]],
+                np.ndarray[Literal[16], np.dtype[np.bool_]],
             ]
         ] = collections.deque(maxlen=buffer_limit)
 
@@ -37,10 +39,11 @@ class ReplayBuffer:
         reward: np.ndarray[Literal[16], np.dtype[np.int32]],
         next_obs: torch.Tensor,
         done: np.ndarray[Literal[16], np.dtype[np.bool_]],
+        awake: np.ndarray[Literal[16], np.dtype[np.bool_]],
     ):
-        self.buffer.append((obs, actions, reward, next_obs, done))
+        self.buffer.append((obs, actions, reward, next_obs, done, awake))
 
-    def sample(self, n):
+    def sample(self, n: int):
         """obs, actions, reward, next_obs, done"""
         mini_batch = random.sample(self.buffer, n)
         s_tensor = torch.empty((n, *mini_batch[0][0].shape), dtype=torch.float)
@@ -48,13 +51,15 @@ class ReplayBuffer:
         r_tensor = torch.empty((n, *mini_batch[0][2].shape), dtype=torch.float)
         s_prime_tensor = torch.empty((n, *mini_batch[0][3].shape), dtype=torch.float)
         done_mask_tensor = torch.empty((n, *mini_batch[0][4].shape), dtype=torch.float)
+        awake_mask_tensor = torch.empty((n, *mini_batch[0][5].shape), dtype=torch.float)
 
-        for i, (s, a, r, s_prime, done) in enumerate(mini_batch):
+        for i, (s, a, r, s_prime, done, awake) in enumerate(mini_batch):
             s_tensor[i] = s
             a_tensor[i] = torch.tensor(a)
             r_tensor[i] = torch.tensor(r)
             s_prime_tensor[i] = s_prime
-            done_mask_tensor[i] = torch.tensor(~done)
+            done_mask_tensor[i] = torch.tensor(done)
+            awake_mask_tensor[i] = torch.tensor(awake)
 
         return (
             s_tensor,
@@ -62,6 +67,7 @@ class ReplayBuffer:
             r_tensor,
             s_prime_tensor,
             done_mask_tensor,
+            awake_mask_tensor,
         )
 
     def size(self):
@@ -78,15 +84,15 @@ def train(
     update_iter: int = 10,
 ):
     for _ in range(update_iter):
-        s, a, r, s_prime, done_mask = memory.sample(batch_size)
+        s, a, r, s_prime, done_mask, awake_mask = memory.sample(batch_size)
 
         q_out: torch.Tensor = q(s)
 
         q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
         max_q_prime = q_target(s_prime).max(dim=2)[0]
 
-        target = r + gamma * max_q_prime * done_mask
-        loss = F.smooth_l1_loss(q_a, target.detach())
+        target = r * awake_mask + gamma * max_q_prime * done_mask
+        loss = F.smooth_l1_loss(q_a * awake_mask, target.detach())
 
         optimizer.zero_grad()
         loss.backward()
@@ -135,9 +141,20 @@ def main(
     update_iter: int,
     monitor: bool = False,
     save_format: Literal["json", "html"] = "json",
+    resume_path: str | None = None,
+    resume_iter: int | None = None,
 ):
+    assert (
+        resume_path is None or resume_iter is not None
+    ), "resume_iter must be provided if resume_path is provided"
+    assert (
+        resume_iter is None or resume_path is not None
+    ), "resume_path must be provided if resume_iter is provided"
+
     env = LuxAIS3GymEnv()
     network = CNN()
+    if resume_path is not None:
+        network.load_state_dict(torch.load(resume_path))
     network_target = CNN()
     network_target.load_state_dict(network.state_dict())
 
@@ -153,7 +170,9 @@ def main(
     optimizer = optim.Adam(network.parameters(), lr=lr)
 
     score: float = 0
-    for episode_i in tqdm(range(max_episodes)):
+    for episode_i in tqdm(
+        range(0 if resume_iter is None else resume_iter, max_episodes)
+    ):
         epsilon = max(
             min_epsilon,
             max_epsilon
@@ -179,23 +198,30 @@ def main(
             next_obs, reward, _, truncated, _ = env.step(actions)
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
+            # reward_0 = np.array(reward["player_0"]).repeat(16)
+            # reward_1 = np.array(reward["player_1"]).repeat(16)
+
+            reward_0 = np.array(next_obs["player_0"].sensor_mask.sum()).repeat(16)  # type: ignore
+            reward_1 = np.array(next_obs["player_1"].sensor_mask.sum()).repeat(16)  # type: ignore
+
             memory.put(
                 obs_tensor_0,
                 actions["player_0"],
-                # Each agent get the reward of the score of the game
-                np.array(reward["player_0"]).repeat(16),
+                reward_0,
                 agent_0.obs_to_tensor(next_obs["player_0"]),
                 np.array(next_obs["player_0"].units_mask[0]),  # type: ignore
+                np.array(obs["player_0"].units_mask[0]),  # type: ignore
             )
             memory.put(
                 obs_tensor_1,
                 actions["player_1"],
-                np.array(reward["player_1"]).repeat(16),
+                reward_1,
                 agent_1.obs_to_tensor(next_obs["player_1"]),
                 np.array(next_obs["player_1"].units_mask[1]),  # type: ignore
+                np.array(obs["player_1"].units_mask[1]),  # type: ignore
             )
 
-            score += reward["player_0"].item() - reward["player_1"].item()
+            score += reward_0.mean()
             obs = next_obs
 
         if memory.size() > warm_up_steps:
@@ -240,7 +266,7 @@ if __name__ == "__main__":
         "gamma": 0.99,
         "buffer_limit": 50000,
         "log_interval": 20,
-        "max_episodes": 30000,
+        "max_episodes": 100,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,
@@ -254,4 +280,18 @@ if __name__ == "__main__":
             project="minimal-marl", config={"algo": "idqn", **kwargs}, monitor_gym=True
         )
 
-    main(monitor=True, save_format="html", **kwargs)
+    if PROFILE:
+        import cProfile
+
+        cProfile.run(
+            "main(monitor=True, save_format='html', **kwargs)", filename="profile.prof"
+        )
+
+    else:
+        main(
+            monitor=True,
+            save_format="html",
+            resume_path="models_weights/network_1000.pth",
+            resume_iter=1000,
+            **kwargs,
+        )

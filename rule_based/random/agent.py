@@ -2,6 +2,7 @@ import numpy as np
 from agents.base_agent import Agent, N_Actions, N_Agents
 from luxai_s3.state import EnvObs
 
+
 class RandomAgent(Agent):
     def actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
@@ -15,10 +16,9 @@ class RandomAgent(Agent):
         # unit ids range from 0 to max_units - 1
         for unit_id in obs.get_avaible_units(self.team_id):
             actions[unit_id] = [
-                    np.random.randint(0, 5),
-                    0,
-                    0,
-                ]
+                np.random.randint(0, 5),
+                0,
+                0,
+            ]
 
         return actions
-    

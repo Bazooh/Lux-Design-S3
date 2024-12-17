@@ -8,7 +8,7 @@ from agents.lux.utils import print_debug
 class CNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv2d(23, 32, 3)
+        self.conv1 = nn.Conv2d(22, 32, 3)
         self.conv2 = nn.Conv2d(32, 64, 3)
         self.conv3 = nn.Conv2d(64, 128, 3)
         self.fc1 = nn.Linear(128 * 4 * 4, 128)

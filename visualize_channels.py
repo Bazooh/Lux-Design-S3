@@ -1,9 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from agents.tensors.tensor import TensorConverter
-from luxai_s3.state import EnvObs
 from luxai_s3.wrappers import LuxAIS3GymEnv
-import torch
 import numpy as np
 from rule_based.naive.naive_agent import NaiveAgent
 

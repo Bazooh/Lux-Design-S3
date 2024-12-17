@@ -9,42 +9,28 @@ env = LuxAIS3GymEnv()
 
 obs, config = env.reset()
 
-print(type(obs["player_0"].units.position))
-
-
-agent_0 = Agent(
-    "player_0", config["params"], model_path="models_weights/network_8100.pth"
-)
-agent_1 = Agent(
-    "player_1", config["params"], model_path="models_weights/network_8100.pth"
-)
-
-actions_0 = agent_0.actions(obs["player_0"])
-actions_1 = agent_1.actions(obs["player_1"])
+print(obs["player_0"].sensor_mask.sum())
 
 actions: Actions = {
-    "player_0": actions_0,
-    "player_1": actions_1,
+    "player_0": np.zeros((16, 3), dtype=np.int32),
+    "player_1": np.zeros((16, 3), dtype=np.int32),
 }
-
-# actions: Actions = {
-#     "player_0": np.zeros((16, 3), dtype=np.int32),
-#     "player_1": np.zeros((16, 3), dtype=np.int32),
-# }
 
 
 # print(actions)
 
-# obs, reward, terminated, truncated, infos = env.step(actions)
+obs, reward, terminated, truncated, infos = env.step(actions)
 
-for i in range(503):
-    actions: Actions = {
-        "player_0": agent_0.actions(obs["player_0"]),
-        "player_1": agent_1.actions(obs["player_1"]),
-    }
-    obs, reward, terminated, truncated, infos = env.step(actions)
+print(obs["player_0"].sensor_mask.sum())
 
-    print(obs["player_0"].units_mask[0][:5])
+# for i in range(503):
+#     actions: Actions = {
+#         "player_0": agent_0.actions(obs["player_0"]),
+#         "player_1": agent_1.actions(obs["player_1"]),
+#     }
+#     obs, reward, terminated, truncated, infos = env.step(actions)
+
+#     print(obs["player_0"].units_mask[0][:5])
 
 # obs, reward, terminated, truncated, infos = env.step(actions)
 # print(reward, terminated, truncated, sep='\n')
