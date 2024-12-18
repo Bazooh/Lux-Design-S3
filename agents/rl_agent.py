@@ -4,6 +4,7 @@ from luxai_s3.state import EnvObs
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
 from agents.reward_shapers.reward import RewardShaper, DefaultRewardShaper, MixingRewardShaper 
+from agents.memory.memory import Memory, DefaultMemory
 from agents.base_agent import Agent, N_Actions, N_Agents
 
 
@@ -15,6 +16,7 @@ class RLAgent(Agent):
         model: torch.nn.Module,
         tensor_converter: TensorConverter,  
         reward_shaper: RewardShaper,
+        memory: Memory,
     ) -> None:
         super().__init__(player, env_cfg)
         self.model = model
@@ -71,6 +73,7 @@ class BasicRLAgent(RLAgent):
             model = model if model is not None else CNN(), 
             tensor_converter = BasicMapExtractor(),
             reward_shaper = DefaultRewardShaper(),
+            memory = DefaultMemory(),
         )
 
 
