@@ -12,7 +12,7 @@ from utils import (
 # our AI will play as player 0
 # the "opponent agent" will always play as player 1
 
-def CustomLuxAIS3GymEnv():
+class CustomLuxAIS3GymEnv():
     def __init__(self, opp_agent):
         self.opp_agent = opp_agent 
         self.env = LuxAIS3GymEnv()
