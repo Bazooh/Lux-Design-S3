@@ -1,20 +1,18 @@
-from abc import abstractmethod
-
-import jax.numpy as jnp
+from abc import abstractmethod, ABC
 import numpy as np
 
 from luxai_s3.state import EnvObs
 
 
-class Memory:
+class Memory(ABC):
     def __init__(self):
         self.reset()
 
     @abstractmethod
-    def update_obs(self, obs: EnvObs): ...
+    def update(self, obs: EnvObs): ...
 
     @abstractmethod
-    def expand_obs(self, obs: EnvObs) -> EnvObs: ...
+    def expand(self, obs: EnvObs) -> EnvObs: ...
 
     @abstractmethod
     def reset(self): ...
@@ -26,7 +24,7 @@ class RelicMemory(Memory):
         self.relic_positions: np.ndarray = -np.ones((6, 2), dtype=np.int32)
         self.discovered_all_relics = False
 
-    def update_obs(self, obs: EnvObs):
+    def update(self, obs: EnvObs):
         if self.discovered_all_relics:
             return
 
@@ -38,7 +36,7 @@ class RelicMemory(Memory):
         if len(self.discovered_relics_id) == 6:
             self.discovered_all_relics = True
 
-    def expand_obs(self, obs: EnvObs) -> EnvObs:
+    def expand(self, obs: EnvObs) -> EnvObs:
         obs = EnvObs(
             units=obs.units,
             units_mask=obs.units_mask,

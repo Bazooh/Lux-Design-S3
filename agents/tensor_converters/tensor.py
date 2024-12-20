@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import numpy as np
 import torch
 from agents.lux.utils import Tiles
@@ -5,9 +6,30 @@ from src.luxai_s3.state import EnvObs
 from jax.dlpack import to_dlpack
 from torch.utils.dlpack import from_dlpack
 
-
-class TensorConverter:
+class TensorConverter(ABC):
+    """
+    Abstract base class for converting observations into tensor representations.
+    """
     def __init__(self):
+        self.channel_names = []
+
+    @abstractmethod
+    def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
+        """
+        Convert an observation into a tensor representation.
+
+        Args:
+            obs (EnvObs): The environment observation.
+            team_id (int): The team identifier.
+
+        Returns:
+            torch.Tensor: The converted tensor representation.
+        """
+        pass
+
+class BasicMapExtractor(TensorConverter):
+    def __init__(self):
+        super().__init__()
         self.channel_names = [
             "Unknown",
             "Asteroid",
@@ -30,13 +52,15 @@ class TensorConverter:
         5: Enemy      (0-max_units: Sum enemy unit energy / max_unit_energy)
         6 - 21: Units (0-1: Unit energy / max_unit_energy)
         """
+        #device = str(obs.map_features.tile_type.device)
+        device = 'cpu'
 
         tensor = torch.zeros(
             22,
             obs.map_features.energy.shape[0],
             obs.map_features.energy.shape[1],
             dtype=torch.float32,
-        )
+        ).to(device)
 
         tensor[0] = ~from_dlpack(to_dlpack(obs.sensor_mask))
         tensor[1] = from_dlpack(to_dlpack(obs.map_features.tile_type)) == Tiles.ASTEROID

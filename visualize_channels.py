@@ -37,7 +37,7 @@ def get_tensors(observations):
     for i in range(2):
         for obs in observations[i]:
             tensor = tensor_converter.convert(obs, i)
-            tensors[i].append(tensor)
+            tensors[i].append(tensor.cpu().numpy())
     return tensors
 
 
@@ -49,12 +49,9 @@ def plot_player_features(tensor, axes_rows, title_prefix):
         col = i % 12  # Column index
         ax = row[col]
         ax.clear()
-        ax.imshow(tensor[i], aspect="auto")
-        ax.set_title(
-            f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6
-        )
-        ax.axis("off")
-
+        ax.imshow(tensor[i], cmap='coolwarm', vmin=-0.5, vmax=0.5, aspect='auto')   
+        ax.set_title(f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6)
+        ax.axis('off')
 
 fig, axes = plt.subplots(4, 12, figsize=(20, 12))
 
