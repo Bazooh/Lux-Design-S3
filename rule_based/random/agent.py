@@ -4,7 +4,7 @@ from luxai_s3.state import EnvObs
 
 
 class RandomAgent(Agent):
-    def actions(
+    def _actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.

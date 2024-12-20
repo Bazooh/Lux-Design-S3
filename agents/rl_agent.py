@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from agents.memory.memory import Memory
 from luxai_s3.state import EnvObs
 from agents.models.dense import CNN
 from agents.tensors.tensor import TensorConverter
@@ -13,20 +14,16 @@ class RLAgent(Agent):
         env_cfg: dict[str, int],
         model: torch.nn.Module,
         tensor_converter: TensorConverter,
+        memory: Memory | None = None,
     ) -> None:
-        super().__init__(player, env_cfg)
+        super().__init__(player, env_cfg, memory)
         self.model = model
         self.tensor_converter = tensor_converter
 
-    def actions(
+    def _actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        return (
-            self.sample_action(self.obs_to_tensor(obs), epsilon=0)
-            .squeeze(0)
-            .detach()
-            .numpy()
-        )
+        return self.sample_action(self.obs_to_tensor(obs), epsilon=0)
 
     def sample_action(self, obs_tensor: torch.Tensor, epsilon: float):
         """Returns a tensor of shape (batch_size, n_agents, 3) with the actions to take"""
@@ -39,10 +36,11 @@ class RLAgent(Agent):
         action = torch.zeros((batch_size, n_agents, 3), dtype=torch.int32)
         action[mask, :, 0] = torch.randint(0, n_actions, action[mask].shape[:2]).int()
         action[~mask, :, 0] = out[~mask].argmax(dim=2).int()
-        return action
+        return action.squeeze(0).detach().numpy()
 
     def obs_to_tensor(self, obs: EnvObs) -> torch.Tensor:
-        return self.tensor_converter.convert(obs, self.team_id)
+        """! Warning ! This function does not update the memory"""
+        return self.tensor_converter.convert(self.expand_obs(obs), self.team_id)
 
 
 class BasicRLAgent(RLAgent):

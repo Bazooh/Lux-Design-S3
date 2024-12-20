@@ -15,7 +15,7 @@ from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Action
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 
-PROFILE = True  # if enabled, profiles the code
+PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -109,19 +109,14 @@ def test(env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: CNN):
 
         game_finished = False
         while not game_finished:
-            obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
-
             actions: Actions = {
-                "player_0": agent_0.sample_action(obs_tensor_0, epsilon=0)
-                .squeeze(0)
-                .data.cpu()
-                .numpy(),
+                "player_0": agent_0.actions(obs["player_0"]),
                 "player_1": agent_1.actions(obs["player_1"]),
             }
             next_obs, reward, _, truncated, _ = env.step(actions)
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
-            score += reward["player_0"].item() - reward["player_1"].item()
+            score += next_obs["player_0"].sensor_mask.sum().item()
             obs = next_obs
 
     return score / num_episodes
@@ -184,16 +179,15 @@ def main(
 
         game_finished = False
         while not game_finished:
+            agent_0.update_obs(obs["player_0"])
+            agent_1.update_obs(obs["player_1"])
+
             obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
             obs_tensor_1 = agent_1.obs_to_tensor(obs["player_1"])
 
             actions: Actions = {
-                "player_0": agent_0.sample_action(obs_tensor_0, epsilon)[0]
-                .data.cpu()
-                .numpy(),
-                "player_1": agent_1.sample_action(obs_tensor_1, epsilon)[0]
-                .data.cpu()
-                .numpy(),
+                "player_0": agent_0.sample_action(obs_tensor_0, epsilon),
+                "player_1": agent_1.sample_action(obs_tensor_1, epsilon),
             }
             next_obs, reward, _, truncated, _ = env.step(actions)
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
@@ -265,8 +259,8 @@ if __name__ == "__main__":
         "batch_size": 32,
         "gamma": 0.99,
         "buffer_limit": 50000,
-        "log_interval": 20,
-        "max_episodes": 100,
+        "log_interval": 100,
+        "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,
@@ -283,15 +277,13 @@ if __name__ == "__main__":
     if PROFILE:
         import cProfile
 
-        cProfile.run(
-            "main(monitor=True, save_format='html', **kwargs)", filename="profile.prof"
-        )
+        cProfile.run("main(**kwargs)", filename="profile.prof")
 
     else:
         main(
             monitor=True,
             save_format="html",
-            resume_path="models_weights/network_1000.pth",
-            resume_iter=1000,
+            # resume_path="models_weights/network_1000.pth",
+            # resume_iter=1000,
             **kwargs,
         )

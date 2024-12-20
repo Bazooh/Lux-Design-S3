@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-import jax.numpy as jnp
 from agents.lux.utils import Tiles
 from src.luxai_s3.state import EnvObs
 from jax.dlpack import to_dlpack
@@ -18,7 +17,6 @@ class TensorConverter:
             "Enemy_Units",
         ]
         self.channel_names += [f"Ally_Unit_{i}" for i in range(1, 17)]
-        self.channel_names.append("Dummy")
 
     def convert(self, obs: EnvObs, team_id: int) -> torch.Tensor:
         """
@@ -40,31 +38,24 @@ class TensorConverter:
             dtype=torch.float32,
         )
 
-        tensor[0] = from_dlpack(to_dlpack(~obs.sensor_mask))
-        tensor[1] = from_dlpack(to_dlpack(obs.map_features.tile_type == Tiles.ASTEROID))
-        tensor[2] = from_dlpack(to_dlpack(obs.map_features.tile_type == Tiles.NEBULA))
-        for relic_id in obs.get_avaible_relics():
-            x = obs.relic_nodes[relic_id][0].item()
-            y = obs.relic_nodes[relic_id][1].item()
-            tensor[3, x, y] = 1
-        tensor[4] = from_dlpack(to_dlpack(obs.map_features.energy / 20))
+        tensor[0] = ~from_dlpack(to_dlpack(obs.sensor_mask))
+        tensor[1] = from_dlpack(to_dlpack(obs.map_features.tile_type)) == Tiles.ASTEROID
+        tensor[2] = from_dlpack(to_dlpack(obs.map_features.tile_type)) == Tiles.NEBULA
+        relic_nodes = np.array(obs.relic_nodes[obs.relic_nodes_mask])
+        tensor[3, relic_nodes[:, 0], relic_nodes[:, 1]] = 1
+        tensor[4] = from_dlpack(to_dlpack(obs.map_features.energy)) / 20
 
-        mask = obs.units_mask[1 - team_id]
-        masked_positions = np.array(obs.units.position[1 - team_id][mask])
-
+        positions = np.array(obs.units.position)
         tensor[
             5,
-            masked_positions[:, 0],
-            masked_positions[:, 1],
-        ] += from_dlpack(to_dlpack(obs.units.energy[1 - team_id][mask] / 400))
-
-        mask = obs.units_mask[team_id]
-        masked_positions = np.array(obs.units.position[team_id][mask])
+            positions[1 - team_id, :, 0],
+            positions[1 - team_id, :, 1],
+        ] = (from_dlpack(to_dlpack(obs.units.energy[1 - team_id])) + 1) / 400
 
         tensor[
-            6 + np.where(mask)[0],
-            masked_positions[:, 0],
-            masked_positions[:, 1],
-        ] = from_dlpack(to_dlpack(obs.units.energy[team_id][mask] / 400))
+            torch.arange(6, 22),
+            positions[team_id, :, 0],
+            positions[team_id, :, 1],
+        ] = (from_dlpack(to_dlpack(obs.units.energy[team_id])) + 1) / 400
 
         return tensor

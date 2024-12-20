@@ -1,12 +1,13 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from agents.memory.memory import RelicMemory
 from agents.tensors.tensor import TensorConverter
 from luxai_s3.wrappers import LuxAIS3GymEnv
-import numpy as np
 from rule_based.naive.naive_agent import NaiveAgent
 
 # Initialize TensorConverter
 tensor_converter = TensorConverter()
+
 
 def rollout():
     observations = [[], []]
@@ -14,19 +15,23 @@ def rollout():
     env = LuxAIS3GymEnv()
     observation, config = env.reset()
     # Initialize agents
-    agent0 = NaiveAgent("player_0", config["params"])
-    agent1 = NaiveAgent("player_1", config["params"])
+    agent0 = NaiveAgent("player_0", config["params"], RelicMemory())
+    agent1 = NaiveAgent("player_1", config["params"], RelicMemory())
 
     # Collect observations
     for _ in range(100):
-        observations[0].append(observation['player_0'])
-        observations[1].append(observation['player_1'])
-        actions = {'player_0': agent0.actions(observation['player_0']),
-                'player_1': agent1.actions(observation['player_1'])}
+        observations[0].append(observation["player_0"])
+        observations[1].append(observation["player_1"])
+        actions = {
+            "player_0": agent0.actions(observation["player_0"]),
+            "player_1": agent1.actions(observation["player_1"]),
+        }
         observation, reward, terminated, truncated, info = env.step(actions)
     return observations
 
+
 tensors = [[], []]
+
 
 def get_tensors(observations):
     for i in range(2):
@@ -44,11 +49,15 @@ def plot_player_features(tensor, axes_rows, title_prefix):
         col = i % 12  # Column index
         ax = row[col]
         ax.clear()
-        ax.imshow(tensor[i], aspect='auto')
-        ax.set_title(f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6)
-        ax.axis('off')
+        ax.imshow(tensor[i], aspect="auto")
+        ax.set_title(
+            f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6
+        )
+        ax.axis("off")
+
 
 fig, axes = plt.subplots(4, 12, figsize=(20, 12))
+
 
 # Update function for animation
 def update(frame):
@@ -59,15 +68,17 @@ def update(frame):
     # Player 1 (Rows 2-3)
     plot_player_features(tensors[1][frame], axes[2:4], "P1 - Channel")
 
+
 def main():
     global tensors
-    
+
     observations = rollout()
     tensors = get_tensors(observations)
 
+
 if __name__ == "__main__":
     main()
-    
+
     # Create animation
     anim = FuncAnimation(fig, update, frames=len(tensors[0]), interval=100)
 

@@ -6,7 +6,7 @@ from luxai_s3.state import EnvObs
 
 
 class TestAgent(Agent):
-    def actions(
+    def _actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         direction1 = Direction.UP if self.team_id == 1 else Direction.DOWN
