@@ -3,10 +3,15 @@ import numpy as np
 import torch
 from agents.memory.memory import Memory, RelicMemory
 from luxai_s3.state import EnvObs
+from luxai_s3.env import PlayerAction
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
-from agents.reward_shapers.reward import RewardShaper, DefaultRewardShaper
+from agents.reward_shapers.reward import ExploreRewardShaper, RewardShaper
 from agents.base_agent import Agent, N_Actions, N_Agents
+
+
+def symetric_action(action: int) -> int:
+    return [0, 3, 4, 1, 2][action]
 
 
 class RLAgent(Agent):
@@ -18,27 +23,39 @@ class RLAgent(Agent):
         tensor_converter: TensorConverter,
         reward_shaper: RewardShaper,
         memory: Memory | None = None,
+        symetric_player_1: bool = True,
     ) -> None:
         super().__init__(player, env_cfg, memory)
         self.model = model
         self.tensor_converter = tensor_converter
         self.reward_shaper = reward_shaper
+        self.symetric_player_1 = symetric_player_1
 
     def _actions(
         self, obs: EnvObs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        return self.sample_action(self.obs_to_tensor(obs), epsilon=0)
+        return self.symetric_action(
+            self.sample_action(self.obs_to_tensor(obs), epsilon=0)
+        )
+
+    def symetric_action(self, action: PlayerAction) -> PlayerAction:
+        if self.team_id == 0 or not self.symetric_player_1:
+            return action
+
+        action = action.copy()
+        action[:, 0] = np.vectorize(symetric_action)(action[:, 0])
+        return action
 
     @abstractmethod
-    def sample_action(
-        self, obs_tensor: torch.Tensor, epsilon: float
-    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        """Returns a numpy array of shape (batch_size, n_agents, 3) with the actions to take"""
+    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
+        """Returns a numpy array of shape (n_agents, 3) with the actions to take"""
         raise NotImplementedError
 
     def obs_to_tensor(self, obs: EnvObs) -> torch.Tensor:
         """! Warning ! This function does not update the memory"""
-        return self.tensor_converter.convert(self.expand_obs(obs), self.team_id)
+        return self.tensor_converter.convert(
+            self.expand_obs(obs), self.team_id, self.symetric_player_1
+        )
 
     def save_net(self, path: str) -> None:
         torch.save(self.model.state_dict(), path)
@@ -68,13 +85,12 @@ class BasicRLAgent(RLAgent):
             env_cfg=env_cfg,
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(),
-            reward_shaper=DefaultRewardShaper(),
+            reward_shaper=ExploreRewardShaper(),
             memory=RelicMemory(),
+            symetric_player_1=True,
         )
 
-    def sample_action(
-        self, obs_tensor: torch.Tensor, epsilon: float
-    ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
+    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         # ! WARNING ! : This function does not use the sap action (it only moves the units)
         out = self.model(obs_tensor)
 

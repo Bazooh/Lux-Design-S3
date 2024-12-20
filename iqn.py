@@ -14,6 +14,7 @@ from agents.models.dense import CNN
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
+from agents.reward_shapers.reward import Reward
 
 PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
@@ -25,7 +26,7 @@ class ReplayBuffer:
             tuple[
                 torch.Tensor,
                 PlayerAction,
-                np.ndarray[Literal[16], np.dtype[np.int32]],
+                Reward,
                 torch.Tensor,
                 np.ndarray[Literal[16], np.dtype[np.bool_]],
                 np.ndarray[Literal[16], np.dtype[np.bool_]],
@@ -36,7 +37,7 @@ class ReplayBuffer:
         self,
         obs: torch.Tensor,
         actions: PlayerAction,
-        reward: np.ndarray[Literal[16], np.dtype[np.int32]],
+        reward: Reward,
         next_obs: torch.Tensor,
         done: np.ndarray[Literal[16], np.dtype[np.bool_]],
         awake: np.ndarray[Literal[16], np.dtype[np.bool_]],
@@ -116,7 +117,7 @@ def test(env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: CNN):
             next_obs, reward, _, truncated, _ = env.step(actions)
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
-            score += next_obs["player_0"].sensor_mask.sum().item()
+            score += reward["player_0"].item() - reward["player_1"].item()
             obs = next_obs
 
     return score / num_episodes
@@ -189,14 +190,26 @@ def main(
                 "player_0": agent_0.sample_action(obs_tensor_0, epsilon),
                 "player_1": agent_1.sample_action(obs_tensor_1, epsilon),
             }
-            next_obs, reward, _, truncated, _ = env.step(actions)
+            next_obs, reward, _, truncated, _ = env.step(
+                {
+                    "player_0": actions["player_0"],
+                    "player_1": agent_1.symetric_action(actions["player_1"]),
+                }
+            )
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
-            # reward_0 = np.array(reward["player_0"]).repeat(16)
-            # reward_1 = np.array(reward["player_1"]).repeat(16)
-
-            reward_0 = np.array(next_obs["player_0"].sensor_mask.sum()).repeat(16)  # type: ignore
-            reward_1 = np.array(next_obs["player_1"].sensor_mask.sum()).repeat(16)  # type: ignore
+            reward_0 = agent_0.reward_shaper.convert(
+                obs["player_0"],
+                reward["player_0"],
+                actions["player_0"],
+                next_obs["player_0"],
+            )
+            reward_1 = agent_1.reward_shaper.convert(
+                obs["player_1"],
+                reward["player_1"],
+                actions["player_1"],
+                next_obs["player_1"],
+            )
 
             memory.put(
                 obs_tensor_0,
@@ -215,7 +228,7 @@ def main(
                 np.array(obs["player_1"].units_mask[1]),  # type: ignore
             )
 
-            score += reward_0.mean()
+            score += reward_0.mean().item()
             obs = next_obs
 
         if memory.size() > warm_up_steps:

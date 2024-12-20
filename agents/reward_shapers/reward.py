@@ -1,7 +1,8 @@
 from abc import ABC, abstractmethod
+from typing import Literal
 import numpy as np
-import torch
 from src.luxai_s3.state import EnvObs
+from src.luxai_s3.env import PlayerAction
 
 from agents.reward_shapers.utils import (
     is_alive_mask,
@@ -12,17 +13,22 @@ from agents.reward_shapers.utils import (
     death_reward,
 )
 
+Reward = np.ndarray[Literal[16], np.dtype[np.float32]]
+
 
 class RewardShaper(ABC):
-    def __init__(self) -> None:
-        pass
+    max_agents = 16
 
     @abstractmethod
     def convert(
-        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
-    ) -> torch.Tensor:
+        self,
+        previous_obs: EnvObs,
+        env_reward: np.ndarray[Literal[1], np.dtype[np.float32]],
+        actions: PlayerAction,
+        obs: EnvObs,
+    ) -> Reward:
         """
-        Convert an observation into a tensor representation.
+        Convert an observation into an np.array representation of the reward.
 
         Args:
             previous_obs (EnvObs): The previous environment observation.
@@ -37,16 +43,24 @@ class RewardShaper(ABC):
 
 class DefaultRewardShaper(RewardShaper):
     def convert(
-        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
-    ) -> torch.Tensor:
-        return len(actions) * torch.tensor(r)
+        self,
+        previous_obs: EnvObs,
+        env_reward: np.ndarray[Literal[1], np.dtype[np.float32]],
+        actions: PlayerAction,
+        obs: EnvObs,
+    ) -> Reward:
+        return np.array(env_reward).repeat(self.max_agents)
 
 
 class MixingRewardShaper(RewardShaper):
     def convert(
-        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
-    ) -> torch.Tensor:
-        total_revard_vector = np.zeros((self.env_cfg.max_units, 1), dtype=np.int32)
+        self,
+        previous_obs: EnvObs,
+        env_reward: np.ndarray[Literal[1], np.dtype[np.float32]],
+        actions: PlayerAction,
+        obs: EnvObs,
+    ) -> Reward:
+        total_revard_vector = np.array(self.max_agents, dtype=np.int32)
 
         # reward for being close to relic
         total_revard_vector += relic_reward(0, previous_obs, obs)
@@ -65,4 +79,15 @@ class MixingRewardShaper(RewardShaper):
 
         # reward for revealed
         total_revard_vector += reveal_reward(0, previous_obs, obs)
-        return torch.tensor(total_revard_vector)
+        return total_revard_vector
+
+
+class ExploreRewardShaper(RewardShaper):
+    def convert(
+        self,
+        previous_obs: EnvObs,
+        env_reward: np.ndarray[Literal[1], np.dtype[np.float32]],
+        actions: PlayerAction,
+        obs: EnvObs,
+    ) -> Reward:
+        return np.array(obs.sensor_mask.sum()).repeat(self.max_agents)

@@ -2,8 +2,6 @@ import numpy as np
 from src.luxai_s3.wrappers import LuxAIS3GymEnv
 from src.luxai_s3.env import Actions
 
-from agents.rl_agent import BasicRLAgent as Agent
-
 
 env = LuxAIS3GymEnv()
 

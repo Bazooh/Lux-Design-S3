@@ -90,7 +90,7 @@ class LuxAIS3GymEnv(gym.Env):
         action: Actions,
     ) -> tuple[
         dict[PlayerName, EnvObs],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.int32]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[str, Any],
@@ -149,7 +149,7 @@ class RecordEpisode(gym.Wrapper):
         self, action: Any
     ) -> tuple[
         dict[PlayerName, EnvObs],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.int32]]],
+        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[str, Any],
