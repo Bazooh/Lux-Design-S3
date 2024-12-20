@@ -12,12 +12,15 @@ from agents.reward_shapers.utils import (
     death_reward,
 )
 
+
 class RewardShaper(ABC):
     def __init__(self) -> None:
         pass
-    
+
     @abstractmethod
-    def convert(self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int) -> torch.Tensor:
+    def convert(
+        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
+    ) -> torch.Tensor:
         """
         Convert an observation into a tensor representation.
 
@@ -31,13 +34,18 @@ class RewardShaper(ABC):
         """
         pass
 
-class DefaultRewardShaper(RewardShaper):
-    def convert(self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int) -> torch.Tensor:
-        return len(actions) * torch.tensor(r)
-    
-class MixingRewardShaper(RewardShaper):
-    def convert(self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int) -> torch.Tensor:
 
+class DefaultRewardShaper(RewardShaper):
+    def convert(
+        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
+    ) -> torch.Tensor:
+        return len(actions) * torch.tensor(r)
+
+
+class MixingRewardShaper(RewardShaper):
+    def convert(
+        self, previous_obs: EnvObs, r: float, actions, obs: EnvObs, team_id: int
+    ) -> torch.Tensor:
         total_revard_vector = np.zeros((self.env_cfg.max_units, 1), dtype=np.int32)
 
         # reward for being close to relic

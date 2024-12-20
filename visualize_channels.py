@@ -1,12 +1,13 @@
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from agents.memory.memory import RelicMemory
-from agents.tensors.tensor import TensorConverter
+from agents.tensor_converters.tensor import BasicMapExtractor
 from luxai_s3.wrappers import LuxAIS3GymEnv
 from rule_based.naive.naive_agent import NaiveAgent
+from src.luxai_s3.env import Actions
 
 # Initialize TensorConverter
-tensor_converter = TensorConverter()
+tensor_converter = BasicMapExtractor()
 
 
 def rollout():
@@ -22,7 +23,7 @@ def rollout():
     for _ in range(100):
         observations[0].append(observation["player_0"])
         observations[1].append(observation["player_1"])
-        actions = {
+        actions: Actions = {
             "player_0": agent0.actions(observation["player_0"]),
             "player_1": agent1.actions(observation["player_1"]),
         }
@@ -49,9 +50,12 @@ def plot_player_features(tensor, axes_rows, title_prefix):
         col = i % 12  # Column index
         ax = row[col]
         ax.clear()
-        ax.imshow(tensor[i], cmap='coolwarm', vmin=-0.5, vmax=0.5, aspect='auto')   
-        ax.set_title(f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6)
-        ax.axis('off')
+        ax.imshow(tensor[i], cmap="coolwarm", vmin=-0.5, vmax=0.5, aspect="auto")
+        ax.set_title(
+            f"{title_prefix} {i}: {tensor_converter.channel_names[i]}", fontsize=6
+        )
+        ax.axis("off")
+
 
 fig, axes = plt.subplots(4, 12, figsize=(20, 12))
 

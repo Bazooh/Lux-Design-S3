@@ -1,16 +1,11 @@
 from abc import abstractmethod
 import numpy as np
 import torch
-from agents.memory.memory import Memory
+from agents.memory.memory import Memory, RelicMemory
 from luxai_s3.state import EnvObs
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
-from agents.reward_shapers.reward import (
-    RewardShaper,
-    DefaultRewardShaper,
-    MixingRewardShaper,
-)
-from agents.memory.memory import Memory, DefaultMemory
+from agents.reward_shapers.reward import RewardShaper, DefaultRewardShaper
 from agents.base_agent import Agent, N_Actions, N_Agents
 
 
@@ -74,7 +69,7 @@ class BasicRLAgent(RLAgent):
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(),
             reward_shaper=DefaultRewardShaper(),
-            memory=DefaultMemory(),
+            memory=RelicMemory(),
         )
 
     def sample_action(

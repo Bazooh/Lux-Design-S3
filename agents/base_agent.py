@@ -40,11 +40,11 @@ class Agent:
 
     def update_obs(self, obs: EnvObs) -> None:
         if self.memory is not None:
-            self.memory.update_obs(obs)
+            self.memory.update(obs)
 
     def expand_obs(self, obs: EnvObs) -> EnvObs:
         if self.memory is not None:
-            return self.memory.expand_obs(obs)
+            return self.memory.expand(obs)
         return obs
 
     def actions(
