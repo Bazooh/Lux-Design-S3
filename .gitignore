@@ -16,3 +16,4 @@ models_weights/
 __pycache__/
 episodes/
 report.log
+wandb/
