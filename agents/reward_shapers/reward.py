@@ -52,6 +52,17 @@ class DefaultRewardShaper(RewardShaper):
         return np.array(env_reward).repeat(self.max_agents)
 
 
+class GreedyRewardShaper(RewardShaper):
+    def convert(
+        self,
+        previous_obs: EnvObs,
+        env_reward: np.ndarray[Literal[1], np.dtype[np.float32]],
+        actions: PlayerAction,
+        obs: EnvObs,
+    ) -> Reward:
+        return np.array(obs.reward).repeat(self.max_agents)
+
+
 class MixingRewardShaper(RewardShaper):
     def convert(
         self,

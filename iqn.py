@@ -1,6 +1,6 @@
 import collections
 import random
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 import torch
@@ -100,7 +100,9 @@ def train(
         optimizer.step()
 
 
-def test(env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: CNN):
+def test(
+    env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: nn.Module
+) -> float:
     score: float = 0
 
     for episode_i in range(num_episodes):
@@ -135,6 +137,7 @@ def main(
     test_episodes: int,
     warm_up_steps: int,
     update_iter: int,
+    network_instantiator: Callable[[], nn.Module],
     monitor: bool = False,
     save_format: Literal["json", "html"] = "json",
     resume_path: str | None = None,
@@ -148,10 +151,10 @@ def main(
     ), "resume_path must be provided if resume_iter is provided"
 
     env = LuxAIS3GymEnv()
-    network = CNN()
+    network = network_instantiator()
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
-    network_target = CNN()
+    network_target = network_instantiator()
     network_target.load_state_dict(network.state_dict())
 
     test_env = LuxAIS3GymEnv()
@@ -296,6 +299,7 @@ if __name__ == "__main__":
         main(
             monitor=True,
             save_format="html",
+            network_instantiator=CNN,
             # resume_path="models_weights/network_1000.pth",
             # resume_iter=1000,
             **kwargs,

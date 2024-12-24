@@ -1,12 +1,13 @@
 from abc import abstractmethod
 import numpy as np
 import torch
+import torch.nn as nn
 from agents.memory.memory import Memory, RelicMemory
 from luxai_s3.state import EnvObs
 from luxai_s3.env import PlayerAction
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
-from agents.reward_shapers.reward import ExploreRewardShaper, RewardShaper
+from agents.reward_shapers.reward import DefaultRewardShaper, RewardShaper
 from agents.base_agent import Agent, N_Actions, N_Agents
 
 
@@ -69,7 +70,7 @@ class BasicRLAgent(RLAgent):
         self,
         player: str,
         env_cfg: dict[str, int],
-        model: CNN | None = None,
+        model: nn.Module | None = None,
         model_path: str | None = None,
     ) -> None:
         assert (
@@ -85,7 +86,7 @@ class BasicRLAgent(RLAgent):
             env_cfg=env_cfg,
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(),
-            reward_shaper=ExploreRewardShaper(),
+            reward_shaper=DefaultRewardShaper(),
             memory=RelicMemory(),
             symetric_player_1=True,
         )
