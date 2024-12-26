@@ -19,6 +19,7 @@ from agents.reward_shapers.reward import Reward
 PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
+import time
 
 class ReplayBuffer:
     def __init__(self, buffer_limit: int):
@@ -169,6 +170,8 @@ def main(
     optimizer = optim.Adam(network.parameters(), lr=lr)
 
     score: float = 0
+    fps = []
+    
     for episode_i in tqdm(
         range(0 if resume_iter is None else resume_iter, max_episodes)
     ):
@@ -181,8 +184,13 @@ def main(
         agent_0 = BasicRLAgent("player_0", config["params"], network)
         agent_1 = BasicRLAgent("player_1", config["params"], network)
 
+        # ROLLOUT
+
+
         game_finished = False
+        count_frames, start_time = 0, time.time()
         while not game_finished:
+            count_frames += 1
             agent_0.update_obs(obs["player_0"])
             agent_1.update_obs(obs["player_1"])
 
@@ -234,6 +242,8 @@ def main(
             score += reward_0.mean().item()
             obs = next_obs
 
+        # TRAIN
+
         if memory.size() > warm_up_steps:
             train(
                 network,
@@ -245,13 +255,17 @@ def main(
                 update_iter,
             )
 
+        fps.append(count_frames / (time.time() - start_time))
+
+        # EVALUATION
+
         if episode_i % log_interval == 0 and episode_i != 0:
             network_target.load_state_dict(network.state_dict())
             torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
 
             test_score = test(test_env, test_episodes, network)
             print(
-                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f} n_buffer : {memory.size()}, eps : {epsilon:.1f}"
+                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f}, fps : {np.mean(fps):.1f}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
             if USE_WANDB:
                 wandb.log(
@@ -275,7 +289,7 @@ if __name__ == "__main__":
         "batch_size": 32,
         "gamma": 0.99,
         "buffer_limit": 50000,
-        "log_interval": 100,
+        "log_interval": 20,
         "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
