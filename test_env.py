@@ -19,7 +19,7 @@ actions: Actions = {
 
 obs, reward, terminated, truncated, infos = env.step(actions)
 
-print(obs["player_0"].sensor_mask.sum())
+print(obs["player_0"].sensor_mask)
 
 # for i in range(503):
 #     actions: Actions = {

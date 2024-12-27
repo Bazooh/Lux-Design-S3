@@ -1,5 +1,5 @@
 import functools
-from typing import Any
+from typing import Any, TYPE_CHECKING
 import chex
 import flax
 import jax
@@ -8,6 +8,9 @@ import numpy as np
 from flax import struct
 
 from luxai_s3.params import MAP_TYPES, EnvParams
+
+if TYPE_CHECKING:
+    from agents.memory.memory import Memory
 
 EMPTY_TILE = 0
 NEBULA_TILE = 1
@@ -123,6 +126,8 @@ class EnvObs:
     """steps taken in the environment"""
     match_steps: int = 0
     """steps taken in the current match"""
+
+    memory: "Memory | None" = None
 
     def get_avaible_relics(self):
         return np.where(self.relic_nodes_mask)[0]

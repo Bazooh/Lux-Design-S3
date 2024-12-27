@@ -1,5 +1,6 @@
 from abc import abstractmethod, ABC
 import numpy as np
+import torch
 
 from luxai_s3.state import EnvObs
 
@@ -9,36 +10,54 @@ class Memory(ABC):
         self.reset()
 
     @abstractmethod
-    def update(self, obs: EnvObs): ...
+    def _update(self, obs: EnvObs, team_id: int): ...
 
     @abstractmethod
-    def expand(self, obs: EnvObs) -> EnvObs: ...
+    def _expand(self, obs: EnvObs, team_id: int) -> EnvObs: ...
 
     @abstractmethod
-    def reset(self): ...
+    def _reset(self): ...
+
+    def reset(self):
+        self._reset()
+
+    def update(self, obs: EnvObs, team_id: int):
+        obs.memory = self
+        self._update(obs, team_id)
+
+    def expand(self, obs: EnvObs, team_id: int) -> EnvObs:
+        return self._expand(obs, team_id)
 
 
 class RelicMemory(Memory):
-    def reset(self):
+    def _reset(self):
         self.discovered_relics_id: set[int] = set()
         self.discovered_relics_id_list: list[int] = []
-        self.relic_positions: np.ndarray = -np.ones((6, 2), dtype=np.int32)
+        self.relic_positions = -np.ones((6, 2), dtype=np.int32)
         self.discovered_all_relics = False
+        self.discovered_this_frame_id: set[int] = set()
+        self.relic_tensor = torch.zeros((24, 24), dtype=torch.float32)
 
-    def update(self, obs: EnvObs):
+    def _update(self, obs: EnvObs, team_id: int):
         if self.discovered_all_relics:
             return
 
-        for relic_id in obs.get_avaible_relics():
-            if relic_id not in self.discovered_relics_id:
-                self.discovered_relics_id.add(relic_id)
-                self.discovered_relics_id_list.append(relic_id)
-                self.relic_positions[relic_id] = obs.relic_nodes[relic_id]
+        self.discovered_this_frame_id = (
+            set(obs.get_avaible_relics()) - self.discovered_relics_id
+        )
+
+        for relic_id in self.discovered_this_frame_id:
+            self.discovered_relics_id.add(relic_id)
+            self.discovered_relics_id_list.append(relic_id)
+            self.relic_positions[relic_id] = obs.relic_nodes[relic_id]
+
+        relic_nodes = np.array(obs.relic_nodes[self.discovered_this_frame_id])
+        self.relic_tensor[relic_nodes[:, 0], relic_nodes[:, 1]] = 1
 
         if len(self.discovered_relics_id) == 6:
             self.discovered_all_relics = True
 
-    def expand(self, obs: EnvObs) -> EnvObs:
+    def _expand(self, obs: EnvObs, team_id: int) -> EnvObs:
         obs = EnvObs(
             units=obs.units,
             units_mask=obs.units_mask,
@@ -53,3 +72,49 @@ class RelicMemory(Memory):
         )
 
         return obs
+
+
+class RelicPointMemory(RelicMemory):
+    def __init__(self):
+        super().__init__()
+        self.relic_points: np.ndarray = np.zeros((6, 2), dtype=np.int32)
+        self.last_team_points = 0
+        self.unknown_relics_tensor = torch.zeros((24, 24), dtype=torch.float32)
+        self.unknown_points_tensor = torch.zeros((24, 24), dtype=torch.float32)
+        self.discovered_all_points = False
+
+    def _reset(self):
+        super()._reset()
+        self.relic_points = np.zeros((6, 2), dtype=np.int32)
+
+    def _update(self, obs: EnvObs, team_id: int):
+        if self.discovered_all_points:
+            return
+
+        super()._update(obs, team_id)
+
+        self.unknown_relics_tensor += (
+            (self.unknown_relics_tensor == 0)
+            * obs.sensor_mask
+            * (2 * self.relic_tensor - 1)
+        )
+
+        points_gained = obs.team_points[team_id] - self.last_team_points
+        self.last_team_points = obs.team_points[team_id]
+
+        unit_mask = obs.units_mask[team_id]
+        points_gained -= (unit_mask * (self.unknown_points_tensor == 1)).sum()
+
+        # Cases surrounded by no relics -> no points
+        
+        
+
+        if points_gained == 0:
+            self.unknown_points_tensor -= (self.unknown_points_tensor == 0) * unit_mask
+        else:
+            unknown_pos_mask = (self.unknown_points_tensor == 0) * unit_mask
+            if unknown_pos_mask.sum() == points_gained:
+                self.unknown_points_tensor += unknown_pos_mask
+
+        if (self.unknown_points_tensor != 0).all():
+            self.discovered_all_points = True
