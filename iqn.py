@@ -16,10 +16,11 @@ from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.reward_shapers.reward import Reward
 
+import time
+
 PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
-import time
 
 class ReplayBuffer:
     def __init__(self, buffer_limit: int):
@@ -171,7 +172,7 @@ def main(
 
     score: float = 0
     fps = []
-    
+
     for episode_i in tqdm(
         range(0 if resume_iter is None else resume_iter, max_episodes)
     ):
@@ -185,7 +186,6 @@ def main(
         agent_1 = BasicRLAgent("player_1", config["params"], network)
 
         # ROLLOUT
-
 
         game_finished = False
         count_frames, start_time = 0, time.time()
