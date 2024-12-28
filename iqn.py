@@ -182,14 +182,21 @@ def main(
         agent_0 = BasicRLAgent("player_0", config["params"], network)
         agent_1 = BasicRLAgent("player_1", config["params"], network)
 
+        obs, _, _, _, _ = env.step(
+            {
+                "player_0": np.zeros((16, 3), dtype=np.int32),
+                "player_1": np.zeros((16, 3), dtype=np.int32),
+            }
+        )
+        obs_tensor_0 = agent_0.obs_to_tensor(obs.player_0)
+        obs_tensor_1 = agent_1.obs_to_tensor(obs.player_1)
+
+        agent_0.update_obs(obs.player_0)
+        agent_1.update_obs(obs.player_1)
+
+        simulation_score: float = 0
         game_finished = False
         while not game_finished:
-            agent_0.update_obs(obs.player_0)
-            agent_1.update_obs(obs.player_1)
-
-            obs_tensor_0 = agent_0.obs_to_tensor(obs.player_0)
-            obs_tensor_1 = agent_1.obs_to_tensor(obs.player_1)
-
             actions: Actions = {
                 "player_0": agent_0.sample_action(obs_tensor_0, epsilon),
                 "player_1": agent_1.sample_action(obs_tensor_1, epsilon),
@@ -202,42 +209,57 @@ def main(
             )
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
+            agent_0.update_obs(next_obs.player_0)
+            agent_1.update_obs(next_obs.player_1)
+
+            next_obs_tensor_0 = agent_0.obs_to_tensor(next_obs.player_0)
+            next_obs_tensor_1 = agent_1.obs_to_tensor(next_obs.player_1)
+
             reward_0 = agent_0.reward_shaper.convert(
                 obs.player_0,
+                obs_tensor_0,
                 reward["player_0"].item(),
                 actions["player_0"],
                 next_obs.player_0,
-                obs_tensor_0,
+                next_obs_tensor_0,
                 0,
             )
             reward_1 = agent_1.reward_shaper.convert(
                 obs.player_1,
+                obs_tensor_1,
                 reward["player_1"].item(),
                 actions["player_1"],
                 next_obs.player_1,
-                obs_tensor_1,
+                next_obs_tensor_1,
                 1,
             )
+
+            awake_mask_0 = np.array(obs.player_0.units_mask[0])
 
             memory.put(
                 obs_tensor_0,
                 actions["player_0"],
                 reward_0,
-                agent_0.obs_to_tensor(next_obs.player_0),
+                next_obs_tensor_0,
                 np.array(next_obs.player_0.units_mask[0]),
-                np.array(obs.player_0.units_mask[0]),
+                awake_mask_0,
             )
             memory.put(
                 obs_tensor_1,
                 actions["player_1"],
                 reward_1,
-                agent_1.obs_to_tensor(next_obs.player_1),
+                next_obs_tensor_1,
                 np.array(next_obs.player_1.units_mask[1]),
                 np.array(obs.player_1.units_mask[1]),
             )
 
-            score += reward_0.mean().item()
+            simulation_score += (reward_0 * awake_mask_0).sum().item()
+
+            obs_tensor_0 = next_obs_tensor_0
+            obs_tensor_1 = next_obs_tensor_1
             obs = next_obs
+
+        score += simulation_score / obs.player_0.steps
 
         if memory.size() > warm_up_steps:
             train(

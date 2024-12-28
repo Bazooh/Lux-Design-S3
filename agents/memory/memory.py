@@ -109,12 +109,6 @@ class RelicPointMemory(RelicMemory):
         if not alive_units_id.any():
             return
 
-        alive_units_pos = obs.units.position[team_id][alive_units_id]
-        unknown_points_mask = self.unknown_points_tensor[
-            alive_units_pos[:, 0], alive_units_pos[:, 1]
-        ]
-        points_gained -= (unknown_points_mask == 1).sum().item()
-
         # Cases surrounded by no relics -> no points
         unit_positions = np.array(obs.units.position[team_id])
         for unit_id in obs.get_available_units(team_id):
@@ -133,12 +127,18 @@ class RelicPointMemory(RelicMemory):
             if (self.unknown_relics_tensor[min_x:max_x, min_y:max_y] == -1).all():
                 self.unknown_points_tensor[x, y] = -1
 
+        alive_units_pos = obs.units.position[team_id][alive_units_id]
+        unknown_points_mask = self.unknown_points_tensor[
+            alive_units_pos[:, 0], alive_units_pos[:, 1]
+        ]
+        points_gained -= (unknown_points_mask == 1).sum().item()
+
         if points_gained == 0:
             self.unknown_points_tensor[
                 alive_units_pos[:, 0], alive_units_pos[:, 1]
-            ] -= (unknown_points_mask == 0).to(torch.int32)
+            ] -= (unknown_points_mask == 0).int()
         else:
-            unknown_points_mask_is_unknown = (unknown_points_mask == 0).to(torch.int32)
+            unknown_points_mask_is_unknown = (unknown_points_mask == 0).int()
             if unknown_points_mask_is_unknown.sum().item() == points_gained:
                 self.unknown_points_tensor[
                     alive_units_pos[:, 0], alive_units_pos[:, 1]
