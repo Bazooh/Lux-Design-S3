@@ -6,8 +6,9 @@ from tqdm import tqdm
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.tensor_converters.tensor import BasicMapExtractor
-from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode
-from src.luxai_s3.env import Actions
+from luxai_s3.wrappers import RecordEpisode
+from luxai_s3.env import Actions
+from env_interface import EnvInterface
 
 # Initialize TensorConverter
 tensor_converter = BasicMapExtractor()
@@ -16,7 +17,7 @@ tensor_converter = BasicMapExtractor()
 def rollout(n_iter: int = 100):
     numpy_tensors: list[list[np.ndarray]] = [[], []]
     # Initialize environment
-    env = RecordEpisode(LuxAIS3GymEnv(), save_dir="records", save_format="html")
+    env = RecordEpisode(EnvInterface(), save_dir="records", save_format="html")
     observation, config = env.reset(seed=randint(0, 1000))
     # Initialize agents
     agent0 = NaiveAgent("player_0", config["params"])

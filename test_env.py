@@ -1,6 +1,5 @@
 import numpy as np
 from src.luxai_s3.wrappers import LuxAIS3GymEnv
-from src.luxai_s3.env import Actions
 import json
 
 
@@ -9,7 +8,12 @@ env = LuxAIS3GymEnv(numpy_output=True)
 obs, config = env.reset()
 
 with open("env_obs_sample.json", "w") as f:
-    json.dump(obs, f, indent=4, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else x)
+    json.dump(
+        obs,
+        f,
+        indent=4,
+        default=lambda x: x.tolist() if isinstance(x, np.ndarray) else x,
+    )
 
 # actions: Actions = {
 #     "player_0": np.zeros((16, 3), dtype=np.int32),

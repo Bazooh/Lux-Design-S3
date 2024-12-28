@@ -11,13 +11,13 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from agents.models.dense import CNN
-from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Actions
+from luxai_s3.wrappers import RecordEpisode, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.reward_shapers.reward import Reward
 from env_interface import EnvInterface
 
-PROFILE = True  # if enabled, profiles the code
+PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -281,7 +281,7 @@ if __name__ == "__main__":
         "gamma": 0.99,
         "buffer_limit": 50000,
         "log_interval": 100,
-        "max_episodes": 100,
+        "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,
