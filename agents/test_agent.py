@@ -2,12 +2,12 @@ from random import randint
 import numpy as np
 from agents.lux.utils import Direction
 from agents.base_agent import Agent, N_Actions, N_Agents
-from luxai_s3.state import EnvObs
+from agents.obs import Obs
 
 
 class TestAgent(Agent):
     def _actions(
-        self, obs: EnvObs, remainingOverageTime: int = 60
+        self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         direction1 = Direction.UP if self.team_id == 1 else Direction.DOWN
         direction2 = Direction.LEFT if self.team_id == 1 else Direction.RIGHT

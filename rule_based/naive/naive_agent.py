@@ -1,12 +1,12 @@
 from agents.lux.utils import direction_to, Vector2
 import numpy as np
 from agents.base_agent import Agent, N_Actions, N_Agents
-from luxai_s3.state import EnvObs
+from agents.obs import Obs
 
 
 class NaiveAgent(Agent):
     def _actions(
-        self, obs: EnvObs, remainingOverageTime: int = 60
+        self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.
 
@@ -19,13 +19,13 @@ class NaiveAgent(Agent):
         # and information about where relic nodes are found are saved for the next match
 
         # save any new relic nodes that we discover for the rest of the game.
-        for id in obs.get_avaible_relics():
+        for id in obs.get_available_relics():
             if id not in self.discovered_relic_nodes_ids:
                 self.discovered_relic_nodes_ids.add(id)
                 self.relic_node_positions.append(obs.relic_nodes[id])
 
         # unit ids range from 0 to max_units - 1
-        for unit_id in obs.get_avaible_units(self.team_id):
+        for unit_id in obs.get_available_units(self.team_id):
             unit_pos: Vector2 = np.array(obs.units.position[self.team_id, unit_id])
 
             if len(self.relic_node_positions) > 0:

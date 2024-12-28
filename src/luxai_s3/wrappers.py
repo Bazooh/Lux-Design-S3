@@ -11,8 +11,10 @@ import dataclasses
 from luxai_runner.episode import json_to_html
 from luxai_s3.env import LuxAIS3Env, PlayerName, PlayerAction, Actions
 from luxai_s3.params import EnvParams, env_params_ranges
-from luxai_s3.state import EnvObs, serialize_env_actions, serialize_env_states
+from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.utils import to_numpy
+
+from agents.obs import GodObs, Obs
 
 
 class LuxAIS3GymEnv(gym.Env):
@@ -44,7 +46,7 @@ class LuxAIS3GymEnv(gym.Env):
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[dict[PlayerName, EnvObs], dict[str, Any]]:
+    ) -> tuple[dict[PlayerName, Obs], dict[str, Any]]:
         if seed is not None:
             self.rng_key = jax.random.key(seed)
         self.rng_key, reset_key = jax.random.split(self.rng_key)
@@ -89,7 +91,7 @@ class LuxAIS3GymEnv(gym.Env):
         self,
         action: Actions,
     ) -> tuple[
-        dict[PlayerName, EnvObs],
+        dict[PlayerName, Obs],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
@@ -135,7 +137,7 @@ class RecordEpisode(gym.Wrapper):
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[dict[PlayerName, EnvObs], dict[str, Any]]:
+    ) -> tuple[GodObs, dict[str, Any]]:
         if self.save_on_reset and self.episode_steps > 0:
             self._save_episode_and_reset()
         obs, info = self.env.reset(seed=seed, options=options)
@@ -148,7 +150,7 @@ class RecordEpisode(gym.Wrapper):
     def step(
         self, action: Any
     ) -> tuple[
-        dict[PlayerName, EnvObs],
+        GodObs,
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
         dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],

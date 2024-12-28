@@ -15,8 +15,9 @@ from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode, PlayerAction, Action
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.reward_shapers.reward import Reward
+from env_interface import EnvInterface
 
-PROFILE = False  # if enabled, profiles the code
+PROFILE = True  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -101,7 +102,7 @@ def train(
 
 
 def test(
-    env: LuxAIS3GymEnv | RecordEpisode, num_episodes: int, network: nn.Module
+    env: EnvInterface | RecordEpisode, num_episodes: int, network: nn.Module
 ) -> float:
     score: float = 0
 
@@ -113,8 +114,8 @@ def test(
         game_finished = False
         while not game_finished:
             actions: Actions = {
-                "player_0": agent_0.actions(obs["player_0"]),
-                "player_1": agent_1.actions(obs["player_1"]),
+                "player_0": agent_0.actions(obs.player_0),
+                "player_1": agent_1.actions(obs.player_1),
             }
             next_obs, reward, _, truncated, _ = env.step(actions)
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
@@ -150,14 +151,14 @@ def main(
         resume_iter is None or resume_path is not None
     ), "resume_path must be provided if resume_iter is provided"
 
-    env = LuxAIS3GymEnv()
+    env = EnvInterface()
     network = network_instantiator()
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
     network_target = network_instantiator()
     network_target.load_state_dict(network.state_dict())
 
-    test_env = LuxAIS3GymEnv()
+    test_env = EnvInterface()
     if monitor:
         test_env = RecordEpisode(
             test_env,
@@ -183,11 +184,11 @@ def main(
 
         game_finished = False
         while not game_finished:
-            agent_0.update_obs(obs["player_0"])
-            agent_1.update_obs(obs["player_1"])
+            agent_0.update_obs(obs.player_0)
+            agent_1.update_obs(obs.player_1)
 
-            obs_tensor_0 = agent_0.obs_to_tensor(obs["player_0"])
-            obs_tensor_1 = agent_1.obs_to_tensor(obs["player_1"])
+            obs_tensor_0 = agent_0.obs_to_tensor(obs.player_0)
+            obs_tensor_1 = agent_1.obs_to_tensor(obs.player_1)
 
             actions: Actions = {
                 "player_0": agent_0.sample_action(obs_tensor_0, epsilon),
@@ -202,33 +203,37 @@ def main(
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
 
             reward_0 = agent_0.reward_shaper.convert(
-                obs["player_0"],
-                reward["player_0"],
+                obs.player_0,
+                reward["player_0"].item(),
                 actions["player_0"],
-                next_obs["player_0"],
+                next_obs.player_0,
+                obs_tensor_0,
+                0,
             )
             reward_1 = agent_1.reward_shaper.convert(
-                obs["player_1"],
-                reward["player_1"],
+                obs.player_1,
+                reward["player_1"].item(),
                 actions["player_1"],
-                next_obs["player_1"],
+                next_obs.player_1,
+                obs_tensor_1,
+                1,
             )
 
             memory.put(
                 obs_tensor_0,
                 actions["player_0"],
                 reward_0,
-                agent_0.obs_to_tensor(next_obs["player_0"]),
-                np.array(next_obs["player_0"].units_mask[0]),  # type: ignore
-                np.array(obs["player_0"].units_mask[0]),  # type: ignore
+                agent_0.obs_to_tensor(next_obs.player_0),
+                np.array(next_obs.player_0.units_mask[0]),
+                np.array(obs.player_0.units_mask[0]),
             )
             memory.put(
                 obs_tensor_1,
                 actions["player_1"],
                 reward_1,
-                agent_1.obs_to_tensor(next_obs["player_1"]),
-                np.array(next_obs["player_1"].units_mask[1]),  # type: ignore
-                np.array(obs["player_1"].units_mask[1]),  # type: ignore
+                agent_1.obs_to_tensor(next_obs.player_1),
+                np.array(next_obs.player_1.units_mask[1]),
+                np.array(obs.player_1.units_mask[1]),
             )
 
             score += reward_0.mean().item()
@@ -276,12 +281,13 @@ if __name__ == "__main__":
         "gamma": 0.99,
         "buffer_limit": 50000,
         "log_interval": 100,
-        "max_episodes": 10000,
+        "max_episodes": 100,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,
         "warm_up_steps": 2000,
         "update_iter": 10,
+        "network_instantiator": CNN,
     }
     if USE_WANDB:
         import wandb
@@ -299,7 +305,6 @@ if __name__ == "__main__":
         main(
             monitor=True,
             save_format="html",
-            network_instantiator=CNN,
             # resume_path="models_weights/network_1000.pth",
             # resume_iter=1000,
             **kwargs,

@@ -3,12 +3,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 from agents.memory.memory import Memory, RelicPointMemory
-from luxai_s3.state import EnvObs
 from luxai_s3.env import PlayerAction
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
-from agents.reward_shapers.reward import DefaultRewardShaper, RewardShaper
+from agents.reward_shapers.reward import (
+    GreedyRewardShaper,
+    RewardShaper,
+)
 from agents.base_agent import Agent, N_Actions, N_Agents
+from agents.obs import Obs
 
 
 def symetric_action_not_vectorized(action: int) -> int:
@@ -36,14 +39,14 @@ class RLAgent(Agent):
         self.symetric_player_1 = symetric_player_1
 
     def _actions(
-        self, obs: EnvObs, remainingOverageTime: int = 60
+        self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         return self.symetric_action(
             self.sample_action(self.obs_to_tensor(obs), epsilon=0)
         )
 
     def get_actions_and_tensor(
-        self, obs: EnvObs, update_memory=True
+        self, obs: Obs, update_memory=True
     ) -> tuple[
         np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]], torch.Tensor
     ]:
@@ -65,7 +68,7 @@ class RLAgent(Agent):
         """Returns a numpy array of shape (n_agents, 3) with the actions to take"""
         raise NotImplementedError
 
-    def obs_to_tensor(self, obs: EnvObs) -> torch.Tensor:
+    def obs_to_tensor(self, obs: Obs) -> torch.Tensor:
         """! Warning ! This function does not update the memory"""
         return self.tensor_converter.convert(
             self.expand_obs(obs), self.team_id, self.symetric_player_1, self.memory
@@ -99,7 +102,7 @@ class BasicRLAgent(RLAgent):
             env_cfg=env_cfg,
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(),
-            reward_shaper=DefaultRewardShaper(),
+            reward_shaper=GreedyRewardShaper(),
             memory=RelicPointMemory(),
             symetric_player_1=True,
         )

@@ -1,17 +1,19 @@
-import sys, os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
 import json
 from argparse import Namespace
 from naive_agent import NaiveAgent
 from agents.lux.kit import from_json
-from luxai_s3.state import EnvObs
 
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 agent_dict = (
     dict()
 )  # store potentially multiple dictionaries as kaggle imports code directly
 agent_prev_obs = dict()
+
 
 def agent_fn(observation, configurations):
     """
@@ -20,7 +22,7 @@ def agent_fn(observation, configurations):
     global agent_dict
     obs = observation.obs
 
-    if type(obs) == str:
+    if type(obs) is str:
         obs = json.loads(obs)
     step = observation.step
     player = observation.player

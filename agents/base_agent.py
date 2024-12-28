@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from agents.memory.memory import Memory
-from luxai_s3.state import EnvObs
+from agents.obs import Obs
 
 
 N_Actions = Literal[3]
@@ -35,20 +35,20 @@ class Agent:
 
     @abc.abstractmethod
     def _actions(
-        self, obs: EnvObs, remainingOverageTime: int = 60
+        self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]: ...
 
-    def update_obs(self, obs: EnvObs) -> None:
+    def update_obs(self, obs: Obs) -> None:
         if self.memory is not None:
             self.memory.update(obs, self.team_id)
 
-    def expand_obs(self, obs: EnvObs) -> EnvObs:
+    def expand_obs(self, obs: Obs) -> Obs:
         if self.memory is not None:
             return self.memory.expand(obs, self.team_id)
         return obs
 
     def actions(
-        self, obs: EnvObs, remainingOverageTime: int = 60
+        self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         self.update_obs(obs)
         return self._actions(self.expand_obs(obs), remainingOverageTime)
@@ -56,6 +56,4 @@ class Agent:
     def act(
         self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        env_obs = EnvObs.from_dict(obs)
-
-        return self.actions(env_obs, remainingOverageTime)
+        return self.actions(Obs.from_dict(obs), remainingOverageTime)

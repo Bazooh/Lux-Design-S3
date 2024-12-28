@@ -27,17 +27,17 @@ def rollout(n_iter: int = 100):
 
     # Collect observations
     for _ in range(n_iter):
-        observer0.update_obs(observation["player_0"])
-        observer1.update_obs(observation["player_1"])
+        observer0.update_obs(observation.player_0)
+        observer1.update_obs(observation.player_1)
 
-        tensor0 = observer0.obs_to_tensor(observation["player_0"])
-        tensor1 = observer1.obs_to_tensor(observation["player_1"])
+        tensor0 = observer0.obs_to_tensor(observation.player_0)
+        tensor1 = observer1.obs_to_tensor(observation.player_1)
 
         numpy_tensors[0].append(tensor0.cpu().numpy())
         numpy_tensors[1].append(tensor1.cpu().numpy())
         actions: Actions = {
-            "player_0": agent0.actions(observation["player_0"]),
-            "player_1": agent1.actions(observation["player_1"]),
+            "player_0": agent0.actions(observation.player_0),
+            "player_1": agent1.actions(observation.player_1),
         }
         observation, reward, terminated, truncated, info = env.step(actions)
 
