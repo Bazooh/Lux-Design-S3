@@ -1,12 +1,17 @@
 from abc import abstractmethod, ABC
+from typing import cast
 import numpy as np
 import torch
+
+from jax.dlpack import to_dlpack
+from torch.utils.dlpack import from_dlpack
 
 from luxai_s3.state import EnvObs
 
 
 class Memory(ABC):
     def __init__(self):
+        """Don't override this method. Use _reset instead."""
         self.reset()
 
     @abstractmethod
@@ -22,7 +27,6 @@ class Memory(ABC):
         self._reset()
 
     def update(self, obs: EnvObs, team_id: int):
-        obs.memory = self
         self._update(obs, team_id)
 
     def expand(self, obs: EnvObs, team_id: int) -> EnvObs:
@@ -51,8 +55,10 @@ class RelicMemory(Memory):
             self.discovered_relics_id_list.append(relic_id)
             self.relic_positions[relic_id] = obs.relic_nodes[relic_id]
 
-        relic_nodes = np.array(obs.relic_nodes[self.discovered_this_frame_id])
-        self.relic_tensor[relic_nodes[:, 0], relic_nodes[:, 1]] = 1
+        if len(self.discovered_this_frame_id) != 0:
+            discovered_this_frame_id_list = list(self.discovered_this_frame_id)
+            relic_nodes = np.array(obs.relic_nodes)[discovered_this_frame_id_list]
+            self.relic_tensor[relic_nodes[:, 0], relic_nodes[:, 1]] = 1
 
         if len(self.discovered_relics_id) == 6:
             self.discovered_all_relics = True
@@ -75,17 +81,13 @@ class RelicMemory(Memory):
 
 
 class RelicPointMemory(RelicMemory):
-    def __init__(self):
-        super().__init__()
-        self.relic_points: np.ndarray = np.zeros((6, 2), dtype=np.int32)
-        self.last_team_points = 0
-        self.unknown_relics_tensor = torch.zeros((24, 24), dtype=torch.float32)
-        self.unknown_points_tensor = torch.zeros((24, 24), dtype=torch.float32)
-        self.discovered_all_points = False
-
     def _reset(self):
         super()._reset()
         self.relic_points = np.zeros((6, 2), dtype=np.int32)
+        self.last_team_points: int = 0
+        self.unknown_relics_tensor = torch.zeros((24, 24), dtype=torch.float32)
+        self.unknown_points_tensor = torch.zeros((24, 24), dtype=torch.float32)
+        self.discovered_all_points = False
 
     def _update(self, obs: EnvObs, team_id: int):
         if self.discovered_all_points:
@@ -95,15 +97,25 @@ class RelicPointMemory(RelicMemory):
 
         self.unknown_relics_tensor += (
             (self.unknown_relics_tensor == 0)
-            * obs.sensor_mask
+            * from_dlpack(to_dlpack(obs.sensor_mask))
             * (2 * self.relic_tensor - 1)
         )
 
-        points_gained = obs.team_points[team_id] - self.last_team_points
-        self.last_team_points = obs.team_points[team_id]
+        team_points = cast(int, obs.team_points[team_id].item())
+        points_gained = team_points - self.last_team_points
+        self.last_team_points = team_points
 
         unit_mask = obs.units_mask[team_id]
-        points_gained -= (unit_mask * (self.unknown_points_tensor == 1)).sum()
+        if not unit_mask.any():
+            return
+
+        unit_pos_mask = from_dlpack(
+            to_dlpack(obs.units.position[team_id][unit_mask])
+        ).to(torch.int32)
+        unknown_points_mask = self.unknown_points_tensor[
+            unit_pos_mask[:, 0], unit_pos_mask[:, 1]
+        ]
+        points_gained -= (unknown_points_mask == 1).sum().item()
 
         # Cases surrounded by no relics -> no points
         unit_positions = obs.units.position[team_id]
@@ -124,11 +136,15 @@ class RelicPointMemory(RelicMemory):
                 self.unknown_points_tensor[x, y] = -1
 
         if points_gained == 0:
-            self.unknown_points_tensor -= (self.unknown_points_tensor == 0) * unit_mask
+            self.unknown_points_tensor[unit_pos_mask[:, 0], unit_pos_mask[:, 1]] -= (
+                unknown_points_mask == 0
+            ).to(torch.int32)
         else:
-            unknown_pos_mask = (self.unknown_points_tensor == 0) * unit_mask
-            if unknown_pos_mask.sum() == points_gained:
-                self.unknown_points_tensor += unknown_pos_mask
+            unknown_points_mask_is_unknown = (unknown_points_mask == 0).to(torch.int32)
+            if unknown_points_mask_is_unknown.sum().item() == points_gained:
+                self.unknown_points_tensor[
+                    unit_pos_mask[:, 0], unit_pos_mask[:, 1]
+                ] += unknown_points_mask_is_unknown
 
         if (self.unknown_points_tensor != 0).all():
             self.discovered_all_points = True

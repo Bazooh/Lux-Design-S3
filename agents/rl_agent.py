@@ -2,7 +2,7 @@ from abc import abstractmethod
 import numpy as np
 import torch
 import torch.nn as nn
-from agents.memory.memory import Memory, RelicMemory
+from agents.memory.memory import Memory, RelicPointMemory
 from luxai_s3.state import EnvObs
 from luxai_s3.env import PlayerAction
 from agents.models.dense import CNN
@@ -11,8 +11,11 @@ from agents.reward_shapers.reward import DefaultRewardShaper, RewardShaper
 from agents.base_agent import Agent, N_Actions, N_Agents
 
 
-def symetric_action(action: int) -> int:
+def symetric_action_not_vectorized(action: int) -> int:
     return [0, 3, 4, 1, 2][action]
+
+
+symetric_action = np.vectorize(symetric_action_not_vectorized)
 
 
 class RLAgent(Agent):
@@ -39,12 +42,22 @@ class RLAgent(Agent):
             self.sample_action(self.obs_to_tensor(obs), epsilon=0)
         )
 
+    def get_actions_and_tensor(
+        self, obs: EnvObs, update_memory=True
+    ) -> tuple[
+        np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]], torch.Tensor
+    ]:
+        if update_memory:
+            self.update_obs(obs)
+        tensor = self.obs_to_tensor(obs)
+        return self.symetric_action(self.sample_action(tensor, epsilon=0)), tensor
+
     def symetric_action(self, action: PlayerAction) -> PlayerAction:
         if self.team_id == 0 or not self.symetric_player_1:
             return action
 
         action = action.copy()
-        action[:, 0] = np.vectorize(symetric_action)(action[:, 0])
+        action[:, 0] = symetric_action(action[:, 0])
         return action
 
     @abstractmethod
@@ -55,7 +68,7 @@ class RLAgent(Agent):
     def obs_to_tensor(self, obs: EnvObs) -> torch.Tensor:
         """! Warning ! This function does not update the memory"""
         return self.tensor_converter.convert(
-            self.expand_obs(obs), self.team_id, self.symetric_player_1
+            self.expand_obs(obs), self.team_id, self.symetric_player_1, self.memory
         )
 
     def save_net(self, path: str) -> None:
@@ -87,7 +100,7 @@ class BasicRLAgent(RLAgent):
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(),
             reward_shaper=DefaultRewardShaper(),
-            memory=RelicMemory(),
+            memory=RelicPointMemory(),
             symetric_player_1=True,
         )
 
