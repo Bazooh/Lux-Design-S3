@@ -106,8 +106,22 @@ class RelicPointMemory(RelicMemory):
         points_gained -= (unit_mask * (self.unknown_points_tensor == 1)).sum()
 
         # Cases surrounded by no relics -> no points
-        
-        
+        unit_positions = obs.units.position[team_id]
+        for unit_id in obs.get_avaible_units(team_id):
+            unit_pos = unit_positions[unit_id]
+            x, y = unit_pos[0].item(), unit_pos[1].item()
+
+            if self.unknown_points_tensor[x, y] != 0:
+                continue
+
+            min_x = max(0, x - 2)
+            max_x = min(24, x + 3)
+            min_y = max(0, y - 2)
+            max_y = min(24, y + 3)
+
+            # If we are sure there are no relics around the unit, then this case earns no points
+            if (self.unknown_relics_tensor[min_x:max_x, min_y:max_y] == -1).all():
+                self.unknown_points_tensor[x, y] = -1
 
         if points_gained == 0:
             self.unknown_points_tensor -= (self.unknown_points_tensor == 0) * unit_mask
