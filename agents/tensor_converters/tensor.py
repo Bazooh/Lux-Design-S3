@@ -11,8 +11,9 @@ class TensorConverter(ABC):
     Abstract base class for converting observations into tensor representations.
     """
 
-    def __init__(self):
+    def __init__(self, device: str):
         self.channel_names = []
+        self.device = device
 
     @abstractmethod
     def convert(
@@ -36,8 +37,8 @@ class TensorConverter(ABC):
 
 
 class BasicMapExtractor(TensorConverter):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, device: str):
+        super().__init__(device)
         self.channel_names = [
             "Unknown",
             "Asteroid",
@@ -68,15 +69,13 @@ class BasicMapExtractor(TensorConverter):
         6: Enemy      (0-max_units: Sum enemy unit energy / max_unit_energy)
         7 - 22: Units (0-1: Unit energy / max_unit_energy)
         """
-        # device = str(obs.map_features.tile_type.device)
-        device = "cpu"
 
         tensor = torch.zeros(
             23,
             obs.map_features.energy.shape[0],
             obs.map_features.energy.shape[1],
             dtype=torch.float32,
-            device=device,
+            device=self.device,
         )
 
         tensor[0] = ~torch.from_numpy(obs.sensor_mask)
@@ -99,12 +98,12 @@ class BasicMapExtractor(TensorConverter):
             6,
             positions[1 - team_id, :, 0],
             positions[1 - team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[1 - team_id]) + 1) / 400
+        ] = (torch.from_numpy(obs.units.energy[1 - team_id]).to(self.device) + 1) / 400
 
         tensor[
             torch.arange(7, 23),
             positions[team_id, :, 0],
             positions[team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[team_id]) + 1) / 400
+        ] = (torch.from_numpy(obs.units.energy[team_id]).to(self.device) + 1) / 400
 
         return tensor.flip(1, 2) if symetric_player_1 and team_id == 1 else tensor

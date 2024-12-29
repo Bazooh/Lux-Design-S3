@@ -64,9 +64,13 @@ class RLAgent(Agent):
         return action
 
     @abstractmethod
-    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
+    def _sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         """Returns a numpy array of shape (n_agents, 3) with the actions to take"""
         raise NotImplementedError
+
+    @torch.no_grad()
+    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
+        return self._sample_action(obs_tensor, epsilon)
 
     def obs_to_tensor(self, obs: Obs) -> torch.Tensor:
         """! Warning ! This function does not update the memory"""
@@ -86,6 +90,7 @@ class BasicRLAgent(RLAgent):
         self,
         player: str,
         env_cfg: dict[str, int],
+        device: str,
         model: nn.Module | None = None,
         model_path: str | None = None,
     ) -> None:
@@ -101,20 +106,21 @@ class BasicRLAgent(RLAgent):
             player=player,
             env_cfg=env_cfg,
             model=model if model is not None else CNN(),
-            tensor_converter=BasicMapExtractor(),
+            tensor_converter=BasicMapExtractor(device),
             reward_shaper=GreedyRewardShaper(),
             memory=RelicPointMemory(),
             symetric_player_1=True,
         )
 
-    def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
+    def _sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         # ! WARNING ! : This function does not use the sap action (it only moves the units)
-        out = self.model(obs_tensor)
+        actions = np.zeros((16, 3), dtype=np.int32)
 
-        batch_size, n_agents, n_actions = out.shape
+        if np.random.random() < epsilon:
+            actions[:, 0] = np.random.randint(0, 5, 16)
+            return actions
 
-        mask = torch.rand((batch_size,)) <= epsilon
-        action = torch.zeros((batch_size, n_agents, 3), dtype=torch.int32)
-        action[mask, :, 0] = torch.randint(0, n_actions, action[mask].shape[:2]).int()
-        action[~mask, :, 0] = out[~mask].argmax(dim=2).int()
-        return action.squeeze(0).detach().numpy()
+        out: np.ndarray = self.model(obs_tensor).squeeze(0).cpu().numpy()
+        actions[:, 0] = out.argmax(1)
+
+        return actions

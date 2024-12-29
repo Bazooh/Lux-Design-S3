@@ -85,7 +85,7 @@ class GreedyRewardShaper(RewardShaper):
             / n_units
         )
         reward[n_units == 0] = -1
-        return np.array(reward)
+        return reward.cpu().numpy()
 
 
 class MixingRewardShaper(RewardShaper):

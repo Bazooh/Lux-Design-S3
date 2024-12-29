@@ -19,7 +19,9 @@ from agents.reward_shapers.reward import Reward
 import time
 from env_interface import EnvInterface
 
-PROFILE = False  # if enabled, profiles the code
+from config import DEVICE
+
+PROFILE = True  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -110,7 +112,7 @@ def test(
 
     for episode_i in range(num_episodes):
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], network)
+        agent_0 = BasicRLAgent("player_0", config["params"], DEVICE, network)
         agent_1 = NaiveAgent("player_1", config["params"])
 
         game_finished = False
@@ -183,8 +185,8 @@ def main(
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], network)
-        agent_1 = BasicRLAgent("player_1", config["params"], network)
+        agent_0 = BasicRLAgent("player_0", config["params"], DEVICE, network)
+        agent_1 = BasicRLAgent("player_1", config["params"], DEVICE, network)
 
         obs, _, _, _, _ = env.step(
             {
@@ -200,7 +202,8 @@ def main(
 
         simulation_score: float = 0
         game_finished = False
-        count_frames, start_time = 0, time.time()
+        count_frames: int = 0
+        start_time = time.time()
         while not game_finished:
             count_frames += 1
 
@@ -282,7 +285,6 @@ def main(
         fps.append(count_frames / (time.time() - start_time))
 
         # EVALUATION
-
         if episode_i % log_interval == 0 and episode_i != 0:
             network_target.load_state_dict(network.state_dict())
             torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
@@ -314,13 +316,13 @@ if __name__ == "__main__":
         "gamma": 0.99,
         "buffer_limit": 50000,
         "log_interval": 20,
-        "max_episodes": 10000,
+        "max_episodes": 100,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,
         "warm_up_steps": 2000,
         "update_iter": 10,
-        "network_instantiator": CNN,
+        "network_instantiator": lambda: CNN().to(DEVICE),
     }
     if USE_WANDB:
         import wandb
