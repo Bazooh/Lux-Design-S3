@@ -207,14 +207,15 @@ def main(
         while not game_finished:
             count_frames += 1
 
-            actions: Actions = {
-                "player_0": agent_0.sample_action(obs_tensor_0, epsilon),
-                "player_1": agent_1.sample_action(obs_tensor_1, epsilon),
-            }
+            actions = agent_0.sample_action(
+                torch.stack((obs_tensor_0, obs_tensor_1)), epsilon
+            )
+            actions_0, actions_1 = actions[0], actions[1]
+
             next_obs, reward, _, truncated, _ = env.step(
                 {
-                    "player_0": actions["player_0"],
-                    "player_1": agent_1.symetric_action(actions["player_1"]),
+                    "player_0": actions_0,
+                    "player_1": agent_1.symetric_action(actions_1),
                 }
             )
             game_finished = truncated["player_0"].item() or truncated["player_1"].item()
@@ -229,7 +230,7 @@ def main(
                 obs.player_0,
                 obs_tensor_0,
                 reward["player_0"].item(),
-                actions["player_0"],
+                actions_0,
                 next_obs.player_0,
                 next_obs_tensor_0,
                 0,
@@ -238,7 +239,7 @@ def main(
                 obs.player_1,
                 obs_tensor_1,
                 reward["player_1"].item(),
-                actions["player_1"],
+                actions_1,
                 next_obs.player_1,
                 next_obs_tensor_1,
                 1,
@@ -248,7 +249,7 @@ def main(
 
             memory.put(
                 obs_tensor_0,
-                actions["player_0"],
+                actions_0,
                 reward_0,
                 next_obs_tensor_0,
                 np.array(next_obs.player_0.units_mask[0]),
@@ -256,7 +257,7 @@ def main(
             )
             memory.put(
                 obs_tensor_1,
-                actions["player_1"],
+                actions_1,
                 reward_1,
                 next_obs_tensor_1,
                 np.array(next_obs.player_1.units_mask[1]),

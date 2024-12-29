@@ -44,7 +44,7 @@ class RLAgent(Agent):
         self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         return self.symetric_action(
-            self.sample_action(self.obs_to_tensor(obs), epsilon=0)
+            self.sample_one_action(self.obs_to_tensor(obs), epsilon=0)
         )
 
     def get_actions_and_tensor(
@@ -55,7 +55,7 @@ class RLAgent(Agent):
         if update_memory:
             self.update_obs(obs)
         tensor = self.obs_to_tensor(obs)
-        return self.symetric_action(self.sample_action(tensor, epsilon=0)), tensor
+        return self.symetric_action(self.sample_one_action(tensor, epsilon=0)), tensor
 
     def symetric_action(self, action: PlayerAction) -> PlayerAction:
         if self.team_id == 0 or not self.symetric_player_1:
@@ -73,6 +73,11 @@ class RLAgent(Agent):
     @torch.no_grad()
     def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         return self._sample_action(obs_tensor, epsilon)
+
+    def sample_one_action(
+        self, obs_tensor: torch.Tensor, epsilon: float
+    ) -> PlayerAction:
+        return self.sample_action(obs_tensor.unsqueeze(0), epsilon).squeeze(0)
 
     def obs_to_tensor(self, obs: Obs) -> torch.Tensor:
         """! Warning ! This function does not update the memory"""
@@ -117,13 +122,13 @@ class BasicRLAgent(RLAgent):
 
     def _sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         # ! WARNING ! : This function does not use the sap action (it only moves the units)
-        actions = np.zeros((16, 3), dtype=np.int32)
+        batch_size = obs_tensor.shape[0]
 
-        if np.random.random() < epsilon:
-            actions[:, 0] = np.random.randint(0, 5, 16)
-            return actions
+        mask = torch.rand(batch_size) < epsilon
+        out: torch.Tensor = self.model(obs_tensor[~mask]).cpu()
 
-        out: np.ndarray = self.model(obs_tensor).squeeze(0).numpy()
-        actions[:, 0] = out.argmax(1)
+        actions = torch.zeros((batch_size, 16, 3), dtype=torch.int32)
+        actions[mask, :, 0] = torch.randint(0, 5, actions[mask, :, 0].shape[:2], dtype=torch.int32)
+        actions[~mask, :, 0] = out.argmax(2).int()
 
-        return actions
+        return actions.numpy()
