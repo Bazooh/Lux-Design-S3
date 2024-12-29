@@ -19,7 +19,7 @@ from agents.reward_shapers.reward import Reward
 import time
 from env_interface import EnvInterface
 
-from config import DEVICE
+from config import DEVICE, TARGET_DEVICE
 
 PROFILE = True  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
@@ -92,10 +92,10 @@ def train(
     for _ in range(update_iter):
         s, a, r, s_prime, done_mask, awake_mask = memory.sample(batch_size)
 
-        q_out: torch.Tensor = q(s)
+        q_out: torch.Tensor = q(s.to(DEVICE)).cpu()
 
         q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
-        max_q_prime = q_target(s_prime).max(dim=2)[0]
+        max_q_prime = q_target(s_prime.to(TARGET_DEVICE)).cpu().max(dim=2)[0]
 
         target = r * awake_mask + gamma * max_q_prime * done_mask
         loss = F.smooth_l1_loss(q_a * awake_mask, target.detach())
@@ -156,10 +156,10 @@ def main(
     ), "resume_path must be provided if resume_iter is provided"
 
     env = EnvInterface()
-    network = network_instantiator()
+    network = network_instantiator().to(DEVICE)
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
-    network_target = network_instantiator()
+    network_target = network_instantiator().to(TARGET_DEVICE)
     network_target.load_state_dict(network.state_dict())
 
     test_env = EnvInterface()
@@ -322,7 +322,7 @@ if __name__ == "__main__":
         "test_episodes": 5,
         "warm_up_steps": 2000,
         "update_iter": 10,
-        "network_instantiator": lambda: CNN().to(DEVICE),
+        "network_instantiator": CNN,
     }
     if USE_WANDB:
         import wandb

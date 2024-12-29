@@ -75,7 +75,6 @@ class BasicMapExtractor(TensorConverter):
             obs.map_features.energy.shape[0],
             obs.map_features.energy.shape[1],
             dtype=torch.float32,
-            device=self.device,
         )
 
         tensor[0] = ~torch.from_numpy(obs.sensor_mask)
@@ -98,12 +97,12 @@ class BasicMapExtractor(TensorConverter):
             6,
             positions[1 - team_id, :, 0],
             positions[1 - team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[1 - team_id]).to(self.device) + 1) / 400
+        ] = (torch.from_numpy(obs.units.energy[1 - team_id]) + 1) / 400
 
         tensor[
             torch.arange(7, 23),
             positions[team_id, :, 0],
             positions[team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[team_id]).to(self.device) + 1) / 400
+        ] = (torch.from_numpy(obs.units.energy[team_id]) + 1) / 400
 
         return tensor.flip(1, 2) if symetric_player_1 and team_id == 1 else tensor

@@ -26,6 +26,7 @@ class RLAgent(Agent):
         self,
         player: str,
         env_cfg: dict[str, int],
+        device: str,
         model: torch.nn.Module,
         tensor_converter: TensorConverter,
         reward_shaper: RewardShaper,
@@ -33,6 +34,7 @@ class RLAgent(Agent):
         symetric_player_1: bool = True,
     ) -> None:
         super().__init__(player, env_cfg, memory)
+        self.device = device
         self.model = model
         self.tensor_converter = tensor_converter
         self.reward_shaper = reward_shaper
@@ -105,6 +107,7 @@ class BasicRLAgent(RLAgent):
         super().__init__(
             player=player,
             env_cfg=env_cfg,
+            device=device,
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(device),
             reward_shaper=GreedyRewardShaper(),
@@ -120,7 +123,7 @@ class BasicRLAgent(RLAgent):
             actions[:, 0] = np.random.randint(0, 5, 16)
             return actions
 
-        out: np.ndarray = self.model(obs_tensor).squeeze(0).cpu().numpy()
+        out: np.ndarray = self.model(obs_tensor).squeeze(0).numpy()
         actions[:, 0] = out.argmax(1)
 
         return actions
