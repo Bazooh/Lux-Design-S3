@@ -11,6 +11,8 @@ profile.prof
 
 models_weights/
 
+config.py
+
 *.gif
 
 __pycache__/
