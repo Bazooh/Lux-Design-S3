@@ -19,9 +19,9 @@ from agents.reward_shapers.reward import Reward
 import time
 from env_interface import EnvInterface
 
-from config import DEVICE, TARGET_DEVICE
+from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
-PROFILE = True  # if enabled, profiles the code
+PROFILE = False  # if enabled, profiles the code
 USE_WANDB = False  # if enabled, logs data on wandb server
 
 
@@ -89,13 +89,15 @@ def train(
     batch_size: int,
     update_iter: int = 10,
 ):
+    q.to(TRAINING_DEVICE)
+
     for _ in range(update_iter):
         s, a, r, s_prime, done_mask, awake_mask = memory.sample(batch_size)
 
-        q_out: torch.Tensor = q(s.to(DEVICE)).cpu()
+        q_out: torch.Tensor = q(s.to(TRAINING_DEVICE)).cpu()
 
         q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
-        max_q_prime = q_target(s_prime.to(TARGET_DEVICE)).cpu().max(dim=2)[0]
+        max_q_prime = q_target(s_prime.to(TRAINING_DEVICE)).cpu().max(dim=2)[0]
 
         target = r * awake_mask + gamma * max_q_prime * done_mask
         loss = F.smooth_l1_loss(q_a * awake_mask, target.detach())
@@ -103,6 +105,8 @@ def train(
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+
+    q.to(SAMPLING_DEVICE)
 
 
 def test(
@@ -112,7 +116,7 @@ def test(
 
     for episode_i in range(num_episodes):
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], DEVICE, network)
+        agent_0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE, network)
         agent_1 = NaiveAgent("player_1", config["params"])
 
         game_finished = False
@@ -156,10 +160,10 @@ def main(
     ), "resume_path must be provided if resume_iter is provided"
 
     env = EnvInterface()
-    network = network_instantiator().to(DEVICE)
+    network = network_instantiator().to(SAMPLING_DEVICE)
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
-    network_target = network_instantiator().to(TARGET_DEVICE)
+    network_target = network_instantiator().to(TRAINING_DEVICE)
     network_target.load_state_dict(network.state_dict())
 
     test_env = EnvInterface()
@@ -185,8 +189,8 @@ def main(
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], DEVICE, network)
-        agent_1 = BasicRLAgent("player_1", config["params"], DEVICE, network)
+        agent_0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE, network)
+        agent_1 = BasicRLAgent("player_1", config["params"], SAMPLING_DEVICE, network)
 
         obs, _, _, _, _ = env.step(
             {
@@ -317,7 +321,7 @@ if __name__ == "__main__":
         "gamma": 0.99,
         "buffer_limit": 50000,
         "log_interval": 20,
-        "max_episodes": 100,
+        "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 5,

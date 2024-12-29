@@ -9,10 +9,10 @@ from agents.tensor_converters.tensor import BasicMapExtractor
 from luxai_s3.wrappers import RecordEpisode
 from luxai_s3.env import Actions
 from env_interface import EnvInterface
-from config import DEVICE
+from config import SAMPLING_DEVICE
 
 # Initialize TensorConverter
-tensor_converter = BasicMapExtractor(DEVICE)
+tensor_converter = BasicMapExtractor(SAMPLING_DEVICE)
 
 
 def rollout(n_iter: int = 100):
@@ -24,8 +24,8 @@ def rollout(n_iter: int = 100):
     agent0 = NaiveAgent("player_0", config["params"])
     agent1 = NaiveAgent("player_1", config["params"])
 
-    observer0 = BasicRLAgent("player_0", config["params"], DEVICE)
-    observer1 = BasicRLAgent("player_1", config["params"], DEVICE)
+    observer0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE)
+    observer1 = BasicRLAgent("player_1", config["params"], SAMPLING_DEVICE)
 
     # Collect observations
     for _ in range(n_iter):

@@ -125,9 +125,14 @@ class BasicRLAgent(RLAgent):
         batch_size = obs_tensor.shape[0]
 
         mask = torch.rand(batch_size) < epsilon
-        out: torch.Tensor = self.model(obs_tensor[~mask]).cpu()
-
         actions = torch.zeros((batch_size, 16, 3), dtype=torch.int32)
+        
+        if mask.all():
+            actions[:, :, 0] = torch.randint(0, 5, actions[:, :, 0].shape[:2], dtype=torch.int32)
+            return actions.numpy()
+            
+        out: torch.Tensor = self.model(obs_tensor[~mask].to(self.device)).cpu()
+
         actions[mask, :, 0] = torch.randint(0, 5, actions[mask, :, 0].shape[:2], dtype=torch.int32)
         actions[~mask, :, 0] = out.argmax(2).int()
 
