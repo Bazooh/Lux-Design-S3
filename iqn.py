@@ -12,7 +12,7 @@ from tqdm import tqdm
 
 from agents.models.dense import CNN
 from luxai_s3.wrappers import RecordEpisode, PlayerAction, Actions
-from agents.rl_agent import BasicRLAgent
+from agents.rl_agent import BasicRLAgent, RLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.reward_shapers.reward import Reward
 
@@ -22,7 +22,7 @@ from env_interface import EnvInterface
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
 PROFILE = False  # if enabled, profiles the code
-USE_WANDB = False  # if enabled, logs data on wandb server
+USE_WANDB = True  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:
@@ -91,6 +91,8 @@ def train(
 ):
     q.to(TRAINING_DEVICE)
 
+    train_loss = 0
+
     for _ in range(update_iter):
         s, a, r, s_prime, done_mask, awake_mask = memory.sample(batch_size)
 
@@ -102,21 +104,30 @@ def train(
         target = r * awake_mask + gamma * max_q_prime * done_mask
         loss = F.smooth_l1_loss(q_a * awake_mask, target.detach())
 
+        train_loss += loss.item()
+
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
     q.to(SAMPLING_DEVICE)
 
+    return train_loss / update_iter
+
 
 def test(
-    env: EnvInterface | RecordEpisode, num_episodes: int, network: nn.Module
+    env: EnvInterface | RecordEpisode,
+    num_episodes: int,
+    network: nn.Module,
+    agent_instantiator: Callable[..., RLAgent],
 ) -> float:
     score: float = 0
 
     for episode_i in range(num_episodes):
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE, network)
+        agent_0 = agent_instantiator(
+            "player_0", config["params"], SAMPLING_DEVICE, network
+        )
         agent_1 = NaiveAgent("player_1", config["params"])
 
         game_finished = False
@@ -147,6 +158,7 @@ def main(
     warm_up_steps: int,
     update_iter: int,
     network_instantiator: Callable[[], nn.Module],
+    agent_instantiator: Callable[..., RLAgent],
     monitor: bool = False,
     save_format: Literal["json", "html"] = "json",
     resume_path: str | None = None,
@@ -189,8 +201,20 @@ def main(
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
         obs, config = env.reset()
-        agent_0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE, network)
-        agent_1 = BasicRLAgent("player_1", config["params"], SAMPLING_DEVICE, network)
+        agent_0 = agent_instantiator(
+            "player_0",
+            config["params"],
+            device=SAMPLING_DEVICE,
+            model=network,
+            mixte_strategy=True,
+        )
+        agent_1 = agent_instantiator(
+            "player_1",
+            config["params"],
+            device=SAMPLING_DEVICE,
+            model=network,
+            mixte_strategy=True,
+        )
 
         obs, _, _, _, _ = env.step(
             {
@@ -277,7 +301,7 @@ def main(
         score += simulation_score / obs.player_0.steps
 
         if memory.size() > warm_up_steps:
-            train(
+            train_loss = train(
                 network,
                 network_target,
                 memory,
@@ -294,7 +318,7 @@ def main(
             network_target.load_state_dict(network.state_dict())
             torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
 
-            test_score = test(test_env, test_episodes, network)
+            test_score = test(test_env, test_episodes, network, agent_instantiator)
             print(
                 f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f}, fps : {np.mean(fps):.1f}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
@@ -306,6 +330,8 @@ def main(
                         "buffer-size": memory.size(),
                         "epsilon": epsilon,
                         "train-score": score / log_interval,
+                        "fps": np.mean(fps),
+                        "loss": train_loss if memory.size() > warm_up_steps else 0,  # type: ignore
                     }
                 )
             score = 0
@@ -320,7 +346,7 @@ if __name__ == "__main__":
         "batch_size": 32,
         "gamma": 0.99,
         "buffer_limit": 50000,
-        "log_interval": 20,
+        "log_interval": 100,
         "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
@@ -328,6 +354,7 @@ if __name__ == "__main__":
         "warm_up_steps": 2000,
         "update_iter": 10,
         "network_instantiator": CNN,
+        "agent_instantiator": BasicRLAgent,
     }
     if USE_WANDB:
         import wandb

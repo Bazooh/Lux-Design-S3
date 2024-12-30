@@ -7,6 +7,7 @@ from luxai_s3.env import PlayerAction
 from agents.models.dense import CNN
 from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
 from agents.reward_shapers.reward import (
+    ExploreRewardShaper,
     GreedyRewardShaper,
     RewardShaper,
 )
@@ -100,10 +101,13 @@ class BasicRLAgent(RLAgent):
         device: str,
         model: nn.Module | None = None,
         model_path: str | None = None,
+        mixte_strategy: bool = False,
     ) -> None:
         assert (
             model is None or model_path is None
         ), "Only one of model or model_path can be provided"
+
+        self.mixte_strategy = mixte_strategy
 
         if model_path is not None:
             model = CNN()
@@ -115,25 +119,37 @@ class BasicRLAgent(RLAgent):
             device=device,
             model=model if model is not None else CNN(),
             tensor_converter=BasicMapExtractor(device),
-            reward_shaper=GreedyRewardShaper(),
-            memory=RelicPointMemory(),
+            reward_shaper=ExploreRewardShaper(),
+            memory=None,
             symetric_player_1=True,
         )
 
     def _sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
-        # ! WARNING ! : This function does not use the sap action (it only moves the units)
+        # ^ WARNING ^ : This function does not use the sap action (it only moves the units)
         batch_size = obs_tensor.shape[0]
 
         mask = torch.rand(batch_size) < epsilon
         actions = torch.zeros((batch_size, 16, 3), dtype=torch.int32)
-        
+
         if mask.all():
-            actions[:, :, 0] = torch.randint(0, 5, actions[:, :, 0].shape[:2], dtype=torch.int32)
+            actions[:, :, 0] = torch.randint(
+                0, 5, actions[:, :, 0].shape[:2], dtype=torch.int32
+            )
             return actions.numpy()
-            
+
         out: torch.Tensor = self.model(obs_tensor[~mask].to(self.device)).cpu()
 
-        actions[mask, :, 0] = torch.randint(0, 5, actions[mask, :, 0].shape[:2], dtype=torch.int32)
-        actions[~mask, :, 0] = out.argmax(2).int()
+        actions[mask, :, 0] = torch.randint(
+            0, 5, actions[mask, :, 0].shape[:2], dtype=torch.int32
+        )
+        if self.mixte_strategy:
+            actions[~mask, :, 0] = (
+                torch.multinomial(torch.softmax(out, dim=2).view(-1, 5), 1)
+                .squeeze(-1)
+                .int()
+                .view(-1, 16)
+            )
+        else:
+            actions[~mask, :, 0] = out.argmax(2).int()
 
         return actions.numpy()
