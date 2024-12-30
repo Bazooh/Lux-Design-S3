@@ -256,7 +256,7 @@ def make_train(
 
 if __name__ == "__main__":
     args = {
-        "total_timesteps":1e5,
+        "total_timesteps":1e6,
         "num_envs": 8
     }
     rng = jax.random.PRNGKey(0)

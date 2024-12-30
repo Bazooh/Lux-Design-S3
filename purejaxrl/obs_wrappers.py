@@ -8,7 +8,6 @@ class TransformObservation(GymnaxWrapper):
     def __init__(self, env, transform_obs):
         super().__init__(env)
         self.transform_obs = transform_obs
-        self.observation
     
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key, params=None):
