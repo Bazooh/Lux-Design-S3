@@ -6,15 +6,6 @@ from src.luxai_s3.env import PlayerAction
 
 from agents.obs import Obs
 
-# from agents.reward_shapers.utils import (
-#     is_alive_mask,
-#     relic_reward,
-#     sapped_reward,
-#     reveal_reward,
-#     high_energy_reward,
-#     death_reward,
-# )
-
 Reward = np.ndarray[Literal[16], np.dtype[np.float32]]
 
 
@@ -44,7 +35,33 @@ class RewardShaper(ABC):
         Returns:
             torch.Tensor of shape (num_agents, )
         """
-        pass
+
+        def __add__(self, other: "RewardShaper") -> "RewardShaper":
+            return RewardShaperAdder(self, other)
+
+        def __mul__(self, scalar: float) -> "RewardShaper":
+            return RewardShaperScaler(self, scalar)
+
+        def __rmul__(self, scalar: float) -> "RewardShaper":
+            return RewardShaperScaler(self, scalar)
+
+
+class RewardShaperAdder(RewardShaper):
+    def __init__(self, a: RewardShaper, b: RewardShaper):
+        self.a = a
+        self.b = b
+
+    def convert(self, *args, **kwargs) -> Reward:
+        return self.a.convert(*args, **kwargs) + self.b.convert(*args, **kwargs)
+
+
+class RewardShaperScaler(RewardShaper):
+    def __init__(self, a: RewardShaper, scalar: float):
+        self.a = a
+        self.scalar = scalar
+
+    def convert(self, *args, **kwargs) -> Reward:
+        return self.a.convert(*args, **kwargs) * self.scalar
 
 
 class DefaultRewardShaper(RewardShaper):
@@ -86,39 +103,6 @@ class GreedyRewardShaper(RewardShaper):
         )
         reward[n_units == 0] = -1
         return reward.numpy()
-
-
-class MixingRewardShaper(RewardShaper):
-    def convert(
-        self,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
-        env_reward: float,
-        actions: PlayerAction,
-        next_obs: Obs,
-        next_tensor_obs: torch.Tensor,
-        team_id: int,
-    ) -> Reward:
-        total_revard_vector = np.array(self.max_agents, dtype=np.float32)
-
-        # reward for being close to relic
-        # total_revard_vector += relic_reward(0, obs, next_obs)
-
-        # reward for sapping
-        # total_revard_vector += sapped_reward(0, obs, next_obs, actions)
-
-        # reward for revealing
-        # total_revard_vector += reveal_reward(0, obs, next_obs)
-
-        # reward for high energy
-        # total_revard_vector += high_energy_reward(0, obs, next_obs)
-
-        # negative reward for death
-        # total_revard_vector += death_reward(0, obs, next_obs)
-
-        # reward for revealed
-        # total_revard_vector += reveal_reward(0, obs, next_obs)
-        return total_revard_vector
 
 
 class ExploreRewardShaper(RewardShaper):
