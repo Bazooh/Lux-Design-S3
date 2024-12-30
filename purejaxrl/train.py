@@ -6,7 +6,7 @@ from flax.training.train_state import TrainState
 from make_env import make_env
 from typing import NamedTuple
 import time
-
+from free_memory import reset_device_memory
 """
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -56,6 +56,7 @@ def make_train(
     env, env_params = make_env(seed = 0, num_envs=num_envs)
     
     def train(rng):
+        start_time = time.time()
 
         # INIT NETWORK
         network = ActorCritic(
@@ -238,9 +239,9 @@ def make_train(
                     return_values = info["returned_episode_returns"][info["returned_episode"]]
                     timesteps = info["timestep"][info["returned_episode"]] * num_envs
                     for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
+                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}, fps={(num_envs*minibatch_size*num_steps/(time.time() - start_time)):.2f}")
                 jax.debug.callback(callback, metric)
-
+                start_time = time.time()
             runner_state = (train_state, env_state, last_obs, rng)
             return runner_state, metric
 
@@ -249,19 +250,20 @@ def make_train(
         runner_state, metric = jax.lax.scan(
             _update_step, runner_state, None, num_updates
         )
+        #env.close()
         return {"runner_state": runner_state, "metrics": metric}
 
     return train
 
 
 if __name__ == "__main__":
+    reset_device_memory()
     args = {
-        "total_timesteps":1e6,
-        "num_envs": 8
+        "total_timesteps": 1e5,
+        "num_envs": 4,
     }
     rng = jax.random.PRNGKey(0)
     train_jit = jax.jit(make_train(**args))
     
     st = time.time()
     out = train_jit(rng)
-    print(f"FPS: {args['total_timesteps']/(time.time()-st)}")
