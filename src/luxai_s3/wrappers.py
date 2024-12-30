@@ -24,23 +24,6 @@ class LuxAIS3GymEnv(gym.Env):
         self.jax_env = LuxAIS3Env(auto_reset=False)
         self.env_params: EnvParams = EnvParams()
 
-        low = np.zeros((self.env_params.max_units, 3))
-        low[:, 1:] = -self.env_params.unit_sap_range
-        high = np.ones((self.env_params.max_units, 3)) * 6
-        high[:, 1:] = self.env_params.unit_sap_range
-        self.action_space = gym.spaces.Dict(
-            dict(
-                player_0=gym.spaces.Box(low=low, high=high, dtype=np.int16),
-                player_1=gym.spaces.Box(low=low, high=high, dtype=np.int16),
-            )
-        )
-
-        self.observation_space = gym.spaces.Box(
-            low=0, high=1, shape=(23, 24, 24), dtype=np.float32
-        )
-
-        self.n_agents = 16
-
     def render(self):
         self.jax_env.render(self.state, self.env_params)
 

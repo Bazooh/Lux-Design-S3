@@ -50,7 +50,8 @@ class ReplayBuffer:
         self.buffer.append((obs, actions, reward, next_obs, done, awake))
 
     def sample(self, n: int):
-        """obs, actions, reward, next_obs, done"""
+        """obs, actions, reward, next_obs, done, awake\n
+        Awake and Done maks are True when the unit is alive"""
         mini_batch = random.sample(self.buffer, n)
         s_tensor = torch.empty((n, *mini_batch[0][0].shape), dtype=torch.float)
         a_tensor = torch.empty((n, *mini_batch[0][1].shape), dtype=torch.float)
@@ -99,10 +100,10 @@ def train(
         q_out: torch.Tensor = q(s.to(TRAINING_DEVICE)).cpu()
 
         q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
-        max_q_prime = q_target(s_prime.to(TRAINING_DEVICE)).cpu().max(dim=2)[0]
+        max_q_prime = q_target(s_prime.to(TRAINING_DEVICE)).cpu().max(dim=2).values
 
-        target = r * awake_mask + gamma * max_q_prime * done_mask
-        loss = F.smooth_l1_loss(q_a * awake_mask, target.detach())
+        target = r + gamma * max_q_prime * done_mask
+        loss = F.smooth_l1_loss(q_a * awake_mask, target.detach() * awake_mask)
 
         train_loss += loss.item()
 
@@ -142,7 +143,7 @@ def test(
             score += reward["player_0"].item() - reward["player_1"].item()
             obs = next_obs
 
-    return score / num_episodes
+    return score / (num_episodes if num_episodes != 0 else 1)
 
 
 def main(
@@ -172,6 +173,8 @@ def main(
     ), "resume_path must be provided if resume_iter is provided"
 
     env = EnvInterface()
+    # vec_env = SyncVectorEnv(lambda: EnvInterface() for _ in range(4))
+
     network = network_instantiator().to(SAMPLING_DEVICE)
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
@@ -206,14 +209,12 @@ def main(
             config["params"],
             device=SAMPLING_DEVICE,
             model=network,
-            mixte_strategy=True,
         )
         agent_1 = agent_instantiator(
             "player_1",
             config["params"],
             device=SAMPLING_DEVICE,
             model=network,
-            mixte_strategy=True,
         )
 
         obs, _, _, _, _ = env.step(
@@ -350,7 +351,7 @@ if __name__ == "__main__":
         "max_episodes": 10000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
-        "test_episodes": 5,
+        "test_episodes": 0,
         "warm_up_steps": 2000,
         "update_iter": 10,
         "network_instantiator": CNN,
