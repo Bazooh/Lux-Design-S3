@@ -53,37 +53,6 @@ class SimplifyTruncation(GymnaxWrapper):
         return obs, env_state, reward, done, info 
     
 
-    
-class RandomParamsOnReset(GymnaxWrapper):
-    """
-    Ensures that random EnvParams are drawn on reset, instead of the default parameters.
-    """
-    def __init__(self, env: LuxAIS3Env):
-        super().__init__(env)
-        assert not self.auto_reset, "Make sure that self.autoreset is set to False in order to overwrite the default auto-reset behaviour with this wrapper."
-
-    @partial(jax.jit, static_argnums=(0,))
-    def step(
-        self,
-        key: chex.PRNGKey,
-        env_state: EnvState,
-        action: Union[int, float],
-        params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
-        obs_st, env_state_st, reward, done, info = self._env.step(
-            key, env_state, action, params
-        )
-        key, key_reset = jax.random.split(key)
-
-        def end_game():
-            reset_env_params = sample_params(key_reset)
-            obs_re, state_re = self.reset_env(key_reset, reset_env_params)
-            return obs_re, state_re
-        
-        obs, env_state = jax.lax.cond(done, end_game, lambda: (obs_st, env_state_st))
-
-        return obs, env_state, reward, done, info 
-
 class LogWrapper(GymnaxWrapper):
     """Log the episode returns and lengths."""
     def __init__(self, env: environment.Environment):

@@ -7,7 +7,7 @@ from make_env import make_env
 from typing import NamedTuple
 import time
 from free_memory import reset_device_memory
-from sample_params import sample_params_fn
+from sample_params import sample_params_fn, sample_params
 """
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -95,8 +95,8 @@ def make_train(
         def _update_step(runner_state, unused):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
-                train_state, env_state, last_obs, rng = runner_state
-
+                train_state, env_state, last_obs, rng, env_params = runner_state
+                #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
                 # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
                 pi, value = network.apply(train_state.params, last_obs)
@@ -106,12 +106,30 @@ def make_train(
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, num_envs)
-                action_sampled = sample_action_fn(rng_step) # REPLACE ACTION BY RANDOM SAMPLE
+                action_sampled = sample_action_fn(rng_step)  # REPLACE ACTION BY RANDOM SAMPLE
                 obsv, env_state, reward, done, info = step_fn(rng_step, env_state, action_sampled, env_params)
+
+                # Reset environments where `done` is True
+                def reset_or_keep(obs, state, params, done, rng):
+                    def end_game_single():
+                        reset_env_params = sample_params(rng)
+                        obs_re, state_re = env.reset(rng, reset_env_params)
+                        return obs_re, state_re, reset_env_params
+
+                    obs, state, params = jax.lax.cond(
+                        done,
+                        end_game_single,
+                        lambda: (obs, state, params),
+                    )
+                    return obs, state, params
+
+                # Vectorize reset logic
+                obsv, env_state, env_params = jax.vmap(reset_or_keep)(obsv, env_state, env_params, done, rng_step)
+
                 transition = Transition(
                     done, action, value, reward, log_prob, last_obs, info
                 )
-                runner_state = (train_state, env_state, obsv, rng)
+                runner_state = (train_state, env_state, obsv, rng, env_params)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -119,7 +137,7 @@ def make_train(
             )
 
             # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng = runner_state
+            train_state, env_state, last_obs, rng, env_params = runner_state
             _, last_val = network.apply(train_state.params, last_obs)
 
             def _calculate_gae(traj_batch, last_val):
@@ -245,12 +263,12 @@ def make_train(
                         print(f"global step={timesteps[t]}, episodic return={return_values[t]}, fps={(num_envs*num_steps*num_steps)/(time.time() - start_time):.2f}")
                 jax.debug.callback(callback, metric)
                 
-            runner_state = (train_state, env_state, last_obs, rng)
+            runner_state = (train_state, env_state, last_obs, rng, env_params)
             start_time = time.time()
             return runner_state, metric
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng)
+        runner_state = (train_state, env_state, obsv, _rng, env_params)
         runner_state, metric = jax.lax.scan(
             _update_step, runner_state, None, num_updates
         )
@@ -266,7 +284,7 @@ if __name__ == "__main__":
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,
-        "num_envs": 16,
+        "num_envs": 1,
     }
     rng = jax.random.PRNGKey(0)
     train_jit = jax.jit(make_train(**args))

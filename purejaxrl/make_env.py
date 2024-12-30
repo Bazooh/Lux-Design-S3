@@ -9,7 +9,7 @@ from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName
 # wrappers
 from obs_wrappers import TransformObservation
 from reward_wrappers import TransformReward
-from base_wrappers import LogWrapper, SimplifyTruncation, RandomParamsOnReset
+from base_wrappers import LogWrapper, SimplifyTruncation
 
 @jax.jit
 def transform_obs(observation: dict[PlayerName, EnvObs]):
@@ -32,7 +32,6 @@ def make_env(seed: int, num_envs: int):
     #Wrappers
     env = LuxAIS3Env(auto_reset=False, fixed_env_params=EnvParams())
     env = SimplifyTruncation(env) # always has to be first !
-    env = RandomParamsOnReset(env)
     env = TransformObservation(env, transform_obs)
     env = TransformReward(env, transform_reward)
     env = LogWrapper(env) # always has to be last ! 
