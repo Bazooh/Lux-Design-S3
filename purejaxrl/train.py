@@ -7,6 +7,7 @@ from make_env import make_env
 from typing import NamedTuple
 import time
 from free_memory import reset_device_memory
+from sample_params import sample_params_fn
 """
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -53,17 +54,17 @@ def make_train(
         )
         return lr_start * frac
 
-    env, env_params = make_env(seed = 0, num_envs=num_envs)
+    env = make_env(seed = 0, num_envs=num_envs)
     
     def train(rng):
         start_time = time.time()
-
+        
         # INIT NETWORK
         network = ActorCritic(
             action_dim=4,
         )
         rng, _rng = jax.random.split(rng)
-        init_x = jnp.zeros(24)
+        init_x = jnp.zeros(24, dtype='float32')
         network_params = network.init(_rng, init_x)
         if anneal_lr:
             tx = optax.chain(
@@ -86,8 +87,8 @@ def make_train(
         reset_rng = jax.random.split(_rng, num_envs) # create num_envs seed out of 1 seed
         reset_fn = jax.vmap(env.reset)
         step_fn = jax.vmap(env.step)
-        sample_fn = jax.vmap(env.action_space().sample)
-                
+        sample_action_fn = jax.vmap(env.action_space().sample)
+        env_params = sample_params_fn(reset_rng)
         obsv, env_state = reset_fn(reset_rng, env_params)
 
         # TRAIN LOOP
@@ -105,7 +106,7 @@ def make_train(
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
                 rng_step = jax.random.split(_rng, num_envs)
-                action_sampled = sample_fn(rng_step) # REPLACE ACTION BY RANDOM SAMPLE
+                action_sampled = sample_action_fn(rng_step) # REPLACE ACTION BY RANDOM SAMPLE
                 obsv, env_state, reward, done, info = step_fn(rng_step, env_state, action_sampled, env_params)
                 transition = Transition(
                     done, action, value, reward, log_prob, last_obs, info
@@ -129,11 +130,12 @@ def make_train(
                         transition.value,
                         transition.reward,
                     )
-                    delta = reward + gamma * next_value * (1 - done) - value
-                    gae = (
-                        delta
-                        + gamma * gae_lambda * (1 - done) * gae
-                    )
+                    with jax.numpy_dtype_promotion('standard'): 
+                        delta = reward + gamma * next_value * (1 - done) - value
+                        gae = (
+                            delta
+                            + gamma * gae_lambda * (1 - done) * gae
+                        )
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -190,11 +192,12 @@ def make_train(
                         )
                         return total_loss, (value_loss, loss_actor, entropy)
 
-                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(
-                        train_state.params, traj_batch, advantages, targets
-                    )
-                    train_state = train_state.apply_gradients(grads=grads)
+                    with jax.numpy_dtype_promotion('standard'): 
+                        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+                        total_loss, grads = grad_fn(
+                            train_state.params, traj_batch, advantages, targets
+                        )
+                        train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
                 train_state, traj_batch, advantages, targets, rng = update_state
@@ -259,13 +262,14 @@ def make_train(
 
 
 if __name__ == "__main__":
+    jax.config.update("jax_numpy_dtype_promotion", "strict")
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,
-        "num_envs": 8,
+        "num_envs": 16,
     }
     rng = jax.random.PRNGKey(0)
     train_jit = jax.jit(make_train(**args))
-    
+
     st = time.time()
     out = train_jit(rng)

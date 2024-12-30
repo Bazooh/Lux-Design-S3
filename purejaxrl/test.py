@@ -3,7 +3,7 @@ from luxai_s3.params import EnvParams
 from luxai_s3.env import LuxAIS3Env
 import numpy as np 
 import time
-from sample_params import sample_params_fn
+from sample_params import sample_params, sample_params_fn
 # the first env params is not batched and is used to initialize any static / unchaging values
 # like map size, max units etc.
 # note auto_reset=False for speed reasons. If True, the default jax code will attempt to reset each time and discard the reset if its not time to reset
@@ -12,7 +12,7 @@ from sample_params import sample_params_fn
 
 # hyperparams
 env = LuxAIS3Env(auto_reset=False, fixed_env_params=EnvParams())
-num_envs = 128
+num_envs = 16
 seed = 0
 np.random.seed(seed)
 rng_key = jax.random.key(seed)

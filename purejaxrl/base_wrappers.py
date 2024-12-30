@@ -6,6 +6,8 @@ from typing import Optional, Tuple, Union, Any
 from gymnax.environments import environment
 from luxai_s3.env import LuxAIS3Env, EnvObs, EnvState, EnvParams
 
+from sample_params import sample_params, sample_params_fn
+
 class GymnaxWrapper(object):
     """Base class for Gymnax wrappers."""
 
@@ -49,6 +51,38 @@ class SimplifyTruncation(GymnaxWrapper):
         )
         done = truncated_dict["player_0"] | terminated_dict["player_0"]
         return obs, env_state, reward, done, info 
+    
+
+    
+class RandomParamsOnReset(GymnaxWrapper):
+    """
+    Ensures that random EnvParams are drawn on reset, instead of the default parameters.
+    """
+    def __init__(self, env: LuxAIS3Env):
+        super().__init__(env)
+        assert not self.auto_reset, "Make sure that self.autoreset is set to False in order to overwrite the default auto-reset behaviour with this wrapper."
+
+    @partial(jax.jit, static_argnums=(0,))
+    def step(
+        self,
+        key: chex.PRNGKey,
+        env_state: EnvState,
+        action: Union[int, float],
+        params: Optional[EnvParams] = None,
+    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
+        obs_st, env_state_st, reward, done, info = self._env.step(
+            key, env_state, action, params
+        )
+        key, key_reset = jax.random.split(key)
+
+        def end_game():
+            reset_env_params = sample_params(key_reset)
+            obs_re, state_re = self.reset_env(key_reset, reset_env_params)
+            return obs_re, state_re
+        
+        obs, env_state = jax.lax.cond(done, end_game, lambda: (obs_st, env_state_st))
+
+        return obs, env_state, reward, done, info 
 
 class LogWrapper(GymnaxWrapper):
     """Log the episode returns and lengths."""
@@ -77,16 +111,17 @@ class LogWrapper(GymnaxWrapper):
         )
         new_episode_return = log_env_state.episode_returns + reward
         new_episode_length = log_env_state.episode_lengths + 1
-        new_log_env_state = LogEnvState(
-            env_state=env_state,
-            episode_returns=new_episode_return * (1 - done),
-            episode_lengths=new_episode_length * (1 - done),
-            returned_episode_returns=log_env_state.returned_episode_returns * (1 - done)
-            + new_episode_return * done,
-            returned_episode_lengths=log_env_state.returned_episode_lengths * (1 - done)
-            + new_episode_length * done,
-            timestep=log_env_state.timestep + 1,
-        )
+        with jax.numpy_dtype_promotion('standard'): 
+            new_log_env_state = LogEnvState(
+                env_state=env_state,
+                episode_returns=new_episode_return * (1 - done),
+                episode_lengths=new_episode_length * (1 - done),
+                returned_episode_returns=log_env_state.returned_episode_returns * (1 - done)
+                + new_episode_return * done,
+                returned_episode_lengths=log_env_state.returned_episode_lengths * (1 - done)
+                + new_episode_length * done,
+                timestep=log_env_state.timestep + 1,
+            )
         info["returned_episode_returns"] = log_env_state.returned_episode_returns
         info["returned_episode_lengths"] = log_env_state.returned_episode_lengths
         info["timestep"] = log_env_state.timestep
