@@ -239,10 +239,11 @@ def make_train(
                     return_values = info["returned_episode_returns"][info["returned_episode"]]
                     timesteps = info["timestep"][info["returned_episode"]] * num_envs
                     for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}, fps={(num_envs*minibatch_size*num_steps/(time.time() - start_time)):.2f}")
+                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}, fps={(num_envs*num_steps*num_steps)/(time.time() - start_time):.2f}")
                 jax.debug.callback(callback, metric)
-                start_time = time.time()
+                
             runner_state = (train_state, env_state, last_obs, rng)
+            start_time = time.time()
             return runner_state, metric
 
         rng, _rng = jax.random.split(rng)
@@ -251,6 +252,7 @@ def make_train(
             _update_step, runner_state, None, num_updates
         )
         #env.close()
+        
         return {"runner_state": runner_state, "metrics": metric}
 
     return train
@@ -260,7 +262,7 @@ if __name__ == "__main__":
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,
-        "num_envs": 4,
+        "num_envs": 8,
     }
     rng = jax.random.PRNGKey(0)
     train_jit = jax.jit(make_train(**args))
