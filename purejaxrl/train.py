@@ -284,7 +284,7 @@ if __name__ == "__main__":
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,
-        "num_envs": 1,
+        "num_envs": 16,
     }
     rng = jax.random.PRNGKey(0)
     train_jit = jax.jit(make_train(**args))
