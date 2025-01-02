@@ -2,17 +2,16 @@ from abc import abstractmethod
 import numpy as np
 import torch
 import torch.nn as nn
-from agents.memory.memory import Memory, RelicPointMemory
+from agents.memory.memory import Memory
 from luxai_s3.env import PlayerAction
-from agents.models.dense import CNN
-from agents.tensor_converters.tensor import TensorConverter, BasicMapExtractor
+from agents.tensor_converters.tensor import TensorConverter, MinimalTensorConverter
 from agents.reward_shapers.reward import (
+    GreedyExploreRewardShaper,
     ExploreRewardShaper,
-    GreedyRewardShaper,
     RewardShaper,
 )
 from agents.base_agent import Agent, N_Actions, N_Agents
-from agents.obs import Obs
+from agents.obs import EnvParams, Obs
 
 
 def symetric_action_not_vectorized(action: int) -> int:
@@ -26,7 +25,7 @@ class RLAgent(Agent):
     def __init__(
         self,
         player: str,
-        env_cfg: dict[str, int],
+        env_params: EnvParams,
         device: str,
         model: torch.nn.Module,
         tensor_converter: TensorConverter,
@@ -34,7 +33,7 @@ class RLAgent(Agent):
         memory: Memory | None = None,
         symetric_player_1: bool = True,
     ) -> None:
-        super().__init__(player, env_cfg, memory)
+        super().__init__(player, env_params, memory)
         self.device = device
         self.model = model
         self.tensor_converter = tensor_converter
@@ -97,29 +96,20 @@ class BasicRLAgent(RLAgent):
     def __init__(
         self,
         player: str,
-        env_cfg: dict[str, int],
+        env_params: EnvParams,
         device: str,
-        model: nn.Module | None = None,
-        model_path: str | None = None,
+        model: nn.Module,
         mixte_strategy: bool = False,
     ) -> None:
-        assert (
-            model is None or model_path is None
-        ), "Only one of model or model_path can be provided"
-
         self.mixte_strategy = mixte_strategy
-
-        if model_path is not None:
-            model = CNN()
-            model.load_state_dict(torch.load(model_path))
 
         super().__init__(
             player=player,
-            env_cfg=env_cfg,
+            env_params=env_params,
             device=device,
-            model=model if model is not None else CNN(),
-            tensor_converter=BasicMapExtractor(device),
-            reward_shaper=ExploreRewardShaper(),
+            model=model,
+            tensor_converter=MinimalTensorConverter(),
+            reward_shaper=GreedyExploreRewardShaper(),
             memory=None,
             symetric_player_1=True,
         )

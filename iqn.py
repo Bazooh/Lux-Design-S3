@@ -125,11 +125,9 @@ def test(
     score: float = 0
 
     for episode_i in range(num_episodes):
-        obs, config = env.reset()
-        agent_0 = agent_instantiator(
-            "player_0", config["params"], SAMPLING_DEVICE, network
-        )
-        agent_1 = NaiveAgent("player_1", config["params"])
+        obs, env_params = env.reset()
+        agent_0 = agent_instantiator("player_0", env_params, SAMPLING_DEVICE, network)
+        agent_1 = NaiveAgent("player_1", env_params)
 
         game_finished = False
         while not game_finished:
@@ -203,16 +201,16 @@ def main(
             max_epsilon
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
-        obs, config = env.reset()
+        obs, env_params = env.reset()
         agent_0 = agent_instantiator(
             "player_0",
-            config["params"],
+            env_params,
             device=SAMPLING_DEVICE,
             model=network,
         )
         agent_1 = agent_instantiator(
             "player_1",
-            config["params"],
+            env_params,
             device=SAMPLING_DEVICE,
             model=network,
         )
@@ -229,6 +227,8 @@ def main(
         agent_0.update_obs(obs.player_0)
         agent_1.update_obs(obs.player_1)
 
+        reward_0: Reward = np.zeros(16, dtype=np.float32)
+        reward_1: Reward = np.zeros(16, dtype=np.float32)
         simulation_score: float = 0
         game_finished = False
         count_frames: int = 0
@@ -241,7 +241,7 @@ def main(
             )
             actions_0, actions_1 = actions[0], actions[1]
 
-            next_obs, reward, _, truncated, _ = env.step(
+            next_obs, _, _, truncated, _ = env.step(
                 {
                     "player_0": actions_0,
                     "player_1": agent_1.symetric_action(actions_1),
@@ -256,18 +256,20 @@ def main(
             next_obs_tensor_1 = agent_1.obs_to_tensor(next_obs.player_1)
 
             reward_0 = agent_0.reward_shaper.convert(
+                env_params,
+                reward_0,
                 obs.player_0,
                 obs_tensor_0,
-                reward["player_0"].item(),
                 actions_0,
                 next_obs.player_0,
                 next_obs_tensor_0,
                 0,
             )
             reward_1 = agent_1.reward_shaper.convert(
+                env_params,
+                reward_1,
                 obs.player_1,
                 obs_tensor_1,
-                reward["player_1"].item(),
                 actions_1,
                 next_obs.player_1,
                 next_obs_tensor_1,
@@ -293,7 +295,7 @@ def main(
                 np.array(obs.player_1.units_mask[1]),
             )
 
-            simulation_score += (reward_0 * awake_mask_0).sum().item()
+            simulation_score += (reward_0 * awake_mask_0).mean().item()
 
             obs_tensor_0 = next_obs_tensor_0
             obs_tensor_1 = next_obs_tensor_1
@@ -354,7 +356,7 @@ if __name__ == "__main__":
         "test_episodes": 0,
         "warm_up_steps": 2000,
         "update_iter": 10,
-        "network_instantiator": CNN,
+        "network_instantiator": lambda: CNN(n_input_channels=19),
         "agent_instantiator": BasicRLAgent,
     }
     if USE_WANDB:

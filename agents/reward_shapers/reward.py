@@ -4,9 +4,13 @@ import numpy as np
 import torch
 from src.luxai_s3.env import PlayerAction
 
-from agents.obs import Obs
+from agents.obs import EnvParams, Obs
 
 Reward = np.ndarray[Literal[16], np.dtype[np.float32]]
+
+
+def n_agents_alive(obs: Obs, team_id: int) -> int:
+    return obs.units_mask[team_id].sum()
 
 
 class RewardShaper(ABC):
@@ -15,9 +19,10 @@ class RewardShaper(ABC):
     @abstractmethod
     def convert(
         self,
+        env_params: EnvParams,
+        last_reward: Reward,
         obs: Obs,
         tensor_obs: torch.Tensor,
-        env_reward: float,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
@@ -67,23 +72,25 @@ class RewardShaperScaler(RewardShaper):
 class DefaultRewardShaper(RewardShaper):
     def convert(
         self,
+        env_params: EnvParams,
+        last_reward: Reward,
         obs: Obs,
         tensor_obs: torch.Tensor,
-        env_reward: float,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
         team_id: int,
     ) -> Reward:
-        return np.array(env_reward).repeat(self.max_agents)
+        return next_obs.team_points[team_id].repeat(self.max_agents) - last_reward
 
 
 class GreedyRewardShaper(RewardShaper):
     def convert(
         self,
+        env_params: EnvParams,
+        last_reward: Reward,
         obs: Obs,
         tensor_obs: torch.Tensor,
-        env_reward: float,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
@@ -108,25 +115,74 @@ class GreedyRewardShaper(RewardShaper):
 class ExploreRewardShaper(RewardShaper):
     def convert(
         self,
+        env_params: EnvParams,
+        last_reward: Reward,
         obs: Obs,
         tensor_obs: torch.Tensor,
-        env_reward: float,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
         team_id: int,
     ) -> Reward:
-        return np.array(next_obs.sensor_mask.sum()).repeat(self.max_agents)
+        return (next_obs.sensor_mask.sum() / n_agents_alive(next_obs, team_id)).repeat(
+            self.max_agents
+        ) - last_reward
 
 
 class GreedyExploreRewardShaper(RewardShaper):
     def convert(
         self,
+        env_params: EnvParams,
+        last_reward: Reward,
         obs: Obs,
         tensor_obs: torch.Tensor,
-        env_reward: float,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
         team_id: int,
-    ) -> Reward: ...
+    ) -> Reward:
+        vision = env_params.unit_sensor_range
+        x_min = np.stack(
+            (
+                np.zeros(16, dtype=np.int32),
+                next_obs.units.position[team_id, :, 0] - vision,
+            )
+        ).max(0)
+        x_max = np.stack(
+            (
+                np.ones(16, dtype=np.int32) * env_params.map_width,
+                next_obs.units.position[team_id, :, 0] + vision + 1,
+            )
+        ).min(0)
+        y_min = np.stack(
+            (
+                np.zeros(16, dtype=np.int32),
+                next_obs.units.position[team_id, :, 1] - vision,
+            )
+        ).max(0)
+        y_max = np.stack(
+            (
+                np.ones(16, dtype=np.int32) * env_params.map_height,
+                next_obs.units.position[team_id, :, 1] + vision + 1,
+            )
+        ).min(0)
+
+        agents_sensor = np.zeros(
+            (16, env_params.map_height, env_params.map_width), dtype=np.int32
+        )
+        for i in range(16):
+            if next_obs.units_mask[team_id, i]:
+                agents_sensor[i, x_min[i] : x_max[i], y_min[i] : y_max[i]] = (
+                    next_obs.sensor_mask[x_min[i] : x_max[i], y_min[i] : y_max[i]]
+                )
+
+        max_vision = (2 * vision + 1) ** 2
+
+        agents_sensor_sum = agents_sensor.sum(0)
+        agents_sensor_sum[agents_sensor_sum == 0] = 1
+        reward = np.zeros(16, dtype=np.float32)
+        for i in range(16):
+            if next_obs.units_mask[team_id, i]:
+                reward[i] = (agents_sensor[i] / agents_sensor_sum).sum() / max_vision
+
+        return reward

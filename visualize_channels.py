@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import numpy as np
 from tqdm import tqdm
+from agents.models.dense import CNN
 from agents.rl_agent import BasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
 from agents.tensor_converters.tensor import BasicMapExtractor
@@ -19,13 +20,13 @@ def rollout(n_iter: int = 100):
     numpy_tensors: list[list[np.ndarray]] = [[], []]
     # Initialize environment
     env = RecordEpisode(EnvInterface(), save_dir="records", save_format="html")
-    observation, config = env.reset(seed=randint(0, 1000))
+    observation, env_params = env.reset(seed=randint(0, 1000))
     # Initialize agents
-    agent0 = NaiveAgent("player_0", config["params"])
-    agent1 = NaiveAgent("player_1", config["params"])
+    agent0 = NaiveAgent("player_0", env_params)
+    agent1 = NaiveAgent("player_1", env_params)
 
-    observer0 = BasicRLAgent("player_0", config["params"], SAMPLING_DEVICE)
-    observer1 = BasicRLAgent("player_1", config["params"], SAMPLING_DEVICE)
+    observer0 = BasicRLAgent("player_0", env_params, SAMPLING_DEVICE, CNN(19))
+    observer1 = BasicRLAgent("player_1", env_params, SAMPLING_DEVICE, CNN(19))
 
     # Collect observations
     for _ in range(n_iter):

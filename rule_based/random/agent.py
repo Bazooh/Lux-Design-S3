@@ -11,7 +11,7 @@ class RandomAgent(Agent):
 
         step is the current timestep number of the game starting from 0 going up to max_steps_in_match * match_count_per_episode - 1.
         """
-        actions = np.zeros((self.env_cfg.max_units, 3), dtype=np.int32)
+        actions = np.zeros((16, 3), dtype=np.int32)
 
         # unit ids range from 0 to max_units - 1
         for unit_id in obs.get_available_units(self.team_id):

@@ -1,7 +1,7 @@
 # TODO (stao): Add lux ai s3 env to gymnax api wrapper, which is the old gym api
 import json
 import os
-from typing import Any, Literal, SupportsFloat
+from typing import Any, Literal, SupportsFloat, TYPE_CHECKING
 import flax
 import flax.serialization
 import gymnasium as gym
@@ -14,6 +14,7 @@ from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.utils import to_numpy
 
+import agents.obs as agent_obs
 from agents.obs import GodObs, Obs
 
 
@@ -120,7 +121,7 @@ class RecordEpisode(gym.Wrapper):
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[GodObs, dict[str, Any]]:
+    ) -> tuple[GodObs, agent_obs.EnvParams]:
         if self.save_on_reset and self.episode_steps > 0:
             self._save_episode_and_reset()
         obs, info = self.env.reset(seed=seed, options=options)

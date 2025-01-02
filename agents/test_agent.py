@@ -21,6 +21,6 @@ class TestAgent(Agent):
                     -1 if self.team_id == 1 else 0,
                     -1 if self.team_id == 1 else 0,
                 ]
-                for _ in range(self.env_cfg.max_units)
+                for _ in range(self.env_params.max_units)
             ]
         )
