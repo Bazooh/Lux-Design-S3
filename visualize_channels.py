@@ -13,7 +13,7 @@ from env_interface import EnvInterface
 from config import SAMPLING_DEVICE
 
 # Initialize TensorConverter
-tensor_converter = BasicMapExtractor(SAMPLING_DEVICE)
+tensor_converter = BasicMapExtractor()
 
 
 def rollout(n_iter: int = 100):

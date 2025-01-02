@@ -38,7 +38,7 @@ class TensorConverter(ABC):
 
 
 class BasicMapExtractor(TensorConverter):
-    def __init__(self, device: str):
+    def __init__(self):
         super().__init__()
         self.channel_names = [
             "Unknown",
@@ -113,7 +113,7 @@ class MinimalTensorConverter(TensorConverter):
     def __init__(self):
         super().__init__()
         self.channel_names = ["Unknown", "Asteroid", "Nebula"]
-        self.channel_names += [f"Ally_Unit_{i}" for i in range(1, 17)]
+        self.channel_names += [f"Ally_Unit_{i + 1}" for i in range(16)]
 
     def convert(
         self,

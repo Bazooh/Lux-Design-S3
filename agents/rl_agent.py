@@ -2,12 +2,16 @@ from abc import abstractmethod
 import numpy as np
 import torch
 import torch.nn as nn
-from agents.memory.memory import Memory
+from agents.memory.memory import Memory, RelicPointMemory
 from luxai_s3.env import PlayerAction
-from agents.tensor_converters.tensor import TensorConverter, MinimalTensorConverter
+from agents.tensor_converters.tensor import (
+    BasicMapExtractor,
+    TensorConverter,
+    # MinimalTensorConverter,
+)
 from agents.reward_shapers.reward import (
-    GreedyExploreRewardShaper,
-    ExploreRewardShaper,
+    # GreedyExploreRewardShaper,
+    GreedyRewardShaper,
     RewardShaper,
 )
 from agents.base_agent import Agent, N_Actions, N_Agents
@@ -108,9 +112,9 @@ class BasicRLAgent(RLAgent):
             env_params=env_params,
             device=device,
             model=model,
-            tensor_converter=MinimalTensorConverter(),
-            reward_shaper=GreedyExploreRewardShaper(),
-            memory=None,
+            tensor_converter=BasicMapExtractor(),
+            reward_shaper=GreedyRewardShaper(),
+            memory=RelicPointMemory(),
             symetric_player_1=True,
         )
 
