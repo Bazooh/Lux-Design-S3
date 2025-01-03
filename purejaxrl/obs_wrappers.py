@@ -12,7 +12,8 @@ class TransformObservation(GymnaxWrapper):
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key, params=None):
         obs, state = self._env.reset(key, params)
-        return self.transform_obs(obs), state
+        transformed_obs = ({k: self.transform_obs(o) for k, o in obs.items()})
+        return transformed_obs, state
 
     @partial(jax.jit, static_argnums=(0,))
     def step(
@@ -23,5 +24,5 @@ class TransformObservation(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
         obs, state, reward, done, info = self._env.step(key, env_state, action, params)
-        return self.transform_obs(obs), state, reward, done, info
-
+        transformed_obs = ({k: self.transform_obs(o) for k, o in obs.items()})
+        return transformed_obs, state, reward, done, info

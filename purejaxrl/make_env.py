@@ -12,15 +12,15 @@ from reward_wrappers import TransformReward
 from base_wrappers import LogWrapper, SimplifyTruncation
 
 @jax.jit
-def transform_obs(observation: dict[PlayerName, EnvObs]):
-    return(jax.numpy.zeros(24, dtype='float32'))
+def transform_obs(observation: EnvObs):
+    return(jax.numpy.arange(24, dtype='float32'))
 
 @jax.jit
 def transform_reward(reward: Any):
     return(0)
 
 
-def make_env(seed: int, num_envs: int):
+def make_env(seed: int):
     
     seed = 0
     np.random.seed(seed)
@@ -36,3 +36,9 @@ def make_env(seed: int, num_envs: int):
     env = TransformReward(env, transform_reward)
     env = LogWrapper(env) # always has to be last ! 
     return env
+
+if __name__ == "__main__":
+    env = make_env(0)
+    key = jax.random.PRNGKey(0)
+    obs, state = env.reset(key)
+    print(obs)

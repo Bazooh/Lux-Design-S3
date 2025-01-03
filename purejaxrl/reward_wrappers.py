@@ -12,7 +12,7 @@ class TransformReward(GymnaxWrapper):
     @partial(jax.jit, static_argnums=(0,))
     def reset(self, key, params=None):
         obs, state = self._env.reset(key, params)
-        return self.transform_obs(obs), state
+        return obs, state
 
     @partial(jax.jit, static_argnums=(0,))
     def step(
@@ -23,5 +23,6 @@ class TransformReward(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
         obs, state, reward, done, info = self._env.step(key, env_state, action, params)
-        return obs, state, self.transform_reward(reward), done, info
+        transformed_r = ({k: self.transform_reward(r) for k, r in obs.items()})
+        return obs, state, transformed_r, done, info
 

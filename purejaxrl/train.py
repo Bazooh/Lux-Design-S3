@@ -96,9 +96,16 @@ def make_train(
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, unused):
                 train_state, env_state, last_obs, rng, env_params = runner_state
-                #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
-                # SELECT ACTION
                 rng, _rng = jax.random.split(rng)
+                #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
+                jax.debug.print("last_obs: {}", last_obs)
+                
+                # TRANSFORM OBS INTO BATCHES
+                #last_obs_batch = jnp.stack([last_obs[a] for a in env.players])
+                # last_obs_batch_player_0 = last_obs_batch[0]
+                # last_obs_batch_player_1 = last_obs_batch[1]
+
+                # FORWARD 
                 pi, value = network.apply(train_state.params, last_obs)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
