@@ -7,9 +7,9 @@ from luxai_s3.params import EnvParams
 from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName
 
 # wrappers
-from obs_wrappers import TransformObservation
-from reward_wrappers import TransformReward
-from base_wrappers import LogWrapper, SimplifyTruncation
+from purejaxrl.wrappers.obs_wrappers import TransformObservation
+from purejaxrl.wrappers.reward_wrappers import TransformReward
+from purejaxrl.wrappers.base_wrappers import LogWrapper, SimplifyTruncation
 
 @jax.jit
 def transform_obs(observation: EnvObs):

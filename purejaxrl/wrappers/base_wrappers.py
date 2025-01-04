@@ -23,8 +23,6 @@ class LogEnvState:
     env_state: EnvState
     episode_returns: float
     episode_lengths: int
-    returned_episode_returns: float
-    returned_episode_lengths: int
     timestep: int
 
 class SimplifyTruncation(GymnaxWrapper):
@@ -64,7 +62,13 @@ class LogWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None
     ) -> Tuple[chex.Array, LogEnvState]:
         obs, env_state = self._env.reset(key, params)
-        log_env_state = LogEnvState(env_state, 0, 0, 0, 0, 0)
+        log_env_state = LogEnvState(
+                                    env_state=env_state, 
+                                    episode_returns = {k: 0 for k in obs.keys()},
+                                    episode_lengths=0,
+                                    timestep=0
+                                )
+        
         return obs, log_env_state
 
     @partial(jax.jit, static_argnums=(0,))
@@ -78,21 +82,15 @@ class LogWrapper(GymnaxWrapper):
         obs, env_state, reward, done, info = self._env.step(
             key, log_env_state.env_state, action, params
         )
-        new_episode_return = log_env_state.episode_returns + reward
-        new_episode_length = log_env_state.episode_lengths + 1
         with jax.numpy_dtype_promotion('standard'): 
+            new_episode_return = {k: (log_env_state.episode_returns[k] + r)* (1 - done) for (k,r) in reward.items()}
+            new_episode_length = (log_env_state.episode_lengths + 1) * (1 - done)
             new_log_env_state = LogEnvState(
                 env_state=env_state,
-                episode_returns=new_episode_return * (1 - done),
-                episode_lengths=new_episode_length * (1 - done),
-                returned_episode_returns=log_env_state.returned_episode_returns * (1 - done)
-                + new_episode_return * done,
-                returned_episode_lengths=log_env_state.returned_episode_lengths * (1 - done)
-                + new_episode_length * done,
-                timestep=log_env_state.timestep + 1,
+                episode_returns = new_episode_return,
+                episode_lengths = new_episode_length,
+                timestep=log_env_state.timestep+1
             )
-        info["returned_episode_returns"] = log_env_state.returned_episode_returns
-        info["returned_episode_lengths"] = log_env_state.returned_episode_lengths
-        info["timestep"] = log_env_state.timestep
+        info["timestep"] = new_log_env_state.timestep
         info["returned_episode"] = done
         return obs, new_log_env_state, reward, done, info

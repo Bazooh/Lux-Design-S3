@@ -2,7 +2,7 @@ import jax
 import chex
 from functools import partial
 from typing import Optional, Tuple, Union, Any
-from base_wrappers import GymnaxWrapper, EnvState, EnvParams
+from purejaxrl.wrappers.base_wrappers import GymnaxWrapper, EnvState, EnvParams
 
 class TransformReward(GymnaxWrapper):
     def __init__(self, env, transform_reward):

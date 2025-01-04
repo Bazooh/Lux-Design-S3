@@ -7,14 +7,7 @@ from flax.linen.initializers import constant, orthogonal
 from typing import Sequence, NamedTuple, Any
 from flax.training.train_state import TrainState
 import distrax
-from gymnax.wrappers.purerl import LogWrapper, FlattenObservationWrapper
-import jaxmarl
-from jaxmarl.wrappers.baselines import LogWrapper
 from jaxmarl.environments.overcooked import overcooked_layouts
-import hydra
-from omegaconf import OmegaConf
-import wandb
-import copy
 
 import matplotlib.pyplot as plt
 
