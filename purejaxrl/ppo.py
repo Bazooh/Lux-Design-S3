@@ -16,6 +16,9 @@ from jax_tqdm import scan_tqdm
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
 
+I changed it to feature 2 players, represented by 'two network_params':
+    - the first player is learning
+    - the second is not learning but is overwritten by player 1 every few games
 """
 class Transition(NamedTuple):
     done: jnp.ndarray
@@ -40,10 +43,8 @@ def make_train(
         ent_coef: float = 0.01,
         vf_coeff: float = 0.5,
         clip_grad_norm: float = 0.5,
-        eval_agent : Any = None,
-        eval_freq_updates: int = 20,
+        freq_opponent_updates: int = 20,
         seed: int = 0,
-        anneal_lr: bool = True,
         debug: bool = True
 ):
     num_updates=  (
@@ -70,23 +71,22 @@ def make_train(
         network = ActorCritic(
             action_dim=4,
         )
+        # init params 0
         rng, _rng = jax.random.split(key)
         init_x = jnp.zeros(24, dtype='float32')
-        network_params = network.init(_rng, init_x)
-        if anneal_lr:
-            tx = optax.chain(
-                optax.clip_by_global_norm(clip_grad_norm),
-                optax.adam(learning_rate=linear_schedule, eps=1e-5),
-            )
-        else:
-            tx = optax.chain(
-                optax.clip_by_global_norm(clip_grad_norm),
-                optax.adam(lr_start, eps=1e-5),
-            )
+        network_params_0 = network.init(_rng, init_x)
+        rng, _rng = jax.random.split(key)
+        network_params_1 = network.init(_rng, init_x)
+
+        #create TrainState objects
+        transform_lr = optax.chain(
+            optax.clip_by_global_norm(clip_grad_norm),
+            optax.adam(learning_rate=linear_schedule, eps=1e-5),
+        )
         train_state = TrainState.create(
             apply_fn=network.apply,
-            params=network_params,
-            tx=tx,
+            params=network_params_0,
+            tx=transform_lr,
         )
 
         # INIT ENV
@@ -111,7 +111,7 @@ def make_train(
         def _update_step(runner_state, update_i):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, update_i):
-                train_state, env_state, last_obs, rng, env_params = runner_state
+                train_state, networks_params_1, env_state, last_obs, rng, env_params = runner_state
                 #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
                 
                 # GET OBS BATCHES
@@ -119,9 +119,15 @@ def make_train(
                 last_obs_batch_player_0 = last_obs_batch[0]
                 last_obs_batch_player_1 = last_obs_batch[1]
                 
-                # SELECT ACTION
+                # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
                 pi, value = network.apply(train_state.params, last_obs_batch_player_0)
+                action = pi.sample(seed=_rng)
+                log_prob = pi.log_prob(action)
+
+                # SELECT ACTION: PLAYER 1
+                rng, _rng = jax.random.split(rng)
+                pi, value = network.apply(networks_params_1, last_obs_batch_player_1)
                 action = pi.sample(seed=_rng)
                 log_prob = pi.log_prob(action)
 
@@ -160,7 +166,7 @@ def make_train(
                     obs = last_obs_batch_player_0, 
                     info = info
                 )
-                runner_state = (train_state, env_state, obsv, rng, env_params)
+                runner_state = (train_state, networks_params_1, env_state, obsv, rng, env_params)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -168,7 +174,7 @@ def make_train(
             )
 
             # CALCULATE ADVANTAGE
-            train_state, env_state, last_obs, rng, env_params = runner_state
+            train_state, network_params_1, env_state, last_obs, rng, env_params = runner_state
             # GET OBS BATCHES
             last_obs_batch = jnp.stack([last_obs[a] for a in env.players])
             last_obs_batch_player_0 = last_obs_batch[0]
@@ -297,26 +303,30 @@ def make_train(
                         print(f"global step={timesteps[t]}, fps={(num_envs*num_steps*num_steps)/(time.time() - start_time):.2f}")
                 jax.debug.callback(callback, metric)
                 
-            runner_state = (train_state, env_state, last_obs, rng, env_params)
+            runner_state = (train_state, network_params_1, env_state, last_obs, rng, env_params)
             start_time = time.time()
 
-            # # Evaluation
-            # if update_i % eval_freq_updates == 0:
-            #     eval_avg_reward = eval(runner_state[-1], train_state.params, eval_agent)
-            #     print(f"Eval Average Reward at step {update_i}: {eval_avg_reward}")
+            # Overwrite the player 1 weights every freq_opponent_updates
+            runner_state = jax.lax.cond(
+                (update_i % freq_opponent_updates) == 0,
+                lambda runner_state: (runner_state[0], 
+                                    runner_state[0].params, # overwriting network_params_1 with network_params_0
+                                    runner_state[2], 
+                                    runner_state[3], 
+                                    runner_state[4],
+                                    runner_state[5]), 
+                lambda runner_state: runner_state, # skip
+                runner_state,
+            )
 
-            # Return runner state
             return runner_state, metric
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state, obsv, _rng, env_params)
+        runner_state = (train_state, network_params_1, env_state, obsv, _rng, env_params)
         runner_state, metric = jax.lax.scan(
             _update_step, runner_state, jnp.arange(num_updates)
         )
-        env.close()
-        
         return {"runner_state": runner_state, "metrics": metric}
-    
     rng = jax.random.PRNGKey(seed)
 
     train(rng)
