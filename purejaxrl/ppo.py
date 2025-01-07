@@ -327,9 +327,9 @@ def make_train(
             _update_step, runner_state, jnp.arange(num_updates)
         )
         return {"runner_state": runner_state, "metrics": metric}
-    rng = jax.random.PRNGKey(seed)
+    
 
-    train(rng)
+    return train
 
 
 if __name__ == "__main__":
@@ -341,5 +341,5 @@ if __name__ == "__main__":
     }
 
     train_jit = jax.jit(make_train(**args))
-
-    out = train_jit
+    rng = jax.random.PRNGKey(seed = 0)
+    out = train_jit(rng)
