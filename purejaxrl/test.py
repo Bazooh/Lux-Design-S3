@@ -1,76 +1,40 @@
 import jax
 import jax.numpy as jnp
-import jax.nn as nn
-from functools import partial
+def sample_action(key, logits):
+    action = jax.random.categorical(key=key, logits=logits, axis=-1)  # Shape: (N, 16)
+    return action
 
-class MultiCategorical:
-    def __init__(self, logits):
-        """
-        Args:
-            logits: Array of logits of shape (batch_size, n_categories, n_values)
-        """
-        self.logits = logits
+def get_logprob(logits, mask_awake, action):
+    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+    log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
+    log_prob_a_masked = log_prob_a * mask_awake  # Shape: (N, 16)
+    log_prob= jnp.mean(log_prob_a_masked, axis=-1)/ jnp.sum(mask_awake, axis=-1)  # Shape: (N,)
+    return(log_prob)
+
+def get_entropy(logits):
+    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+    entropy = -jnp.mean(jnp.sum(jnp.exp(log_prob_group) * log_prob_group, axis=-1), axis=-1)
+    return(entropy)
+
+# Parameters
+N = 8
+position = jnp.array([
+    [0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0],
+    [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1]
+] * N).reshape(N, 16, 2)  # Shape: (N, 16, 2)
+_rng = jax.random.PRNGKey(0)
+logits = jax.random.normal(_rng, (N, 16, 5))  # Logits shape (N, 16, 5)
 
 
-    def sample(self, key: jax.random.PRNGKey):
-        """
-        Sample from the multi-categorical distribution.
-        
-        Args:
-            key: PRNGKey for sampling
-        
-        Returns:
-            samples: Array of shape (batch_size,)
-        """
-        @partial(jax.vmap, in_axes=(0, 1))
-        def single_cat_sampling(key, logits):
-            probs = nn.softmax(logits, axis=-1)  # Apply softmax to get probabilities
-            return jax.random.choice(key, a=logits.shape[-1], p=probs)
-        
-        action_keys = jax.random.split(key, self.logits.shape[0])  # Split key for batch
-        return single_cat_sampling(action_keys, self.logits)
+# Sample actions
+action = sample_action(_rng, logits)
 
-    def log_prob(self, values):
-        """
-        Calculate the log-probability of given values.
-        
-        Args:
-            values: Array of sampled values (indices)
-        
-        Returns:
-            log_probs: Array of log probabilities for each sample
-        """
-        probs = nn.softmax(self.logits, axis=-1)  # Apply softmax to get probabilities
-        # Use the values to index the probabilities along the last axis (n_values)
-        return jnp.log(jnp.take_along_axis(probs, values[..., None], axis=-1).squeeze(-1))
+# Get log probabilities
+mask_awake = (position[..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+log_prob_a_masked = get_logprob(logits, mask_awake, action)
+entropy = get_entropy(logits)
 
-def gather_logits(logit_maps, row_indices, col_indices):
-    # Gather the logits based on row_indices and col_indices
-    logits_gathered_H = jnp.take_along_axis(logit_maps, row_indices[..., None], axis=1)  # Shape: (N, 16, W, 5)
-    logits_gathered = jnp.take_along_axis(logits_gathered_H, col_indices[..., None], axis=2)  # Shape: (N, 16, 1, 5)
-    logits_gathered = logits_gathered[:,:,0,:]  # Shape: (N, 16, 5)
-    print("logits_gathered shape", logits_gathered.shape)
-    return logits_gathered
-
-# Example usage
-logit_maps = jnp.ones((4, 16, 10, 5)) 
-position = jnp.ones((1, 16, 2), dtype=jnp.int8)  
-position = jnp.expand_dims(position, axis=-1)  # Shape: (N, 16, 2, 1)
-# Step 3: Extract row and column indices from position
-row_indices = position[:,:,0,:]  # Shape: (N, 16, 1)
-col_indices = position[:,:,1,:]  # Shape: (N, 16, 1)
-
-logits_gathered = gather_logits(logit_maps, row_indices, col_indices)
-
-# Create the MultiCategorical distribution
-pi = MultiCategorical(logits_gathered)
-
-# Sample from the distribution
-key = jax.random.PRNGKey(0)
-samples = pi.sample(key)
-print("Samples:", samples)
-
-# Calculate log probabilities for given values
-values = jnp.array([0, 1, 2, 3])  # Example values (indices)
-log_probs = pi.log_prob(values)
-print("Log probabilities:", log_probs)
+print("log_prob_a_masked shape:", log_prob_a_masked.shape)
+print("log_prob_a_masked[0]:", log_prob_a_masked[0])
+print("entropy shape:", entropy.shape)
+print("entropy[0]:", entropy[0])

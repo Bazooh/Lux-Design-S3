@@ -60,32 +60,32 @@ class ResidualBlock(nn.Module):
 
 class HybridActorCritic(nn.Module):
     """
-                    Image (C,24,24)
+                    Image (B,C,24,24)
                         |
                         | Transpose
                         V
-                    Image (24,24,C)                    
+                    Image (B,24,24,C)                    
                         |
                         | 1x1-Conv
                         V
-                    Image (24,24,32)
+                    Image (B,24,24,32)
                         |
                         | ResBlock 1
                         V
-                    Image'(24,24,32)
+                    Image'(B,24,24,32)
                     /       \  
-        ResBlock2  /         \  Mean + Value Head (1)
+        ResBlock2  /         \  Mean + Value Head (B)
                   /           \ 
                  V             V
-        Image''(24,24,32)     Output Value
+        Image''(B,24,24,32)     Output Value
                 |
     1x1-Conv    |
                 V
-        Logit Maps(24,24,5)
+        Logit Maps(B,24,24,5)
                 |
     Pos-Masking |
                 V
-            Logits (16,5)
+            Logits (B,16,5)
     """
     action_dim: Sequence[int]
 
@@ -109,64 +109,21 @@ class HybridActorCritic(nn.Module):
             nn.Dense(1),
         ])
 
-        image = image.transpose(0, 2, 3, 1) # (N, C, H, W) -> (N, H, W, C)
+        # Transpose image for channel-last format
+        image = image.transpose(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
 
+        # Compute value using the value head
         x = res_block_1(conv_block_0(image))
-        value = value_head(x.mean(3).mean(2))
-        value = jnp.squeeze(value, axis=-1)
-        
+        value = jnp.squeeze(value_head(x.mean(axis=(2, 3))), axis=-1)
+
+        # Gather logits based on position
         logit_maps = conv_block_1(res_block_2(x))
-        position = jnp.expand_dims(position, axis=-1)  # Shape: (N, 16, 2, 1)
+        row_indices, col_indices = position[..., 0], position[..., 1]  # Shape: (N, 16)
 
-        # Step 3: Extract row and column indices from position
-        row_indices = position[:,:,0,:]  # Shape: (N, 16, 1)
-        col_indices = position[:,:,1,:]  # Shape: (N, 16, 1)
-
-        #  Gather 
-        logits_gathered_H = jnp.take_along_axis(logit_maps, row_indices[..., None], axis=1)  # Shape: (N, 16, W, 5)
-        logits_gathered = jnp.take_along_axis(logits_gathered_H, col_indices[..., None], axis=2)  # Shape: (N, 16, 1, 5)
-        logits_gathered = logits_gathered[:,:,0,:]  # Shape: (N, 16, 5)
-        print("logits_gathered shape", logits_gathered.shape)
-        pi = MultiCategorical(logits_gathered)
-        return pi, value
-    
-class MultiCategorical:
-    def __init__(self, logits):
-        """
-        Args:
-            logits: Array of logits of shape (batch_size, n_categories, n_values)
-        """
-        self.logits = logits
-
-    @partial(jax.vmap, in_axes=(0, None))
-    def sample(self, key: jax.random.PRNGKey):
-        """
-        Sample from the multi-categorical distribution.
-        
-        Args:
-            key: PRNGKey for sampling
-        
-        Returns:
-            samples: Array of shape (batch_size,)
-        """
-        @partial(jax.vmap, in_axes=(0, 1))
-        def single_cat_sampling(key, logits):
-            probs = nn.softmax(logits, axis=-1)  # Apply softmax to get probabilities
-            return jax.random.choice(key, a=logits.shape[-1], p=probs)
-        
-        action_keys = jax.random.split(key, self.logits.shape[0])  # Split key for batch
-        return single_cat_sampling(action_keys, self.logits)
-
-    def log_prob(self, values):
-        """
-        Calculate the log-probability of given values.
-        
-        Args:
-            values: Array of sampled values (indices)
-        
-        Returns:
-            log_probs: Array of log probabilities for each sample
-        """
-        probs = nn.softmax(self.logits, axis=-1)  # Apply softmax to get probabilities
-        # Use the values to index the probabilities along the last axis (n_values)
-        return jnp.log(jnp.take_along_axis(probs, values[..., None], axis=-1).squeeze(-1))
+        logits = logit_maps[
+            jnp.arange(logit_maps.shape[0])[:, None, None],
+            row_indices[..., None],
+            col_indices[..., None],
+            :
+        ][:, :, 0, :]  # Shape: (N, 16, 5)
+        return logits, value

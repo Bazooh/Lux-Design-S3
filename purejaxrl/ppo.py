@@ -109,12 +109,28 @@ def make_train(
         reset_rng = jax.random.split(key, num_envs)
         obsv, env_state = reset_fn(reset_rng, env_params)
 
+        def sample_action(key, logits):
+            action = jax.random.categorical(key=key, logits=logits, axis=-1)  # Shape: (N, 16)
+            return action
+        
+        def get_logprob(logits, mask_awake, action):
+            log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+            log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
+            log_prob_a_masked = log_prob_a * mask_awake  # Shape: (N, 16)
+            log_prob= jnp.mean(log_prob_a_masked, axis=-1)/ jnp.sum(mask_awake, axis=-1)  # Shape: (N,)
+            return(log_prob)
+        
+        def get_entropy(logits):
+            log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+            entropy = -jnp.mean(jnp.sum(jnp.exp(log_prob_group) * log_prob_group, axis=-1), axis=-1)
+            return(entropy)
+        
         # TRAIN LOOP
         @scan_tqdm(num_updates)
         def _update_step(runner_state, update_i):
             # COLLECT TRAJECTORIES
             def _env_step(runner_state, update_i):
-                train_state, networks_params_1, env_state, last_obs, rng, env_params = runner_state
+                train_state, network_params_1, env_state, last_obs, rng, env_params = runner_state
                 #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
                 
                 # GET OBS BATCHES
@@ -124,15 +140,17 @@ def make_train(
 
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(train_state.params, **last_obs_batch_player_0)
-                action = pi.sample(seed=rng)
-                log_prob = pi.log_prob(action)
+                logits, value = network.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 5)
+                mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+                action_0 = sample_action(_rng, logits)
+                log_prob_0 = get_logprob(logits, mask_awake, action_0)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(networks_params_1, **last_obs_batch_player_1)
-                action = pi.sample(seed=rng)
-                log_prob = pi.log_prob(action)
+                logits, value = network.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 5)
+                mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+                action_1 = sample_action(_rng, logits)
+                log_prob_1 = get_logprob(logits, mask_awake, action_1)
 
                 # STEP ENV
                 rng, _rng = jax.random.split(rng)
@@ -162,14 +180,14 @@ def make_train(
 
                 transition = Transition(
                     done = done,
-                    action = action, 
+                    action = action_0, 
                     value = value, 
                     reward = reward_batch_player_0, 
-                    log_prob = log_prob, 
+                    log_prob = log_prob_0, 
                     obs = last_obs_batch_player_0, 
                     info = info
                 )
-                runner_state = (train_state, networks_params_1, env_state, obsv, rng, env_params)
+                runner_state = (train_state, network_params_1, env_state, obsv, rng, env_params)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -218,8 +236,9 @@ def make_train(
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        pi, value = network.apply(params, **traj_batch.obs)
-                        log_prob = pi.log_prob(traj_batch.action)
+                        logits, value = network.apply(params, **traj_batch.obs)
+                        mask_awake = (traj_batch.obs['position'][..., 0] >= 0).astype(jnp.float32)
+                        log_prob = get_logprob(logits, mask_awake, traj_batch.action)
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value + (
@@ -245,7 +264,7 @@ def make_train(
                         )
                         loss_actor = -jnp.minimum(loss_actor1, loss_actor2)
                         loss_actor = loss_actor.mean()
-                        entropy = pi.entropy().mean()
+                        entropy = get_entropy(logits).mean()
 
                         total_loss = (
                             loss_actor
