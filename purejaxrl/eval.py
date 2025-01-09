@@ -1,14 +1,18 @@
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from agents.base_agent import Agent
-
+from network import HybridActorCritic
 import jax, chex
 from sample_params import sample_params_fn
 import dataclasses
 from typing import Any
-def eval(
-        agent_0_class: Agent, 
-        agent_1_class: Agent, 
+import jax.numpy as jnp
+from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch
+
+def eval_checkpoints(
+        network: Any,
+        network_params_0: Any, 
+        network_params_1: Any, 
         eval_env: Any, 
         key: chex.PRNGKey,
         num_eval_episodes: int = 4
@@ -22,8 +26,6 @@ def eval(
     # define the vmapped functions 
     reset_fn = jax.vmap(eval_env.reset)
     step_fn = jax.vmap(eval_env.step)
-    action_space = (eval_env.action_space())
-    sample_action_fn = jax.vmap(action_space.sample)
 
     # sample random params initially
     rng, _rng = jax.random.split(rng)
@@ -35,32 +37,10 @@ def eval(
     reset_rng = jax.random.split(key, num_envs)
     obs, state = reset_fn(reset_rng, env_params)
 
-    # and make the first step
-    rng, _rng = jax.random.split(rng)
-    rng_step = jax.random.split(key, num_envs)
-    obs, state, reward, done, info = step_fn(
-        rng_step,
-        state,
-        sample_action_fn(rng_step),
-        env_params,
-    )
-
     max_episode_steps = (
         eval_env.fixed_env_params.max_steps_in_match + 1
-    ) * eval_env.fixed_env_params.match_count_per_episode # 501 * 5 steps per env
+    ) * eval_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
 
-    # initialise the agents
-    agent_0 = agent_0_class(player = "player_0", env_cfg = dataclasses.asdict(env_params))
-    agent_1 = agent_1_class(player = "player_1", env_cfg = dataclasses.asdict(env_params))
-
-
-    def forward(
-        name
-    ):
-        if name == "player_0":
-            return eval_env.action_space()
-        else: 
-            return eval_env.action_space()
 
     @jax.jit
     def five_games_rollout(runner_state):
@@ -68,15 +48,31 @@ def eval(
             env_state, last_obs, rng, env_params = runner_state
             rng, _rng = jax.random.split(rng)
             rng_step = jax.random.split(_rng, num_envs)
-
-            # forward
-            rngs = jax.random.split(_rng, 2*num_envs).reshape((2, num_envs, -1))
-            actions = {k: jax.vmap(forward(k).sample)(rngs[i]) for i, k in enumerate(["player_0", "player_1",])}
             
+            # GET OBS BATCHES
+            last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs, eval_env.players)
+
+            # SELECT ACTION: PLAYER 0
+            rng, _rng = jax.random.split(rng)
+            logits, value = network.apply(network_params_0, **last_obs_batch_player_0) # probs is (N, 16, 5)
+            mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+            action_0 = sample_action(_rng, logits)
+            log_prob_0 = get_logprob(logits, mask_awake, action_0)
+
+            # SELECT ACTION: PLAYER 1
+            rng, _rng = jax.random.split(rng)
+            logits, value = network.apply(network_params_1, **last_obs_batch_player_0) # probs is (N, 16, 5)
+            mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+            action_1 = sample_action(_rng, logits)
+            log_prob_1 = get_logprob(logits, mask_awake, action_1)
+        
             obs, env_state, reward, done, info = step_fn(
                 rng_step,
                 env_state,
-                actions,
+                {
+                    eval_env.players[0]: action_0,
+                    eval_env.players[1]: action_1,
+                },
                 env_params,
             )
             return (env_state, last_obs, rng, env_params), (
@@ -90,11 +86,11 @@ def eval(
         _, (obs, env_state, reward, done, info) = jax.lax.scan(
             _env_step, runner_state, length=max_episode_steps, unroll=1
         ) # at the end, reward contains the vector of the different game results
-        return reward
+        return info
     
     runner_state = state, obs, rng, env_params
-    reward = five_games_rollout(runner_state)
-    return reward
+    info = five_games_rollout(runner_state)
+    return info
 
 
 
@@ -104,10 +100,24 @@ if __name__ == "__main__":
 
     seed = 1
     eval_env = make_env(seed)
-    eval_key = jax.random.PRNGKey(seed)
-    eval(
-        agent_0_class = Agent, 
-        agent_1_class = Agent, 
-        key = eval_key, 
+    key = jax.random.PRNGKey(seed)
+    # INIT NETWORK
+    network = HybridActorCritic(
+        action_dim=eval_env.action_space.n,
+    )
+    # init params 0
+    rng, _rng = jax.random.split(key)
+    init_x = eval_env.observation_space.sample(rng)
+    init_x = {feat: jnp.expand_dims(value, axis=0) for feat, value in init_x.items()}
+    network_params_0 = network.init(_rng, **init_x)
+    rng, _rng = jax.random.split(key)
+    network_params_1 = network.init(_rng, **init_x)
+
+    reward = eval_checkpoints(
+        network = network,
+        network_params_0 = network_params_0,
+        network_params_1 = network_params_1,
+        key = key, 
         eval_env = eval_env
     )
+    print("reward:", reward["player_0"].shape, reward)

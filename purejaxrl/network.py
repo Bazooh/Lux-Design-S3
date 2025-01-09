@@ -81,11 +81,11 @@ class HybridActorCritic(nn.Module):
                 |
     1x1-Conv    |
                 V
-        Logit Maps(B,24,24,5)
+        Logit Maps(B,24,24,6)
                 |
     Pos-Masking |
                 V
-            Logits (B,16,5)
+            Logits (B,16,6)
     """
     action_dim: Sequence[int]
 
@@ -125,5 +125,5 @@ class HybridActorCritic(nn.Module):
             row_indices[..., None],
             col_indices[..., None],
             :
-        ][:, :, 0, :]  # Shape: (N, 16, 5)
+        ][:, :, 0, :]  # Shape: (N, 16, 6)
         return logits, value
