@@ -4,7 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 import jax.numpy as jnp
 import optax
-from network import ActorCritic
+from network import HybridActorCritic
 from flax.training.train_state import TrainState
 from make_env import make_env
 from typing import NamedTuple, Any
@@ -26,9 +26,11 @@ class Transition(NamedTuple):
     value: jnp.ndarray
     reward: jnp.ndarray
     log_prob: jnp.ndarray
-    obs: jnp.ndarray
+    obs: dict
     info: jnp.ndarray
 
+def get_obs_batch(player, obs):
+    return {key: obs[player][key] for key in obs[player]}
 
 def make_train(
         total_timesteps: int = 1e5,
@@ -68,15 +70,16 @@ def make_train(
         start_time = time.time()
         
         # INIT NETWORK
-        network = ActorCritic(
-            action_dim=4,
+        network = HybridActorCritic(
+            action_dim=5,
         )
         # init params 0
         rng, _rng = jax.random.split(key)
-        init_x = jnp.zeros(24, dtype='float32')
-        network_params_0 = network.init(_rng, init_x)
+        init_x = env.observation_space.sample(rng)
+        init_x = {feat: jnp.expand_dims(value, axis=0) for feat, value in init_x.items()}
+        network_params_0 = network.init(_rng, **init_x)
         rng, _rng = jax.random.split(key)
-        network_params_1 = network.init(_rng, init_x)
+        network_params_1 = network.init(_rng, **init_x)
 
         #create TrainState objects
         transform_lr = optax.chain(
@@ -115,20 +118,20 @@ def make_train(
                 #jax.debug.print("unit_sap_range: {}", env_params.unit_sap_range)
                 
                 # GET OBS BATCHES
-                last_obs_batch = jnp.stack([last_obs[a] for a in env.players])
+                last_obs_batch = [get_obs_batch(player, last_obs) for player in env.players]
                 last_obs_batch_player_0 = last_obs_batch[0]
                 last_obs_batch_player_1 = last_obs_batch[1]
-                
+
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(train_state.params, last_obs_batch_player_0)
-                action = pi.sample(seed=_rng)
+                pi, value = network.apply(train_state.params, **last_obs_batch_player_0)
+                action = pi.sample(seed=rng)
                 log_prob = pi.log_prob(action)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
-                pi, value = network.apply(networks_params_1, last_obs_batch_player_1)
-                action = pi.sample(seed=_rng)
+                pi, value = network.apply(networks_params_1, **last_obs_batch_player_1)
+                action = pi.sample(seed=rng)
                 log_prob = pi.log_prob(action)
 
                 # STEP ENV
@@ -138,7 +141,7 @@ def make_train(
                 obsv, env_state, reward, done, info = step_fn(rng_step, env_state, action_sampled, env_params)
                 reward_batch =  jnp.stack([reward[a] for a in env.players])
                 reward_batch_player_0 = reward_batch[0]
-                reward_batch_player_1 = reward_batch[0]
+                reward_batch_player_1 = reward_batch[1]
 
                 # Reset environments where `done` is True
                 def reset_or_keep(obs, state, params, done, rng):
@@ -176,10 +179,10 @@ def make_train(
             # CALCULATE ADVANTAGE
             train_state, network_params_1, env_state, last_obs, rng, env_params = runner_state
             # GET OBS BATCHES
-            last_obs_batch = jnp.stack([last_obs[a] for a in env.players])
+            last_obs_batch = [get_obs_batch(player, last_obs) for player in env.players]
             last_obs_batch_player_0 = last_obs_batch[0]
             last_obs_batch_player_1 = last_obs_batch[1]
-            _, last_val = network.apply(train_state.params, last_obs_batch_player_0)
+            _, last_val = network.apply(train_state.params, **last_obs_batch_player_0)
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition):
@@ -215,7 +218,7 @@ def make_train(
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # RERUN NETWORK
-                        pi, value = network.apply(params, traj_batch.obs)
+                        pi, value = network.apply(params, **traj_batch.obs)
                         log_prob = pi.log_prob(traj_batch.action)
 
                         # CALCULATE VALUE LOSS
@@ -261,6 +264,7 @@ def make_train(
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
+
                 # Batching and Shuffling
                 batch_size = minibatch_size * num_minibatches
                 assert (
@@ -268,6 +272,7 @@ def make_train(
                 ), "batch size must be equal to number of steps * number of envs"
                 permutation = jax.random.permutation(_rng, batch_size)
                 batch = (traj_batch, advantages, targets)
+
                 batch = jax.tree_util.tree_map(
                     lambda x: x.reshape((batch_size,) + x.shape[2:]), batch
                 )
@@ -337,7 +342,8 @@ if __name__ == "__main__":
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,
-        "num_envs": 16,
+        "num_envs": 8,
+        "debug": False,
     }
 
     train_jit = jax.jit(make_train(**args))

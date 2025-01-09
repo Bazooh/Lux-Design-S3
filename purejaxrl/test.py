@@ -1,81 +1,76 @@
 import jax
-from luxai_s3.params import EnvParams
-from luxai_s3.env import LuxAIS3Env
-import numpy as np 
-import time
-from sample_params import sample_params, sample_params_fn
-# the first env params is not batched and is used to initialize any static / unchaging values
-# like map size, max units etc.
-# note auto_reset=False for speed reasons. If True, the default jax code will attempt to reset each time and discard the reset if its not time to reset
-# due to jax branching logic. It should be kept false and instead lax.scan followed by a reset after max episode steps should be used when possible since games
-# can't end early.
+import jax.numpy as jnp
+import jax.nn as nn
+from functools import partial
 
-# hyperparams
-env = LuxAIS3Env(auto_reset=False, fixed_env_params=EnvParams())
-num_envs = 16
-seed = 0
-np.random.seed(seed)
-rng_key = jax.random.key(seed)
+class MultiCategorical:
+    def __init__(self, logits):
+        """
+        Args:
+            logits: Array of logits of shape (batch_size, n_categories, n_values)
+        """
+        self.logits = logits
 
 
-# define the vmapped functions 
-reset_fn = jax.vmap(env.reset)
-step_fn = jax.vmap(env.step)
-action_space = (
-    env.action_space()
-) 
+    def sample(self, key: jax.random.PRNGKey):
+        """
+        Sample from the multi-categorical distribution.
+        
+        Args:
+            key: PRNGKey for sampling
+        
+        Returns:
+            samples: Array of shape (batch_size,)
+        """
+        @partial(jax.vmap, in_axes=(0, 1))
+        def single_cat_sampling(key, logits):
+            probs = nn.softmax(logits, axis=-1)  # Apply softmax to get probabilities
+            return jax.random.choice(key, a=logits.shape[-1], p=probs)
+        
+        action_keys = jax.random.split(key, self.logits.shape[0])  # Split key for batch
+        return single_cat_sampling(action_keys, self.logits)
 
-sample_action = jax.vmap(action_space.sample)
+    def log_prob(self, values):
+        """
+        Calculate the log-probability of given values.
+        
+        Args:
+            values: Array of sampled values (indices)
+        
+        Returns:
+            log_probs: Array of log probabilities for each sample
+        """
+        probs = nn.softmax(self.logits, axis=-1)  # Apply softmax to get probabilities
+        # Use the values to index the probabilities along the last axis (n_values)
+        return jnp.log(jnp.take_along_axis(probs, values[..., None], axis=-1).squeeze(-1))
 
-# sample random params initially
-rng_key, subkey = jax.random.split(rng_key)
-env_params = sample_params_fn(jax.random.split(subkey, num_envs))
+def gather_logits(logit_maps, row_indices, col_indices):
+    # Gather the logits based on row_indices and col_indices
+    logits_gathered_H = jnp.take_along_axis(logit_maps, row_indices[..., None], axis=1)  # Shape: (N, 16, W, 5)
+    logits_gathered = jnp.take_along_axis(logits_gathered_H, col_indices[..., None], axis=2)  # Shape: (N, 16, 1, 5)
+    logits_gathered = logits_gathered[:,:,0,:]  # Shape: (N, 16, 5)
+    print("logits_gathered shape", logits_gathered.shape)
+    return logits_gathered
 
-obs, state = reset_fn(jax.random.split(subkey, num_envs), env_params)
-obs, state, reward, terminated_dict, truncated_dict, info = step_fn(
-    jax.random.split(subkey, num_envs),
-    state,
-    sample_action(jax.random.split(subkey, num_envs)),
-    env_params,
-)
+# Example usage
+logit_maps = jnp.ones((4, 16, 10, 5)) 
+position = jnp.ones((1, 16, 2), dtype=jnp.int8)  
+position = jnp.expand_dims(position, axis=-1)  # Shape: (N, 16, 2, 1)
+# Step 3: Extract row and column indices from position
+row_indices = position[:,:,0,:]  # Shape: (N, 16, 1)
+col_indices = position[:,:,1,:]  # Shape: (N, 16, 1)
 
-max_episode_steps = (
-    env.fixed_env_params.max_steps_in_match + 1
-) * env.fixed_env_params.match_count_per_episode
-rng_key, subkey = jax.random.split(rng_key)
+logits_gathered = gather_logits(logit_maps, row_indices, col_indices)
 
-@jax.jit
-def random_rollout(rng_key, state, env_params):
-    def take_step(carry, _):
-        rng_key, state = carry
-        rng_key, subkey = jax.random.split(rng_key)
-        obs, state, reward, terminated_dict, truncated_dict, info = step_fn(
-            jax.random.split(subkey, num_envs),
-            state,
-            sample_action(jax.random.split(subkey, num_envs)),
-            env_params,
-        )
-        return (rng_key, state), (
-            obs,
-            state,
-            reward,
-            terminated_dict,
-            truncated_dict,
-            info,
-        )
+# Create the MultiCategorical distribution
+pi = MultiCategorical(logits_gathered)
 
-    _, (obs, state, reward, terminated_dict, truncated_dict, info) = jax.lax.scan(
-        take_step, (rng_key, state), length=max_episode_steps, unroll=1
-    )
-    return obs, state, reward, terminated_dict, truncated_dict, info
+# Sample from the distribution
+key = jax.random.PRNGKey(0)
+samples = pi.sample(key)
+print("Samples:", samples)
 
-
-if __name__ == "__main__":
-    jax.config.update("jax_numpy_dtype_promotion", "strict")
-    st = time.time()
-    random_rollout(subkey, state, env_params)
-
-    print(f"FPS {max_episode_steps*num_envs/(time.time()-st)}")
-
-
-
+# Calculate log probabilities for given values
+values = jnp.array([0, 1, 2, 3])  # Example values (indices)
+log_probs = pi.log_prob(values)
+print("Log probabilities:", log_probs)
