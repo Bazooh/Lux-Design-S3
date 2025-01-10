@@ -1,4 +1,6 @@
-# TODO (stao): Add lux ai s3 env to gymnax api wrapper, which is the old gym api
+import sys, os
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+#  TODO (stao): Add lux ai s3 env to gymnax api wrapper, which is the old gym api
 import json
 import os
 from typing import Any, Literal, SupportsFloat, TYPE_CHECKING
