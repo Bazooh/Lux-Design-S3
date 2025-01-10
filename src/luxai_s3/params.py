@@ -1,5 +1,6 @@
 from flax import struct
-
+import jax
+import jax.numpy as jnp
 MAP_TYPES = ["dev0", "random"]
 
 
@@ -98,3 +99,15 @@ env_params_ranges = dict(
     energy_node_drift_speed=[0.01, 0.02, 0.03, 0.04, 0.05],
     energy_node_drift_magnitude=list(range(3, 6)),
 )
+
+
+def serialize_env_params(env_params: EnvParams) -> dict:
+    serialized = {}
+    for field_name, field_value in env_params.__dict__.items():
+        if isinstance(field_value, (int, float, str, bool)):  # Directly serializable types
+            serialized[field_name] = field_value
+        elif isinstance(field_value, list) or isinstance(field_value, tuple):  # Serialize lists/tuples
+            serialized[field_name] = list(field_value)
+        elif isinstance(field_value, jnp.ndarray):  # Convert JAX arrays to lists
+            serialized[field_name] = jax.device_get(field_value).tolist()
+    return serialized

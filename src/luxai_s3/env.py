@@ -38,7 +38,7 @@ class LuxAIS3Env(environment.Environment):
         self.auto_reset = auto_reset
         self.fixed_env_params = fixed_env_params
         """fixed env params for concrete/static values. Necessary for jit/vmap capability with randomly sampled maps which must of consistent shape"""
-
+        self.players = ["player_0", "player_1"]
     @property
     def default_params(self) -> EnvParams:
         params = EnvParams()
