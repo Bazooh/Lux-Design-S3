@@ -1,7 +1,7 @@
 import numpy as np
 from agents.base_agent import Agent, N_Actions, N_Agents
 from agents.obs import Obs
-from luxai_s3.state import EnvParams
+from luxai_s3.state import EnvParams,EnvObs
 from typing import Any
 import jax
 import jax.numpy as jnp
@@ -42,7 +42,7 @@ class JaxAgent(Agent):
 
     def _actions(
         self, 
-        obs: Obs,
+        obs: EnvObs,
         remainingOverageTime: int = 60
     ):
         transformed_obs = self.transform_obs.convert(team_id_str=self.player, obs = obs, params=EnvParams.from_dict(self.env_params), reward = 0) 
@@ -60,4 +60,4 @@ class JaxAgent(Agent):
     def act(
         self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        return self.actions(Obs.from_dict(obs), remainingOverageTime)
+        return self.actions(EnvObs.from_dict(obs), remainingOverageTime)
