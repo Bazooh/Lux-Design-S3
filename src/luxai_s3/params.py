@@ -2,7 +2,7 @@ from flax import struct
 import jax
 import jax.numpy as jnp
 MAP_TYPES = ["dev0", "random"]
-
+from typing import Any
 
 @struct.dataclass
 class EnvParams:
@@ -83,6 +83,9 @@ class EnvParams:
 
     # option to change sap configurations
 
+    @staticmethod
+    def from_dict(env_params: dict[str, Any]) -> "EnvParams":
+        return EnvParams(**env_params)
 
 env_params_ranges = dict(
     # map_type=[1],

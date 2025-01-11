@@ -6,7 +6,7 @@ from luxai_s3.params import EnvParams, env_params_ranges
 
 class TransformReward(ABC):
     """
-    Abstract base class for converting observations into tensor representations.
+    Abstract base class for reshaping rewards
     """
 
     def __init__(self, symmetry: bool = True):

@@ -3,12 +3,11 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from agents.base_agent import Agent
 from network import HybridActorCritic
 import jax, chex
-from sample_params import sample_params, sample_params_fn
 import dataclasses
 from typing import Any
 import jax.numpy as jnp
-from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch
-import time
+from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, sample_params
+
 def eval_checkpoints(
         network: Any,
         network_params_0: Any, 
@@ -26,6 +25,7 @@ def eval_checkpoints(
     # define the vmapped functions 
     reset_fn = jax.vmap(eval_env.reset)
     step_fn = jax.vmap(eval_env.step)
+    sample_params_fn = jax.vmap(sample_params)
 
     # sample random params initially
     rng, _rng = jax.random.split(rng)
@@ -114,7 +114,6 @@ def run_episode_and_record(
     ) * eval_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
 
     points = jax.numpy.zeros((max_episode_steps, 2))
-    st = time.time()
 
     @jax.jit
     def jitted_get_actions(rng, obs, network_params_0, network_params_1):
@@ -143,7 +142,7 @@ def run_episode_and_record(
         reward_batch =  jnp.stack([reward[a] for a in eval_env.players])
 
         points = points.at[step_idx].set(reward_batch)
-        st = time.time()
+
     rec_env.close()
     return points # shape (max_episode_steps, 2)
 

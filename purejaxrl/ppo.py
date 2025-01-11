@@ -10,9 +10,8 @@ from make_env import make_env
 from typing import NamedTuple, Any
 import time
 from free_memory import reset_device_memory
-from sample_params import sample_params_fn, sample_params
 from jax_tqdm import scan_tqdm
-from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch
+from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, init_network_params, sample_params
 """
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -74,11 +73,9 @@ def make_train(
         )
         # init params 0
         rng, _rng = jax.random.split(key)
-        init_x = env.observation_space.sample(rng)
-        init_x = {feat: jnp.expand_dims(value, axis=0) for feat, value in init_x.items()}
-        network_params_0 = network.init(_rng, **init_x)
+        network_params_0 = init_network_params(_rng, network, env)
         rng, _rng = jax.random.split(key)
-        network_params_1 = network.init(_rng, **init_x)
+        network_params_1 = init_network_params(_rng, network, env)
 
         #create TrainState objects
         transform_lr = optax.chain(
@@ -96,6 +93,7 @@ def make_train(
         reset_rng = jax.random.split(_rng, num_envs) # create num_envs seed out of 1 seed
         reset_fn = jax.vmap(env.reset)
         step_fn = jax.vmap(env.step)
+        sample_params_fn = jax.vmap(sample_params)
         
         # sample random params initially
         rng, _rng = jax.random.split(rng)
@@ -189,12 +187,11 @@ def make_train(
                         transition.value,
                         transition.reward,
                     )
-                    with jax.numpy_dtype_promotion('standard'): 
-                        delta = reward + gamma * next_value * (1 - done) - value
-                        gae = (
-                            delta
-                            + gamma * gae_lambda * (1 - done) * gae
-                        )
+                    delta = reward + gamma * next_value * (1 - done) - value
+                    gae = (
+                        delta
+                        + gamma * gae_lambda * (1 - done) * gae
+                    )
                     return (gae, value), gae
 
                 _, advantages = jax.lax.scan(
@@ -252,12 +249,12 @@ def make_train(
                         )
                         return total_loss, (value_loss, loss_actor, entropy)
 
-                    with jax.numpy_dtype_promotion('standard'): 
-                        grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                        total_loss, grads = grad_fn(
-                            train_state.params, traj_batch, advantages, targets
-                        )
-                        train_state = train_state.apply_gradients(grads=grads)
+
+                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+                    total_loss, grads = grad_fn(
+                        train_state.params, traj_batch, advantages, targets
+                    )
+                    train_state = train_state.apply_gradients(grads=grads)
                     return train_state, total_loss
 
                 train_state, traj_batch, advantages, targets, rng = update_state
@@ -336,7 +333,7 @@ def make_train(
 
 
 if __name__ == "__main__":
-    jax.config.update("jax_numpy_dtype_promotion", "strict")
+    jax.config.update("jax_numpy_dtype_promotion", "standard")
     reset_device_memory()
     args = {
         "total_timesteps": 1e5,

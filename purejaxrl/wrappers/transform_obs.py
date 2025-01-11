@@ -113,45 +113,44 @@ class HybridTransformObs(TransformObs):
             (self.vector_size), 
             dtype=jax.numpy.float32
         )
-        
-        with jax.numpy_dtype_promotion('standard'): 
-            ############# HANDLES IMAGE ##############
-            image = image.at[0].set(obs.sensor_mask) # unknown
-            image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
-            image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
-            image = image.at[3, obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)# relics
-            image = image.at[4].set(obs.map_features.energy / 20) # energy field
+    
+        ############# HANDLES IMAGE ##############
+        image = image.at[0].set(obs.sensor_mask) # unknown
+        image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
+        image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
+        image = image.at[3, obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)# relics
+        image = image.at[4].set(obs.map_features.energy / 20) # energy field
 
-            # enemy units and ally units
-            positions = jax.numpy.array(obs.units.position)
-            image = image.at[
-                5,
-                positions[1 - team_id, :, 0],
-                positions[1 - team_id, :, 1],
-            ].set((obs.units.energy[1 - team_id] + 1) / 400)
+        # enemy units and ally units
+        positions = jax.numpy.array(obs.units.position)
+        image = image.at[
+            5,
+            positions[1 - team_id, :, 0],
+            positions[1 - team_id, :, 1],
+        ].set((obs.units.energy[1 - team_id] + 1) / 400)
 
-            image = image.at[
-                6,
-                positions[team_id, :, 0],
-                positions[team_id, :, 1],
-            ].set(obs.units.energy[team_id] + 1) / 400
+        image = image.at[
+            6,
+            positions[team_id, :, 0],
+            positions[team_id, :, 1],
+        ].set(obs.units.energy[team_id] + 1) / 400
 
 
-            ############# GET INDIVIDUAL VECTORS ##############
+        ############# GET INDIVIDUAL VECTORS ##############
 
-            # Game parameters
-            vector = vector.at[0].set(params.unit_move_cost)
-            vector = vector.at[1].set(params.unit_sensor_range)
-            vector = vector.at[2].set(params.nebula_tile_vision_reduction)
-            vector = vector.at[3].set(params.nebula_tile_energy_reduction)
-            vector = vector.at[4].set(params.unit_sap_cost)
-            vector = vector.at[5].set(params.unit_sap_range)
-            vector = vector.at[6].set(params.unit_sap_dropoff_factor)
-            vector = vector.at[7].set(params.unit_energy_void_factor)
-            vector = vector.at[8].set(params.nebula_tile_drift_speed)
-            vector = vector.at[9].set(params.energy_node_drift_speed)
-            vector = vector.at[10].set(params.energy_node_drift_magnitude)
+        # Game parameters
+        vector = vector.at[0].set(params.unit_move_cost)
+        vector = vector.at[1].set(params.unit_sensor_range)
+        vector = vector.at[2].set(params.nebula_tile_vision_reduction)
+        vector = vector.at[3].set(params.nebula_tile_energy_reduction)
+        vector = vector.at[4].set(params.unit_sap_cost)
+        vector = vector.at[5].set(params.unit_sap_range)
+        vector = vector.at[6].set(params.unit_sap_dropoff_factor)
+        vector = vector.at[7].set(params.unit_energy_void_factor)
+        vector = vector.at[8].set(params.nebula_tile_drift_speed)
+        vector = vector.at[9].set(params.energy_node_drift_speed)
+        vector = vector.at[10].set(params.energy_node_drift_magnitude)
 
-            # current_points
-            vector= vector.at[11].set(obs.team_points[team_id])
+        # current_points
+        vector= vector.at[11].set(obs.team_points[team_id])
         return {'image': image, 'vector': vector, 'position': obs.units.position[team_id]}

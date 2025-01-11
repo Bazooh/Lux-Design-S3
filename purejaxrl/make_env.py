@@ -4,21 +4,20 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from typing import Any
 import jax
 import numpy as np
-
-# base env
+from purejaxrl.utils import sample_params
+# base env and wrappers
 from luxai_s3.params import EnvParams
 from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName, EnvParams
-
-# wrappers
-from purejaxrl.wrappers.base_wrappers import LogWrapper, SimplifyTruncation, SimplifyAction
+from purejaxrl.wrappers.base_wrappers import LogWrapper, SimplifyTruncation, TransformActionWrapper, TransformObsWrapper, TransformRewardWrapper
 from purejaxrl.wrappers.record_wrapper import RecordEpisode
+
 # obs
-from purejaxrl.wrappers.obs_wrappers import TransformObsWrapper
 from purejaxrl.wrappers.transform_obs import HybridTransformObs
 # reward
-from purejaxrl.wrappers.reward_wrappers import TransformRewardWrapper
 from purejaxrl.wrappers.transform_reward import BasicPointBasedReward
-from sample_params import sample_params
+# action
+from purejaxrl.wrappers.transform_action import SimplerActionNoSap
+
 
 
 def make_env(record = False, **record_kwargs):
@@ -28,9 +27,9 @@ def make_env(record = False, **record_kwargs):
     if record:
         env = RecordEpisode(env, **record_kwargs)
 
-    env = SimplifyAction(env)
     env = TransformObsWrapper(env, HybridTransformObs())
     env = TransformRewardWrapper(env, BasicPointBasedReward())
+    env = TransformActionWrapper(env, SimplerActionNoSap())
     env = LogWrapper(env) # always has to be last ! 
     return env
 
