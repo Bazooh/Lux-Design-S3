@@ -13,7 +13,7 @@ from tqdm import tqdm
 from agents.models.dense import CNN
 from luxai_s3.wrappers import RecordEpisode, PlayerAction, Actions
 from agents.rl_agent import BasicRLAgent, RLAgent
-from rule_based.naive.naive_agent import NaiveAgent
+from rule_based.naive.agent import NaiveAgent
 from agents.reward_shapers.reward import Reward
 
 import time

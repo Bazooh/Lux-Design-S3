@@ -5,7 +5,7 @@ import numpy as np
 from tqdm import tqdm
 from agents.models.dense import CNN
 from agents.rl_agent import BasicRLAgent
-from rule_based.naive.naive_agent import NaiveAgent
+from rule_based.naive.agent import NaiveAgent
 from agents.tensor_converters.tensor import BasicMapExtractor
 from luxai_s3.wrappers import RecordEpisode
 from luxai_s3.env import Actions
