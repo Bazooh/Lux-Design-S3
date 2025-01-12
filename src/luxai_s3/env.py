@@ -1,8 +1,7 @@
 import functools
-from typing import Any, Dict, Optional, Tuple, Union, Literal
+from typing import Any, Dict, Optional, Tuple, Literal
 
 import chex
-import gymnax
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -26,6 +25,7 @@ from luxai_s3.pygame_render import LuxAIPygameRenderer
 
 PlayerName = Literal["player_0", "player_1"]
 PlayerAction = np.ndarray[tuple[Literal[16], Literal[3]], np.dtype[np.int32]]
+PlayerReward = np.ndarray[Literal[16], np.dtype[np.float32]]
 Actions = dict[PlayerName, PlayerAction]
 
 

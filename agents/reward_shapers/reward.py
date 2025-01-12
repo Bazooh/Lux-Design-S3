@@ -21,34 +21,21 @@ class RewardShaper(ABC):
         self,
         env_params: EnvParams,
         last_reward: Reward,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
         team_id: int,
     ) -> Reward:
-        """
-        Convert an observation into an np.array representation of the reward.
+        """Convert an observation into an np.array representation of the reward."""
 
-        Args:
-            previous_obs (Obs): The previous environment observation.
-            env_reward (float): The environment reward.
-            obs (Obs): The environment observation.
-            team_id (int): The team identifier.
+    def __add__(self, other: "RewardShaper") -> "RewardShaper":
+        return RewardShaperAdder(self, other)
 
-        Returns:
-            torch.Tensor of shape (num_agents, )
-        """
+    def __mul__(self, scalar: float) -> "RewardShaper":
+        return RewardShaperScaler(self, scalar)
 
-        def __add__(self, other: "RewardShaper") -> "RewardShaper":
-            return RewardShaperAdder(self, other)
-
-        def __mul__(self, scalar: float) -> "RewardShaper":
-            return RewardShaperScaler(self, scalar)
-
-        def __rmul__(self, scalar: float) -> "RewardShaper":
-            return RewardShaperScaler(self, scalar)
+    def __rmul__(self, scalar: float) -> "RewardShaper":
+        return RewardShaperScaler(self, scalar)
 
 
 class RewardShaperAdder(RewardShaper):
@@ -74,8 +61,6 @@ class DefaultRewardShaper(RewardShaper):
         self,
         env_params: EnvParams,
         last_reward: Reward,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
@@ -89,8 +74,6 @@ class GreedyRewardShaper(RewardShaper):
         self,
         env_params: EnvParams,
         last_reward: Reward,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
@@ -112,13 +95,38 @@ class GreedyRewardShaper(RewardShaper):
         return reward.numpy()
 
 
+class DistanceToNearestRelicRewardShaper(RewardShaper):
+    def convert(
+        self,
+        env_params: EnvParams,
+        last_reward: Reward,
+        actions: PlayerAction,
+        next_obs: Obs,
+        next_tensor_obs: torch.Tensor,
+        team_id: int,
+    ) -> Reward:
+        if not next_obs.relic_nodes_mask.any():
+            return -np.ones(self.max_agents, dtype=np.float32)
+
+        units_position_tensor = torch.from_numpy(next_obs.units.position[team_id]).int()
+        relic_position_tensor = torch.from_numpy(
+            next_obs.relic_nodes[next_obs.relic_nodes_mask]
+        ).int()
+
+        x_diff = units_position_tensor[:, 0].unsqueeze(1) - relic_position_tensor[:, 0]
+        y_diff = units_position_tensor[:, 1].unsqueeze(1) - relic_position_tensor[:, 1]
+
+        distance = ((x_diff**2 + y_diff**2) / (2 * 24**2)).sqrt().min(dim=1).values
+        clamped_distance = distance.clamp(min=(1 / 12) ** 2)
+
+        return (1 - clamped_distance).numpy()
+
+
 class ExploreRewardShaper(RewardShaper):
     def convert(
         self,
         env_params: EnvParams,
         last_reward: Reward,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,
@@ -134,8 +142,6 @@ class GreedyExploreRewardShaper(RewardShaper):
         self,
         env_params: EnvParams,
         last_reward: Reward,
-        obs: Obs,
-        tensor_obs: torch.Tensor,
         actions: PlayerAction,
         next_obs: Obs,
         next_tensor_obs: torch.Tensor,

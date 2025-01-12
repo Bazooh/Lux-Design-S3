@@ -1,16 +1,41 @@
 from dataclasses import dataclass
+
+import torch
+
+from agents.reward_shapers.reward import RewardShaper
+from agents.rl_agent import symetric_action
+from agents.tensor_converters.tensor import TensorConverter
 from luxai_runner.episode import json_to_html
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.wrappers import LuxAIS3GymEnv, PlayerName
-from agents.obs import EnvParams, GodObs
-from typing import Any, Literal
+from agents.obs import EnvParams, GodObs, VecEnvParams
+from typing import Any, Callable, Literal
 import gymnasium as gym
-from gym.vector import SyncVectorEnv
+from gymnasium.vector import SyncVectorEnv
 import os
 import flax
 import flax.serialization
 from pathlib import Path
 import numpy as np
+from agents.base_agent import N_Actions, N_Agents, N_Players
+
+BatchSize = int
+N_Channels = int
+
+PlayerAgentMask = np.ndarray[tuple[N_Players, N_Agents], np.dtype[np.bool_]]
+
+VecPlayerAction = np.ndarray[
+    tuple[BatchSize, N_Players, N_Agents, N_Actions], np.dtype[np.int32]
+]
+VecPlayerObservation = np.ndarray[
+    tuple[BatchSize, N_Players, N_Channels, 24, 24], np.dtype[np.float32]
+]
+VecPlayerReward = np.ndarray[
+    tuple[BatchSize, N_Players, N_Agents], np.dtype[np.float32]
+]
+VecPlayerAgentMask = np.ndarray[
+    tuple[BatchSize, N_Players, N_Agents], np.dtype[np.bool_]
+]
 
 
 class EnvInterface(LuxAIS3GymEnv):
@@ -124,48 +149,18 @@ class RecordEpisode(gym.Wrapper):
             self._save_episode_and_reset()
 
 
-class EnvInterfaceForVec(LuxAIS3GymEnv):
-    player_observation_space = gym.spaces.Dict(
-        {
-            "units": gym.spaces.Dict(
-                {
-                    "position": gym.spaces.Box(
-                        low=-1, high=23, shape=(2, 16, 2), dtype=np.int32
-                    ),
-                    "energy": gym.spaces.Box(
-                        low=-1, high=400, shape=(2, 16), dtype=np.int32
-                    ),
-                }
-            ),
-            "units_mask": gym.spaces.MultiBinary((2, 16)),
-            "sensor_mask": gym.spaces.MultiBinary((24, 24)),
-            "map_features": gym.spaces.Dict(
-                {
-                    "energy": gym.spaces.Box(
-                        low=-20, high=20, shape=(24, 24), dtype=np.int32
-                    ),
-                    "tile_type": gym.spaces.Box(
-                        low=-1, high=2, shape=(24, 24), dtype=np.int32
-                    ),
-                }
-            ),
-            "relic_nodes": gym.spaces.Box(
-                low=-1, high=23, shape=(6, 2), dtype=np.int32
-            ),
-            "relic_nodes_mask": gym.spaces.MultiBinary((6,)),
-            "team_points": gym.spaces.Box(low=0, high=1000, shape=(2,), dtype=np.int32),
-            "team_wins": gym.spaces.Box(low=0, high=5, shape=(2,), dtype=np.int32),
-            "steps": gym.spaces.Discrete(500),
-            "match_steps": gym.spaces.Discrete(100),
-        }
-    )
-    observation_space = gym.spaces.Dict(
+def observation_space_from_player_observation_space(
+    player_observation_space: gym.spaces.Space,
+) -> gym.spaces.Dict:
+    return gym.spaces.Dict(
         {
             "player_0": player_observation_space,
             "player_1": player_observation_space,
         }
     )
 
+
+class EnvInterfaceForVec(LuxAIS3GymEnv):
     player_action_space = gym.spaces.Box(
         low=np.array([[0, -4, -4]] * 16),
         high=np.array([[4, 4, 4]] * 16),
@@ -179,21 +174,135 @@ class EnvInterfaceForVec(LuxAIS3GymEnv):
         dtype=np.int32,
     )
 
-    def __init__(self):
+    def __init__(
+        self,
+        tensor_converter_instantiator: Callable[[], TensorConverter],
+        reward_shaper: RewardShaper,
+    ):
+        self.tensor_converter_0 = tensor_converter_instantiator()
+        self.tensor_converter_1 = tensor_converter_instantiator()
+        self.observation_space = gym.spaces.Box(
+            low=-1,
+            high=1,
+            shape=(2, self.tensor_converter_0.n_channels(), 24, 24),
+            dtype=np.float32,
+        )
+
+        self.reward_shaper = reward_shaper
         super().__init__(numpy_output=True)
 
-    def step(self, action: np.ndarray):  # type: ignore
-        obs, reward, terminated, truncated, info = super().step(
-            {"player_0": action[0], "player_1": action[1]}
+    def to_tensor(self, obs: GodObs) -> np.ndarray:
+        return np.stack(
+            (
+                self.tensor_converter_0.convert(obs.player_0, 0),
+                self.tensor_converter_1.convert(obs.player_1, 1),
+            )
         )
-        return obs, 0, terminated, truncated, info
+
+    def reset(  # type: ignore
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[np.ndarray, EnvParams]:
+        self.tensor_converter_0.reset_memory()
+        self.tensor_converter_1.reset_memory()
+
+        obs, info = super().reset(seed=seed, options=options)
+        self.obs = GodObs.from_dict(obs)
+        self.env_param = EnvParams.from_dict(info["params"])
+
+        self.reward = np.zeros((2, 16), dtype=np.float32)
+
+        return self.to_tensor(self.obs), info["params"]
+
+    def step(  # type: ignore
+        self, action: np.ndarray
+    ) -> tuple[
+        np.ndarray,
+        float,
+        float,
+        float,
+        dict[str, Any],
+    ]:
+        awake = np.stack(
+            (self.obs.player_0.units_mask[0], self.obs.player_1.units_mask[1])
+        )
+
+        obs, reward, terminated, truncated, info = super().step(
+            {"player_0": action[0], "player_1": symetric_action(action[1])}
+        )
+        self.obs = GodObs.from_dict(obs)
+        tensor_obs = self.to_tensor(self.obs)
+
+        self.tensor_converter_0.update_memory(self.obs.player_0, 0)
+        self.tensor_converter_1.update_memory(self.obs.player_1, 1)
+
+        done = np.stack(
+            (self.obs.player_0.units_mask[0], self.obs.player_1.units_mask[1])
+        )
+
+        self.reward = np.stack(
+            (
+                self.reward_shaper.convert(
+                    self.env_param,
+                    self.reward[0],
+                    action[0],
+                    self.obs.player_0,
+                    tensor_obs[0],
+                    0,
+                ),
+                self.reward_shaper.convert(
+                    self.env_param,
+                    self.reward[1],
+                    action[1],
+                    self.obs.player_1,
+                    tensor_obs[1],
+                    1,
+                ),
+            )
+        )
+        info["reward"] = self.reward
+        info["awake"] = awake
+        info["done"] = done
+        info["game_finished"] = truncated["player_0"].item()
+
+        return tensor_obs, 0, 0, 0, info
 
 
 # TODO : Implement this class
-class EnvVectorInterface:
-    def __init__(self, n_envs: int):
-        self.envs = SyncVectorEnv([lambda: EnvInterfaceForVec() for _ in range(n_envs)])  # type: ignore
+class VecEnvInterface(SyncVectorEnv):
+    def __init__(
+        self,
+        n_envs: int,
+        tensor_converter_instantiator: Callable[[], TensorConverter],
+        reward_shaper: RewardShaper,
+    ):
+        self.n_envs = n_envs
+        super().__init__(
+            [
+                lambda: EnvInterfaceForVec(tensor_converter_instantiator, reward_shaper)
+                for _ in range(n_envs)
+            ]  # type: ignore
+        )
 
-    def reset(
+    def reset(  # type: ignore
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> list[tuple[GodObs, dict[str, Any]]]: ...
+    ) -> tuple[VecPlayerObservation, VecEnvParams]:
+        obs, config = super().reset(seed=seed, options=options)
+        return obs, VecEnvParams.from_dict(config)
+
+    def step(  # type: ignore
+        self, actions: VecPlayerAction
+    ) -> tuple[
+        torch.Tensor,
+        VecPlayerReward,
+        VecPlayerAgentMask,
+        VecPlayerAgentMask,
+        dict[str, Any],
+    ]:
+        obs, _, _, _, info = super().step(actions)
+        return (
+            torch.from_numpy(obs),
+            np.stack(info["reward"]),
+            np.stack(info["awake"]),
+            np.stack(info["done"]),
+            info,
+        )

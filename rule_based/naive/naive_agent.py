@@ -5,7 +5,7 @@ from agents.obs import Obs
 
 
 class NaiveAgent(Agent):
-    def _actions(
+    def actions(
         self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         """implement this function to decide what actions to send to each available unit.

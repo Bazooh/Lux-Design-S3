@@ -11,18 +11,28 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from agents.models.dense import CNN
-from luxai_s3.wrappers import RecordEpisode, PlayerAction, Actions
-from agents.rl_agent import BasicRLAgent, RLAgent
+from agents.reward_shapers.reward import DefaultRewardShaper, RewardShaper
+from agents.tensor_converters.tensor import BasicTensorConverter
+from luxai_s3.wrappers import RecordEpisode, Actions, PlayerAction, PlayerReward
+
+from agents.rl_agent import BasicRLAgent
+from agents.vec_rl_agent import VecBasicRLAgent
 from rule_based.naive.naive_agent import NaiveAgent
-from agents.reward_shapers.reward import Reward
 
 import time
-from env_interface import EnvInterface
+from env_interface import (
+    EnvInterface,
+    PlayerAgentMask,
+    VecEnvInterface,
+    VecPlayerAction,
+    VecPlayerReward,
+    VecPlayerAgentMask,
+)
 
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
 PROFILE = False  # if enabled, profiles the code
-USE_WANDB = True  # if enabled, logs data on wandb server
+USE_WANDB = False  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:
@@ -31,23 +41,35 @@ class ReplayBuffer:
             tuple[
                 torch.Tensor,
                 PlayerAction,
-                Reward,
+                PlayerReward,
                 torch.Tensor,
-                np.ndarray[Literal[16], np.dtype[np.bool_]],
-                np.ndarray[Literal[16], np.dtype[np.bool_]],
+                PlayerAgentMask,
+                PlayerAgentMask,
             ]
         ] = collections.deque(maxlen=buffer_limit)
 
     def put(
         self,
         obs: torch.Tensor,
-        actions: PlayerAction,
-        reward: Reward,
+        actions: VecPlayerAction,
+        reward: VecPlayerReward,
         next_obs: torch.Tensor,
-        done: np.ndarray[Literal[16], np.dtype[np.bool_]],
-        awake: np.ndarray[Literal[16], np.dtype[np.bool_]],
+        done: VecPlayerAgentMask,
+        awake: VecPlayerAgentMask,
     ):
-        self.buffer.append((obs, actions, reward, next_obs, done, awake))
+        size = obs.shape[0]
+        for player_id in range(2):
+            for i in range(size):
+                self.buffer.append(
+                    (
+                        obs[i, player_id],
+                        actions[i, player_id],
+                        reward[i, player_id],
+                        next_obs[i, player_id],
+                        done[i, player_id],
+                        awake[i, player_id],
+                    )
+                )
 
     def sample(self, n: int):
         """obs, actions, reward, next_obs, done, awake\n
@@ -62,11 +84,11 @@ class ReplayBuffer:
 
         for i, (s, a, r, s_prime, done, awake) in enumerate(mini_batch):
             s_tensor[i] = s
-            a_tensor[i] = torch.tensor(a)
-            r_tensor[i] = torch.tensor(r)
+            a_tensor[i] = torch.from_numpy(a)
+            r_tensor[i] = torch.from_numpy(r)
             s_prime_tensor[i] = s_prime
-            done_mask_tensor[i] = torch.tensor(done)
-            awake_mask_tensor[i] = torch.tensor(awake)
+            done_mask_tensor[i] = torch.from_numpy(done)
+            awake_mask_tensor[i] = torch.from_numpy(awake)
 
         return (
             s_tensor,
@@ -120,7 +142,7 @@ def test(
     env: EnvInterface | RecordEpisode,
     num_episodes: int,
     network: nn.Module,
-    agent_instantiator: Callable[..., RLAgent],
+    agent_instantiator: Callable[..., BasicRLAgent],
 ) -> float:
     score: float = 0
 
@@ -156,8 +178,11 @@ def main(
     test_episodes: int,
     warm_up_steps: int,
     update_iter: int,
+    n_envs: int,
     network_instantiator: Callable[[], nn.Module],
-    agent_instantiator: Callable[..., RLAgent],
+    agent_instantiator: Callable[..., VecBasicRLAgent],
+    test_agent_instantiator: Callable[..., BasicRLAgent],
+    reward_shaper: RewardShaper,
     monitor: bool = False,
     save_format: Literal["json", "html"] = "json",
     resume_path: str | None = None,
@@ -170,8 +195,7 @@ def main(
         resume_iter is None or resume_path is not None
     ), "resume_path must be provided if resume_iter is provided"
 
-    env = EnvInterface()
-    # vec_env = SyncVectorEnv(lambda: EnvInterface() for _ in range(4))
+    env = VecEnvInterface(n_envs, BasicTensorConverter, reward_shaper)
 
     network = network_instantiator().to(SAMPLING_DEVICE)
     if resume_path is not None:
@@ -202,33 +226,14 @@ def main(
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
         obs, env_params = env.reset()
-        agent_0 = agent_instantiator(
-            "player_0",
-            env_params,
-            device=SAMPLING_DEVICE,
-            model=network,
-        )
-        agent_1 = agent_instantiator(
-            "player_1",
+        agent = agent_instantiator(
             env_params,
             device=SAMPLING_DEVICE,
             model=network,
         )
 
-        obs, _, _, _, _ = env.step(
-            {
-                "player_0": np.zeros((16, 3), dtype=np.int32),
-                "player_1": np.zeros((16, 3), dtype=np.int32),
-            }
-        )
-        obs_tensor_0 = agent_0.obs_to_tensor(obs.player_0)
-        obs_tensor_1 = agent_1.obs_to_tensor(obs.player_1)
+        obs, _, _, _, info = env.step(np.zeros((n_envs, 2, 16, 3), dtype=np.int32))
 
-        agent_0.update_obs(obs.player_0)
-        agent_1.update_obs(obs.player_1)
-
-        reward_0: Reward = np.zeros(16, dtype=np.float32)
-        reward_1: Reward = np.zeros(16, dtype=np.float32)
         simulation_score: float = 0
         game_finished = False
         count_frames: int = 0
@@ -236,72 +241,21 @@ def main(
         while not game_finished:
             count_frames += 1
 
-            actions = agent_0.sample_action(
-                torch.stack((obs_tensor_0, obs_tensor_1)), epsilon
-            )
-            actions_0, actions_1 = actions[0], actions[1]
-
-            next_obs, _, _, truncated, _ = env.step(
-                {
-                    "player_0": actions_0,
-                    "player_1": agent_1.symetric_action(actions_1),
-                }
-            )
-            game_finished = truncated["player_0"].item() or truncated["player_1"].item()
-
-            agent_0.update_obs(next_obs.player_0)
-            agent_1.update_obs(next_obs.player_1)
-
-            next_obs_tensor_0 = agent_0.obs_to_tensor(next_obs.player_0)
-            next_obs_tensor_1 = agent_1.obs_to_tensor(next_obs.player_1)
-
-            reward_0 = agent_0.reward_shaper.convert(
-                env_params,
-                reward_0,
-                obs.player_0,
-                obs_tensor_0,
-                actions_0,
-                next_obs.player_0,
-                next_obs_tensor_0,
-                0,
-            )
-            reward_1 = agent_1.reward_shaper.convert(
-                env_params,
-                reward_1,
-                obs.player_1,
-                obs_tensor_1,
-                actions_1,
-                next_obs.player_1,
-                next_obs_tensor_1,
-                1,
+            actions = (
+                agent.sample_actions(obs.view(n_envs * 2, -1, 24, 24), epsilon)
+                .view(n_envs, 2, 16, 3)
+                .numpy()
             )
 
-            awake_mask_0 = np.array(obs.player_0.units_mask[0])
+            next_obs, rewards, awake_mask, done_mask, info = env.step(actions)
+            game_finished = info["game_finished"].all()
 
-            memory.put(
-                obs_tensor_0,
-                actions_0,
-                reward_0,
-                next_obs_tensor_0,
-                np.array(next_obs.player_0.units_mask[0]),
-                awake_mask_0,
-            )
-            memory.put(
-                obs_tensor_1,
-                actions_1,
-                reward_1,
-                next_obs_tensor_1,
-                np.array(next_obs.player_1.units_mask[1]),
-                np.array(obs.player_1.units_mask[1]),
-            )
+            memory.put(obs, actions, rewards, next_obs, done_mask, awake_mask)
 
-            simulation_score += (reward_0 * awake_mask_0).mean().item()
-
-            obs_tensor_0 = next_obs_tensor_0
-            obs_tensor_1 = next_obs_tensor_1
+            simulation_score += (rewards * awake_mask)[:, 0].mean().item()
             obs = next_obs
 
-        score += simulation_score / obs.player_0.steps
+        score += simulation_score / count_frames
 
         if memory.size() > warm_up_steps:
             train_loss = train(
@@ -314,14 +268,14 @@ def main(
                 update_iter,
             )
 
-        fps.append(count_frames / (time.time() - start_time))
+        fps.append(count_frames * n_envs / (time.time() - start_time))
 
         # EVALUATION
         if episode_i % log_interval == 0 and episode_i != 0:
             network_target.load_state_dict(network.state_dict())
             torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
 
-            test_score = test(test_env, test_episodes, network, agent_instantiator)
+            test_score = test(test_env, test_episodes, network, test_agent_instantiator)
             print(
                 f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f}, fps : {np.mean(fps):.1f}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
@@ -349,15 +303,18 @@ if __name__ == "__main__":
         "batch_size": 32,
         "gamma": 0.99,
         "buffer_limit": 50000,
-        "log_interval": 100,
-        "max_episodes": 10000,
+        "log_interval": 50,
+        "max_episodes": 4000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 0,
         "warm_up_steps": 2000,
-        "update_iter": 10,
-        "network_instantiator": lambda: CNN(n_input_channels=19),
-        "agent_instantiator": BasicRLAgent,
+        "update_iter": 20,
+        "n_envs": 4,
+        "network_instantiator": lambda: CNN(n_input_channels=23),
+        "agent_instantiator": VecBasicRLAgent,
+        "test_agent_instantiator": BasicRLAgent,
+        "reward_shaper": DefaultRewardShaper(),
     }
     if USE_WANDB:
         import wandb
