@@ -46,8 +46,7 @@ def get_entropy(logits):
 def get_obs_batch(obs, player_list):
     return [{key: obs[player][key] for key in obs[player]} for player in player_list]
 
-def init_network_params(key, network, env):
-    init_x = env.observation_space.sample(key)
+def init_network_params(key, network, init_x):
     init_x = {feat: jnp.expand_dims(value, axis=0) for feat, value in init_x.items()}
     network_params = network.init(key, **init_x)
     return network_params

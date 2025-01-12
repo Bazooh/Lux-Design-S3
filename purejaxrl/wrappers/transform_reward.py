@@ -9,8 +9,7 @@ class TransformReward(ABC):
     Abstract base class for reshaping rewards
     """
 
-    def __init__(self, symmetry: bool = True):
-        self.symmetry = symmetry
+    def __init__(self):
         pass
 
 
@@ -18,6 +17,7 @@ class TransformReward(ABC):
     def convert(
         self,
         team_id_str: str,
+        last_obs: EnvObs,
         obs: EnvObs,
         params: EnvParams,
         reward: float,
@@ -34,10 +34,10 @@ class BasicPointBasedReward(TransformReward):
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
         self,
-        team_id_str: str,
+        team_id: int,
         obs: EnvObs,
+        last_obs: EnvObs,
         params: EnvParams,
         reward: float,
     ):
-        #return reward
-        return reward
+        return obs.team_points[team_id] - last_obs.team_points[team_id]

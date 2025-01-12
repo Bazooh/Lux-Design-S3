@@ -7,24 +7,23 @@ import jax
 from functools import partial
 from luxai_s3.params import EnvParams, env_params_ranges
 import gymnax
-
+from typing import Any
 class TransformObs(ABC):
     """
     Abstract base class for converting observations into tensor representations.
     """
 
-    def __init__(self, symmetry: bool = True):
-        self.symmetry = symmetry
+    def __init__(self):
         pass
 
 
     @abstractmethod
     def convert(
         self,
-        team_id_str: str,
+        team_id: int,
         obs: EnvObs,
         params: EnvParams,
-        reward: float,
+        memory_state: Any,
     ):
         """
         Convert an observation into an np.array representation.
@@ -54,13 +53,14 @@ class HybridTransformObs(TransformObs):
             - agent energy
     """
 
-    def __init__(self, symmetry: bool = True):
-        super().__init__(symmetry)
+    def __init__(self):
+        super().__init__()
         self.image_features = { # Key: Name of the feature, Value: Number of channels required representing the feature
             "Unknown": 1,
             "Asteroid": 1,
             "Nebula": 1,
             "Relic": 1,
+            "Points": 1,
             "Energy_Field": 1,
             "Enemy_Units": 1,
             "Ally_Units": 1,
@@ -78,14 +78,7 @@ class HybridTransformObs(TransformObs):
             "nebula_tile_drift_speed": 1, # 1 float
             "energy_node_drift_speed": 1, # 1 float
             "energy_node_drift_magnitude": 1, # 1 float
-            # Lead in points
-            "current_points": 1, # 1 float
-            # Current position (x,y)
-            "current_position": 2, # 2 floats
-            # Relic Positions
-            "relic_relative_positions": 12, # maximum 6 relic nodes, 2 floats each
-            # Unit Energy
-            "unit_energy": 1, # 1 float for your energy
+            "points": 2, # 1 float
         }
         self.vector_size = sum(self.vector_features.values())
         self.image_channels = sum(self.vector_features.values())
@@ -98,12 +91,11 @@ class HybridTransformObs(TransformObs):
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
         self, 
-        team_id_str: str,
+        team_id: int,
         obs: EnvObs, 
-        reward: float,
+        memory_state: Any,
         params: EnvParams,
     ):
-        team_id = int(team_id_str[-1])
         image = jax.numpy.zeros(
             (self.image_channels, obs.map_features.energy.shape[0], obs.map_features.energy.shape[1]),
             dtype=jax.numpy.float32,
@@ -118,7 +110,8 @@ class HybridTransformObs(TransformObs):
         image = image.at[0].set(obs.sensor_mask) # unknown
         image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
         image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
-        image = image.at[3, obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)# relics
+        image = image.at[3].set(memory_state.relics_found) # relics_found from memory
+        image = image.at[4].set(memory_state.points_awarding) # which cells award points
         image = image.at[4].set(obs.map_features.energy / 20) # energy field
 
         # enemy units and ally units
@@ -153,4 +146,5 @@ class HybridTransformObs(TransformObs):
 
         # current_points
         vector= vector.at[11].set(obs.team_points[team_id])
+        vector= vector.at[11].set(obs.team_points[1-team_id])
         return {'image': image, 'vector': vector, 'position': obs.units.position[team_id]}

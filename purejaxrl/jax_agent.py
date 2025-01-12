@@ -1,24 +1,35 @@
 import numpy as np
 from luxai_s3.state import EnvParams,EnvObs
 from typing import Any
-import jax
+import jax, chex
 import jax.numpy as jnp
-import numpy as np
 from functools import partial
-import chex
 from purejaxrl.utils import sample_action
-from purejaxrl.network import HybridActorCritic
-from purejaxrl.make_env import make_env, HybridTransformObs, SimplerActionNoSap
-from purejaxrl.utils import init_network_params
+from purejaxrl.parse_config import parse_config
+
+# misc
+from purejaxrl.wrappers.memory import Memory
+from purejaxrl.wrappers.transform_reward import TransformReward
+from purejaxrl.wrappers.transform_obs import TransformObs
+from purejaxrl.wrappers.transform_action import TransformAction
+from purejaxrl.wrappers.symmetry import Symmetry
+
 
 def symetric_action_not_vectorized(action: int):
     return [0, 3, 4, 1, 2][action]
 
-class JaxAgent:
+class RawJaxAgent:
     def __init__(
         self,
         player: str,
         env_cfg,
+        network_params,
+        network,
+        transform_obs: TransformObs,
+        transform_action: TransformAction,
+        transform_reward: TransformReward,
+        memory: Memory,
+        symmetry: Symmetry
     ):
         self.player = player
         self.opp_player = "player_1" if self.player == "player_0" else "player_0"
@@ -27,12 +38,15 @@ class JaxAgent:
         
         np.random.seed(0)
         self.env_params = env_cfg
-        env = make_env()
         self.key = jax.random.PRNGKey(0)
-        self.network = HybridActorCritic(action_dim=6,)
-        self.network_params = init_network_params(self.key, self.network, env)
-        self.transform_obs = HybridTransformObs()
-        self.transform_action = SimplerActionNoSap()
+        self.network = network
+        self.network_params = network_params
+        self.transform_obs = transform_obs
+        self.transform_action = transform_action
+        self.transform_reward = transform_reward
+        self.memory = memory
+        self.symmetry = symmetry
+        self.memory_state = self.memory.reset()
 
     @partial(jax.jit, static_argnums=(0,))
     def forward(
@@ -42,16 +56,34 @@ class JaxAgent:
     ):
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
         logits, value = self.network.apply(self.network_params, **transformed_obs_batched) # probs is (16, 6)
-        return logits 
+        action = sample_action(key, logits)[0]
+        return action 
+
+
+    def actions(
+        self,
+        obs: EnvObs,
+        remainingOverageTime: int = 60
+    ):
+        self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
+        expanded_obs = self.memory.expand(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
+        transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = expanded_obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
+        action = self.forward(self.key, transformed_obs=transformed_obs)
+        transformed_action = self.transform_action.convert(team_id=self.team_id, action = action, obs = expanded_obs, params=EnvParams.from_dict(self.env_params))
+        return transformed_action
+    
 
     def act(
-        self, step: int, 
+        self, 
+        step: int, 
         obs: dict[str, Any], 
         remainingOverageTime: int = 60
     ):
-        obs = EnvObs.from_dict(obs)
-        transformed_obs = self.transform_obs.convert(team_id_str=self.player, obs = obs, params=EnvParams.from_dict(self.env_params), reward = 0) 
-        logits = self.forward(self.key, transformed_obs=transformed_obs)
-        action = sample_action(self.key, logits)[0]
-        transformed_action = self.transform_action.convert(team_id_str=self.player, action = action, obs = obs, params=EnvParams.from_dict(self.env_params))
-        return transformed_action
+        return(self.actions(EnvObs.from_dict(obs)))
+    
+
+
+class JaxAgent(RawJaxAgent):
+    def __init__(self, player: str, env_cfg: str, config_path = "purejaxrl/jax_config.yaml"):
+        jax_config = parse_config()
+        super().__init__(player, env_cfg, **jax_config["env_args"], **jax_config["network"] )

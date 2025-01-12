@@ -51,7 +51,7 @@ class RecordEpisode(GymnaxWrapper): # adapted from the gym record wrapper
         obs, env_state = self._env.reset(key, params)
         self.episode["metadata"]["seed"] = key
         self.episode["params"] = params
-        self.episode["states"].append(env_state)
+        self.episode["states"].append(env_state.env_state)
         return obs, env_state
 
     def step(

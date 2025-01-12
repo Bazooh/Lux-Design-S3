@@ -11,6 +11,8 @@ from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams, PlayerAction
 from purejaxrl.wrappers.transform_reward import TransformReward
 from purejaxrl.wrappers.transform_obs import TransformObs
 from purejaxrl.wrappers.transform_action import TransformAction
+from purejaxrl.wrappers.memory import Memory
+from purejaxrl.wrappers.symmetry import Symmetry
 SimplerPlayerAction = np.ndarray[Literal[16], np.dtype[np.int32]]
 
 class GymnaxWrapper(object):
@@ -23,12 +25,6 @@ class GymnaxWrapper(object):
     def __getattr__(self, name):
         return getattr(self._env, name)
 
-@struct.dataclass
-class LogEnvState:
-    env_state: EnvState
-    episode_returns: float
-    episode_lengths: int
-    timestep: int
 
 class SimplifyTruncation(GymnaxWrapper):
     """"
@@ -53,6 +49,56 @@ class SimplifyTruncation(GymnaxWrapper):
         )
         done = truncated_dict["player_0"] | terminated_dict["player_0"]
         return obs, env_state, reward, done, info 
+
+@struct.dataclass
+class Env_Mem_State:
+    env_state: EnvState
+    memory_state_player_0: Any
+    memory_state_player_1: Any
+
+class MemoryWrapper(GymnaxWrapper):
+    def __init__(self, env: LuxAIS3Env, memory: Memory):
+        super().__init__(env)
+        self.memory = memory
+
+    def reset(self, key: chex.PRNGKey, params: Optional[EnvParams] = None) -> Tuple[chex.Array, Env_Mem_State]:
+        obs, env_state = self._env.reset(key, params)
+        memory_state_player_0 = self.memory.reset()
+        memory_state_player_1 = self.memory.reset()
+        env_mem_state = Env_Mem_State(
+                env_state=env_state, 
+                memory_state_player_0 = memory_state_player_0, 
+                memory_state_player_1 = memory_state_player_1        
+        )
+        return obs, env_mem_state
+
+    def step(
+        self,
+        key: chex.PRNGKey,
+        env_mem_state: Env_Mem_State,
+        action: PlayerAction,
+        params: Optional[EnvParams] = None,
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(key, env_mem_state.env_state, action, params)
+        memory_state_player_0 = self.memory.update(obs['player_0'], 0, env_mem_state.memory_state_player_0)
+        memory_state_player_1 = self.memory.update(obs['player_1'], 1, env_mem_state.memory_state_player_1)
+        env_mem_state = Env_Mem_State(
+                env_state=env_state, 
+                memory_state_player_0 = memory_state_player_0, 
+                memory_state_player_1 = memory_state_player_1        
+        )
+        expanded_obs = {
+            'player_0': self.memory.expand(obs['player_0'], 0, env_mem_state.memory_state_player_0),
+            'player_1': self.memory.expand(obs['player_1'], 1, env_mem_state.memory_state_player_1)
+        }
+        return expanded_obs, env_mem_state, reward, done, info
+
+@struct.dataclass
+class LogEnvState:
+    env_state: EnvState
+    episode_returns: float
+    episode_lengths: int
+    timestep: int
 
 class LogWrapper(GymnaxWrapper):
     """Log the episode returns and lengths."""
@@ -103,12 +149,16 @@ class TransformRewardWrapper(GymnaxWrapper):
     def step(
         self,
         key: chex.PRNGKey,
-        env_state: EnvState,
+        env_mem_state: Env_Mem_State,
         action: PlayerAction,
         params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
-        obs, state, reward, done, info = self._env.step(key, env_state, action, params)
-        transformed_reward = {k: self.transform_reward.convert(team_id_str=k, obs = obs[k], params = params, reward = r) for k, r in reward.items()}
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        last_obs = self._env.get_obs(env_mem_state.env_state)
+        obs, state, reward, done, info = self._env.step(key, env_mem_state, action, params)
+        transformed_reward = {
+            "player_0": self.transform_reward.convert(team_id=0, last_obs=last_obs["player_0"], obs = obs["player_0"], reward = reward["player_0"], params = params),
+            "player_1": self.transform_reward.convert(team_id=1, last_obs=last_obs["player_1"], obs = obs["player_1"], reward = reward["player_1"], params = params),
+        }
         return obs, state, transformed_reward, done, info
 
 
@@ -120,18 +170,24 @@ class TransformObsWrapper(GymnaxWrapper):
     
     def reset(self, key, params=None):
         obs, state = self._env.reset(key, params)
-        transformed_obs = {k: self.transform_obs.convert(team_id_str=k, obs = o, params = params, reward = 0) for k, o in obs.items()}
+        transformed_obs = {
+            "player_0": self.transform_obs.convert(team_id=0, obs = obs["player_0"], params = params, memory_state=state.memory_state_player_0),
+            "player_1": self.transform_obs.convert(team_id=1, obs = obs["player_1"], params = params, memory_state=state.memory_state_player_1),
+        }
         return transformed_obs, state
 
     def step(
         self,
         key: chex.PRNGKey,
-        env_state: EnvState,
+        env_mem_state: Env_Mem_State,
         action: PlayerAction,
         params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
-        obs, state, reward, done, info = self._env.step(key, env_state, action, params)
-        transformed_obs = {k: self.transform_obs.convert(team_id_str=k, obs = o, params = params, reward = reward) for k, o in obs.items()}
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        obs, state, reward, done, info = self._env.step(key, env_mem_state, action, params)
+        transformed_obs = {
+            "player_0": self.transform_obs.convert(team_id=0, obs = obs["player_0"], params = params, memory_state=state.memory_state_player_0),
+            "player_1": self.transform_obs.convert(team_id=1, obs = obs["player_1"], params = params, memory_state=state.memory_state_player_1),
+        }
         return transformed_obs, state, reward, done, info
 
 class TransformActionWrapper(GymnaxWrapper):
@@ -150,13 +206,39 @@ class TransformActionWrapper(GymnaxWrapper):
     def step(
         self,
         key: chex.PRNGKey,
-        env_state: EnvState,
+        env_mem_state: Env_Mem_State,
         action: PlayerAction,
         params: Optional[EnvParams] = None,
-    ) -> Tuple[chex.Array, EnvState, float, bool, dict]:
-        last_obs = self._env.get_obs(env_state)
-        action = {k: self.transform_action.convert(team_id_str=k, action = a, obs = last_obs[k], params = params) for k, a in action.items()}
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        current_obs = self._env.get_obs(env_mem_state.env_state)
+        action = {
+            "player_0": self.transform_action.convert(team_id=0, action=action["player_0"], obs = current_obs["player_0"], params = params),
+            "player_1": self.transform_action.convert(team_id=1, action=action["player_1"], obs = current_obs["player_1"], params = params),
+        }
         obs, env_state, reward, done, info = self._env.step(
-            key, env_state, action, params
+            key, env_mem_state, action, params
         )
         return obs, env_state, reward, done, info 
+  
+class SymmetryWrapper(GymnaxWrapper):
+    def __init__(self, env: LuxAIS3Env, symmetry: Symmetry):
+        super().__init__(env)
+        self.symmetry = symmetry
+
+    def reset(self, key: chex.PRNGKey, params: Optional[EnvParams] = None):
+        obs, state = self._env.reset(key, params)
+        symmetrized_obs = {k: self.symmetry.convert_obs(team_id_str=k, obs = o) for k, o in obs.items()}
+        return symmetrized_obs, state
+
+    def step(
+        self,
+        key: chex.PRNGKey,
+        env_mem_state: Env_Mem_State,
+        action: PlayerAction,
+        params: Optional[EnvParams] = None,
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        unsymmetrized_action = {k: self.symmetry.convert_action(team_id_str=k, action = a) for k, a in action.items()} # turns a symmetric action back to an unsymmetric one
+        obs, state, reward, done, info = self._env.step(key, env_mem_state, unsymmetrized_action, params)
+        symmetrized_obs = {k: self.symmetry.convert_obs(team_id_str=k, obs = o) for k, o in obs.items()}
+        return symmetrized_obs, state, reward, done, info
+    

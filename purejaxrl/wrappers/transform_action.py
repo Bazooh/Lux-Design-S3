@@ -17,7 +17,7 @@ class TransformAction(ABC):
     @abstractmethod
     def convert(
         self,
-        team_id_str: str,
+        team_id: int,
         action: PlayerAction,
         obs: EnvObs,
         params: EnvParams,
@@ -34,12 +34,12 @@ class SimplerActionNoSap(TransformAction):
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
         self,
-        team_id_str: str,
+        team_id: int,
         action: PlayerAction,
         obs: EnvObs,
         params: EnvParams,
     ):
-        new_action = jax.numpy.zeros((16,3), dtype=jax.numpy.int16)
+        new_action = jax.numpy.zeros((16,3), dtype=jax.numpy.int32)
         new_action = new_action.at[:,0].set(action)
         return new_action
         

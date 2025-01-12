@@ -4,14 +4,14 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 import jax.numpy as jnp
 import optax
-from network import HybridActorCritic
 from flax.training.train_state import TrainState
 from make_env import make_env
 from typing import NamedTuple, Any
 import time
-from free_memory import reset_device_memory
 from jax_tqdm import scan_tqdm
 from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, init_network_params, sample_params
+from purejaxrl.wrappers.base_wrappers import LogWrapper
+from purejaxrl.parse_config import parse_config
 """
 Reference:  PPO implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -31,6 +31,7 @@ class Transition(NamedTuple):
 
 
 def make_train(
+        config_path: str = "purejaxrl/jax_config.yaml",
         total_timesteps: int = 1e5,
         num_steps: int = 128,
         lr_start: float = 2.5e-4,
@@ -62,20 +63,20 @@ def make_train(
         )
         return lr_start * frac
 
-    env = make_env()
+    env = make_env(config_path)
+    env = LogWrapper(env)
+    config = parse_config(config_path)
     
     def train(key: chex.PRNGKey,):
         start_time = time.time()
         
         # INIT NETWORK
-        network = HybridActorCritic(
-            action_dim=env.action_space.n,
-        )
+        network = config["network"]["network"]
         # init params 0
         rng, _rng = jax.random.split(key)
-        network_params_0 = init_network_params(_rng, network, env)
+        network_params_0 = init_network_params(_rng, network, init_x=env.observation_space.sample(_rng))
         rng, _rng = jax.random.split(key)
-        network_params_1 = init_network_params(_rng, network, env)
+        network_params_1 = init_network_params(_rng, network, init_x=env.observation_space.sample(_rng))
 
         #create TrainState objects
         transform_lr = optax.chain(
@@ -334,7 +335,6 @@ def make_train(
 
 if __name__ == "__main__":
     jax.config.update("jax_numpy_dtype_promotion", "standard")
-    reset_device_memory()
     args = {
         "total_timesteps": 1e5,
         "num_envs": 8,

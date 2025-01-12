@@ -1,0 +1,10 @@
+env_args:
+  transform_obs: HybridTransformObs
+  transform_reward: BasicPointBasedReward
+  transform_action: SimplerActionNoSap
+  memory: RelicPointMemory
+  symmetry: ActionAndObsSymmetry
+
+network:
+  name: HybridActorCritic
+  checkpoint: None
