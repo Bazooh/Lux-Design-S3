@@ -1,81 +1,40 @@
 import jax
-from luxai_s3.params import EnvParams
-from luxai_s3.env import LuxAIS3Env
-import numpy as np 
-import time
-from sample_params import sample_params, sample_params_fn
-# the first env params is not batched and is used to initialize any static / unchaging values
-# like map size, max units etc.
-# note auto_reset=False for speed reasons. If True, the default jax code will attempt to reset each time and discard the reset if its not time to reset
-# due to jax branching logic. It should be kept false and instead lax.scan followed by a reset after max episode steps should be used when possible since games
-# can't end early.
+import jax.numpy as jnp
+def sample_action(key, logits):
+    action = jax.random.categorical(key=key, logits=logits, axis=-1)  # Shape: (N, 16)
+    return action
 
-# hyperparams
-env = LuxAIS3Env(auto_reset=False, fixed_env_params=EnvParams())
-num_envs = 16
-seed = 0
-np.random.seed(seed)
-rng_key = jax.random.key(seed)
+def get_logprob(logits, mask_awake, action):
+    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+    log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
+    log_prob_a_masked = log_prob_a * mask_awake  # Shape: (N, 16)
+    log_prob= jnp.mean(log_prob_a_masked, axis=-1)/ jnp.sum(mask_awake, axis=-1)  # Shape: (N,)
+    return(log_prob)
 
+def get_entropy(logits):
+    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 5)
+    entropy = -jnp.mean(jnp.sum(jnp.exp(log_prob_group) * log_prob_group, axis=-1), axis=-1)
+    return(entropy)
 
-# define the vmapped functions 
-reset_fn = jax.vmap(env.reset)
-step_fn = jax.vmap(env.step)
-action_space = (
-    env.action_space()
-) 
-
-sample_action = jax.vmap(action_space.sample)
-
-# sample random params initially
-rng_key, subkey = jax.random.split(rng_key)
-env_params = sample_params_fn(jax.random.split(subkey, num_envs))
-
-obs, state = reset_fn(jax.random.split(subkey, num_envs), env_params)
-obs, state, reward, terminated_dict, truncated_dict, info = step_fn(
-    jax.random.split(subkey, num_envs),
-    state,
-    sample_action(jax.random.split(subkey, num_envs)),
-    env_params,
-)
-
-max_episode_steps = (
-    env.fixed_env_params.max_steps_in_match + 1
-) * env.fixed_env_params.match_count_per_episode
-rng_key, subkey = jax.random.split(rng_key)
-
-@jax.jit
-def random_rollout(rng_key, state, env_params):
-    def take_step(carry, _):
-        rng_key, state = carry
-        rng_key, subkey = jax.random.split(rng_key)
-        obs, state, reward, terminated_dict, truncated_dict, info = step_fn(
-            jax.random.split(subkey, num_envs),
-            state,
-            sample_action(jax.random.split(subkey, num_envs)),
-            env_params,
-        )
-        return (rng_key, state), (
-            obs,
-            state,
-            reward,
-            terminated_dict,
-            truncated_dict,
-            info,
-        )
-
-    _, (obs, state, reward, terminated_dict, truncated_dict, info) = jax.lax.scan(
-        take_step, (rng_key, state), length=max_episode_steps, unroll=1
-    )
-    return obs, state, reward, terminated_dict, truncated_dict, info
+# Parameters
+N = 8
+position = jnp.array([
+    [0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0],
+    [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1], [-1, -1]
+] * N).reshape(N, 16, 2)  # Shape: (N, 16, 2)
+_rng = jax.random.PRNGKey(0)
+logits = jax.random.normal(_rng, (N, 16, 5))  # Logits shape (N, 16, 5)
 
 
-if __name__ == "__main__":
-    jax.config.update("jax_numpy_dtype_promotion", "strict")
-    st = time.time()
-    random_rollout(subkey, state, env_params)
+# Sample actions
+action = sample_action(_rng, logits)
 
-    print(f"FPS {max_episode_steps*num_envs/(time.time()-st)}")
+# Get log probabilities
+mask_awake = (position[..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
+log_prob_a_masked = get_logprob(logits, mask_awake, action)
+entropy = get_entropy(logits)
 
-
-
+print("log_prob_a_masked shape:", log_prob_a_masked.shape)
+print("log_prob_a_masked[0]:", log_prob_a_masked[0])
+print("entropy shape:", entropy.shape)
+print("entropy[0]:", entropy[0])
