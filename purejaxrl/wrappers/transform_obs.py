@@ -59,11 +59,11 @@ class HybridTransformObs(TransformObs):
             "Unknown": 1,
             "Asteroid": 1,
             "Nebula": 1,
+            "Energy_Field": 1,
             "Relic": 1,
             "Points": 1,
-            "Energy_Field": 1,
-            "Enemy_Units": 1,
             "Ally_Units": 1,
+            "Enemy_Units": 1,
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # Game Parameters
@@ -78,10 +78,11 @@ class HybridTransformObs(TransformObs):
             "nebula_tile_drift_speed": 1, # 1 float
             "energy_node_drift_speed": 1, # 1 float
             "energy_node_drift_magnitude": 1, # 1 float
-            "points": 2, # 1 float
+            "team_points": 1, # 1 float
+            "opponent_points": 1, # 1 float
         }
         self.vector_size = sum(self.vector_features.values())
-        self.image_channels = sum(self.vector_features.values())
+        self.image_channels = sum(self.image_features.values())
         self.observation_space = gymnax.environments.spaces.Dict({
                             'image': gymnax.environments.spaces.Box(low=0, high=1, shape=(self.image_channels, 24, 24), dtype=jax.numpy.float32), 
                             'vector': gymnax.environments.spaces.Box(low=-1, high=1, shape=(self.vector_size), dtype=jax.numpy.float32),
@@ -110,23 +111,23 @@ class HybridTransformObs(TransformObs):
         image = image.at[0].set(obs.sensor_mask) # unknown
         image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
         image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
-        image = image.at[3].set(memory_state.relics_found) # relics_found from memory
-        image = image.at[4].set(memory_state.points_awarding) # which cells award points
-        image = image.at[4].set(obs.map_features.energy / 20) # energy field
+        image = image.at[3].set(obs.map_features.energy / 20) # energy field
+        image = image.at[4].set(memory_state.relics_found) # relics_found from memory
+        image = image.at[5].set(memory_state.points_awarding) # which cells award points
 
         # enemy units and ally units
         positions = jax.numpy.array(obs.units.position)
         image = image.at[
-            5,
-            positions[1 - team_id, :, 0],
-            positions[1 - team_id, :, 1],
-        ].set((obs.units.energy[1 - team_id] + 1) / 400)
-
-        image = image.at[
             6,
             positions[team_id, :, 0],
             positions[team_id, :, 1],
-        ].set(obs.units.energy[team_id] + 1) / 400
+        ].set((obs.units.energy[team_id] + 1) / 400)
+
+        image = image.at[
+            7,
+            positions[1- team_id, :, 0],
+            positions[1- team_id, :, 1],
+        ].set(obs.units.energy[1 -team_id] + 1) / 400
 
 
         ############# GET INDIVIDUAL VECTORS ##############

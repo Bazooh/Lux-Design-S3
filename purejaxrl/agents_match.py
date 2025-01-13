@@ -8,8 +8,7 @@ from luxai_s3.env import LuxAIS3Env, EnvObs
 import numpy as np
 import termplotlib as tpl
 import numpy as np
-import flax
-from luxai_s3.utils import to_numpy
+
 def EnvObs_to_dict(obs: EnvObs) ->  dict[str, Any]:
     return {
         "units": {
@@ -31,8 +30,8 @@ def EnvObs_to_dict(obs: EnvObs) ->  dict[str, Any]:
     }
 
 def run_match(
-        agent_0: Any, 
-        agent_1: Any, 
+        agent_0: JaxAgent, 
+        agent_1: JaxAgent, 
         vanilla_env: LuxAIS3Env, 
         env_params,
         key: chex.PRNGKey,
@@ -49,6 +48,9 @@ def run_match(
 
     points = np.zeros((max_episode_steps, 2))
 
+    stack_obs = [
+        EnvObs_to_dict(obs["player_0"]),
+    ]
     for step_idx in range(max_episode_steps):
         
         action = {
@@ -59,11 +61,7 @@ def run_match(
         obs, env_state, reward, truncated_dict, terminated_dict, info = vanilla_env.step(rng, env_state, action, env_params)
         points[step_idx] = obs["player_0"].team_points
 
-    fig = tpl.figure()
-    fig.plot(np.arange(max_episode_steps), points[:, 0], width=100, height = 15)
-    fig.plot(np.arange(max_episode_steps), points[:, 1], width=100, height = 15)
-    fig.show()
-    return points # shape (max_episode_steps, 2)
+    
 
 
 if __name__ == "__main__":
