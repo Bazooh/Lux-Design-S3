@@ -68,7 +68,6 @@ def make_train(
     config = parse_config(config_path)
     
     def train(key: chex.PRNGKey,):
-        start_time = time.time()
         
         # INIT NETWORK
         network = config["network"]["network"]
@@ -140,23 +139,6 @@ def make_train(
                 reward_batch =  jnp.stack([reward[a] for a in env.players])
                 reward_batch_player_0 = reward_batch[0]
                 reward_batch_player_1 = reward_batch[1]
-
-                # Reset environments where `done` is True
-                def reset_or_keep(obs, state, params, done, rng):
-                    def end_game_single():
-                        reset_env_params = sample_params(rng)
-                        obs_re, state_re = env.reset(rng, reset_env_params)
-                        return obs_re, state_re, reset_env_params
-
-                    obs, state, params = jax.lax.cond(
-                        done,
-                        end_game_single,
-                        lambda: (obs, state, params),
-                    )
-                    return obs, state, params
-
-                # Vectorize reset logic
-                obsv, env_state, env_params = jax.vmap(reset_or_keep)(obsv, env_state, env_params, done, rng_step)
 
                 transition = Transition(
                     done = done,
@@ -295,30 +277,17 @@ def make_train(
             train_state = update_state[0]
             metric = traj_batch.info
             rng = update_state[-1]
-
+            
             # Debugging mode
-            if debug:
+            if config.get("DEBUG"):
                 def callback(info):
-                    timesteps = info["timestep"][info["returned_episode"]] * num_envs
+                    return_values = info["episode_return"][info["returned_episode"]]
+                    timesteps = info["timestep"][info["returned_episode"]] * config["NUM_ENVS"]
                     for t in range(len(timesteps)):
-                        print(f"global step={timesteps[t]}, fps={(num_envs*num_steps*num_steps)/(time.time() - start_time):.2f}")
+                        print(f"global step={timesteps[t]}, episodic return={return_values[t]}")
                 jax.debug.callback(callback, metric)
                 
             runner_state = (train_state, network_params_1, env_state, last_obs, rng, env_params)
-            start_time = time.time()
-
-            # Overwrite the player 1 weights every freq_opponent_updates
-            runner_state = jax.lax.cond(
-                (update_i % freq_opponent_updates) == 0,
-                lambda runner_state: (runner_state[0], 
-                                    runner_state[0].params, # overwriting network_params_1 with network_params_0
-                                    runner_state[2], 
-                                    runner_state[3], 
-                                    runner_state[4],
-                                    runner_state[5]), 
-                lambda runner_state: runner_state, # skip
-                runner_state,
-            )
 
             return runner_state, metric
 
@@ -338,7 +307,7 @@ if __name__ == "__main__":
     args = {
         "total_timesteps": 1e5,
         "num_envs": 8,
-        "debug": False,
+        "debug": True,
     }
 
     train_jit = jax.jit(make_train(**args))

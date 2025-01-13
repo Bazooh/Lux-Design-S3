@@ -14,7 +14,7 @@ from purejaxrl.parse_config import parse_config
 
 def make_env(config_path = "purejaxrl/jax_config.yaml"):
     config = parse_config(config_path)
-    env = LuxAIS3Env()
+    env = LuxAIS3Env(auto_reset=True)
     env = SimplifyTruncation(env)
     env = MemoryWrapper(env, config["env_args"]["memory"])
     env = TransformRewardWrapper(env, config["env_args"]["transform_reward"])
@@ -25,9 +25,14 @@ def make_env(config_path = "purejaxrl/jax_config.yaml"):
 
 if __name__ == "__main__":
     env = make_env()
+    env = LogWrapper(env)
     key = jax.random.PRNGKey(0)
     params = sample_params(key)
     obs, state = env.reset(key, params)
     obs, state, reward, done, info = env.step(key, state, {player: env.action_space.sample(key) for player in env.players}, params=params)
 
-    print("reward:", reward)
+    for i in range(1, 510):
+        print("Step:", i)
+        print(f"info: global timestep {info['global_timestep']}, episode timestep {info['episode_timestep']}, episode return {info['episode_return']}, episode points {info['episode_points']}, episode wins {info['episode_wins']}")
+        print(state.env_state.memory_state_player_0.points_gained)
+        obs, state, reward, done, info = env.step(key, state, {player: env.action_space.sample(key) for player in env.players}, params=params)

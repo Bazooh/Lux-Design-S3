@@ -77,7 +77,7 @@ def rollout(
     print(vector_p0.shape, vector_p1.shape, len(vector_names))
     return channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names
 
-COLUMNS = 13
+COLUMNS = 14
 
 # Function to plot tensor features
 def plot_channel_features(channels: np.ndarray, axes_row: np.ndarray, title_prefix: str, channel_names: list[str]):
@@ -85,7 +85,7 @@ def plot_channel_features(channels: np.ndarray, axes_row: np.ndarray, title_pref
     for i in range(len(channel_names)):
         ax = axes_row[i]
         ax.clear()
-        ax.imshow(channels[i].T, cmap="coolwarm")
+        ax.imshow(channels[i].T)
         ax.set_title(f"{title_prefix} {i}: {channel_names[i]}", fontsize=6)
         ax.axis("off")
     for i in range(len(channel_names), COLUMNS):
@@ -123,20 +123,20 @@ def plot_vector_features(vectors: np.ndarray, axes_row: np.ndarray, title_prefix
 
 
 
-fig, axes = plt.subplots(4, COLUMNS, figsize=(4 * COLUMNS, 16))
+fig, axes = plt.subplots(4, COLUMNS, figsize=(20, 6))
 
 # Update function for animation
 def update(frame_idx: int, channels: list[list[np.ndarray]], vectors: list[list[np.ndarray]], channel_names: list[str], vector_names: list[str], progressbar):
     """Updates the plot for a given frame."""
     fig.suptitle(f"Frame {frame_idx}", fontsize=16)
     # Player 0 Channels (Row 0)
-    plot_channel_features(channels[0][frame_idx], axes[0, :], "P0 - Channel", channel_names)
+    plot_channel_features(channels[0][frame_idx], axes[0, :], "P0 - Chan.", channel_names)
     # Player 0 Vectors (Row 1)
-    plot_vector_features(vectors[0][frame_idx], axes[1, :len(vector_names)], "P0 - Vector", vector_names)
+    plot_vector_features(vectors[0][frame_idx], axes[1, :len(vector_names)], "P0 - Vec.", vector_names)
     # Player 1 Channels (Row 2)
-    plot_channel_features(channels[1][frame_idx], axes[2, :], "P1 - Channel", channel_names)
+    plot_channel_features(channels[1][frame_idx], axes[2, :], "P1 - Chan.", channel_names)
     # Player 1 Vectors (Row 3)
-    plot_vector_features(vectors[1][frame_idx], axes[3, :len(vector_names)], "P1 - Vector", vector_names)
+    plot_vector_features(vectors[1][frame_idx], axes[3, :len(vector_names)], "P1 - Vec.", vector_names)
 
     progressbar.update(1)
 
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     from rule_based.naive.agent import NaiveAgent
     from tqdm import tqdm
     # RUN MATCH
-    seed = 1
+    seed = np.random.randint(0, 100)
     key = jax.random.PRNGKey(seed)
     vanilla_env = LuxAIS3Env(auto_reset=True)
     env_params = sample_params(key)
@@ -163,7 +163,7 @@ if __name__ == "__main__":
         key = key,
         vanilla_env = vanilla_env,
         env_params = env_params,
-        steps=50
+        steps=200
     )
     
     channels = np.stack([channels_p0, channels_p1])
@@ -178,7 +178,7 @@ if __name__ == "__main__":
             frame_idx, channels=channels, vectors=vector, channel_names=channel_names, vector_names=vector_names, progressbar=progressbar
         ),
         frames=n_frames,
-        interval=100,
+        interval=150,
     )
 
     anim.save("purejarxrl_debug_channels.gif")

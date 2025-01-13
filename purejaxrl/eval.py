@@ -141,6 +141,10 @@ def run_episode_and_record(
         obs, env_state, reward, done, info = rec_env.step(rng, env_state, action, env_params)
         reward_batch =  jnp.stack([reward[a] for a in rec_env.players])
         points = points.at[step_idx].set(reward_batch)
+        print("Step:", step_idx+1)
+        print(f"info: global timestep {info['global_timestep']}, episode timestep {info['episode_timestep']}, episode return {info['episode_return']}, episode points {info['episode_points']}, episode wins {info['episode_wins']}")
+        print(state.env_state.memory_state_player_0.points_gained)
+        obs, state, reward, done, info = rec_env.step(key, state, {player: rec_env.action_space.sample(key) for player in rec_env.players}, params=env_params)
 
     rec_env.close()
     return points # shape (max_episode_steps, 2)
@@ -176,8 +180,9 @@ def run_episode_and_record(
 if __name__ == "__main__":
     from make_env import make_env
     from purejaxrl.wrappers.record_wrapper import RecordEpisode
+    import numpy as np
     # RECORD   
-    seed = 1
+    seed = np.random.randint(0, 100)
     rec_env = RecordEpisode(make_env(), save_dir="test", save_on_close=True, save_on_reset=True, save_format="html")
     key = jax.random.PRNGKey(seed)
     # INIT NETWORK

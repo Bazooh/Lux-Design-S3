@@ -8,6 +8,8 @@ from functools import partial
 from luxai_s3.params import EnvParams, env_params_ranges
 import gymnax
 from typing import Any
+import jax.numpy as jnp
+import numpy as np
 class TransformObs(ABC):
     """
     Abstract base class for converting observations into tensor representations.
@@ -80,15 +82,52 @@ class HybridTransformObs(TransformObs):
             "energy_node_drift_magnitude": 1, # 1 float
             "team_points": 1, # 1 float
             "opponent_points": 1, # 1 float
+            "points_gained": 1, # 1 float
         }
         self.vector_size = sum(self.vector_features.values())
         self.image_channels = sum(self.image_features.values())
+
+        self.vector_mean = {
+            "unit_move_cost": np.mean(env_params_ranges["unit_move_cost"]), 
+            "unit_sensor_range": np.mean(env_params_ranges["unit_sensor_range"]), 
+            "nebula_tile_vision_reduction": np.mean(env_params_ranges["nebula_tile_vision_reduction"]),
+            "nebula_tile_energy_reduction": np.mean(env_params_ranges["nebula_tile_energy_reduction"]),
+            "unit_sap_cost": np.mean(env_params_ranges["unit_sap_cost"]),
+            "unit_sap_range": np.mean(env_params_ranges["unit_sap_range"]),
+            "unit_sap_dropoff_factor": np.mean(env_params_ranges["unit_sap_dropoff_factor"]),
+            "unit_energy_void_factor": np.mean(env_params_ranges["unit_energy_void_factor"]),
+            "nebula_tile_drift_speed": np.mean(env_params_ranges["nebula_tile_drift_speed"]),
+            "energy_node_drift_speed": np.mean(env_params_ranges["energy_node_drift_speed"]),
+            "energy_node_drift_magnitude": np.mean(env_params_ranges["energy_node_drift_magnitude"]),
+            "team_points": 0,
+            "opponent_points": 0,
+            "points_gained": 0,
+        }
+
+        self.vector_std = {
+            "unit_move_cost": np.std(env_params_ranges["unit_move_cost"]), 
+            "unit_sensor_range": np.std(env_params_ranges["unit_sensor_range"]), 
+            "nebula_tile_vision_reduction": np.std(env_params_ranges["nebula_tile_vision_reduction"]),
+            "nebula_tile_energy_reduction": np.std(env_params_ranges["nebula_tile_energy_reduction"]),
+            "unit_sap_cost": np.std(env_params_ranges["unit_sap_cost"]),
+            "unit_sap_range": np.std(env_params_ranges["unit_sap_range"]),
+            "unit_sap_dropoff_factor": np.std(env_params_ranges["unit_sap_dropoff_factor"]),
+            "unit_energy_void_factor": np.std(env_params_ranges["unit_energy_void_factor"]),
+            "nebula_tile_drift_speed": np.std(env_params_ranges["nebula_tile_drift_speed"]),
+            "energy_node_drift_speed": np.std(env_params_ranges["energy_node_drift_speed"]),
+            "energy_node_drift_magnitude": np.std(env_params_ranges["energy_node_drift_magnitude"]),
+            "team_points": 1,
+            "opponent_points": 1,
+            "points_gained": 1,
+        }
+
+        self.vector_std_values = jnp.array(list(self.vector_std.values()))
+        self.vector_mean_values = jnp.array(list(self.vector_mean.values()))
         self.observation_space = gymnax.environments.spaces.Dict({
-                            'image': gymnax.environments.spaces.Box(low=0, high=1, shape=(self.image_channels, 24, 24), dtype=jax.numpy.float32), 
-                            'vector': gymnax.environments.spaces.Box(low=-1, high=1, shape=(self.vector_size), dtype=jax.numpy.float32),
-                            'position': gymnax.environments.spaces.Box(low=0, high=23, shape=(16, 2), dtype=jax.numpy.int8), 
+                            'image': gymnax.environments.spaces.Box(low=0, high=1, shape=(self.image_channels, 24, 24), dtype=jnp.float32), 
+                            'vector': gymnax.environments.spaces.Box(low=-1, high=1, shape=(self.vector_size), dtype=jnp.float32),
+                            'position': gymnax.environments.spaces.Box(low=0, high=23, shape=(16, 2), dtype=jnp.int8), 
         })
-    
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
         self, 
@@ -97,14 +136,14 @@ class HybridTransformObs(TransformObs):
         memory_state: Any,
         params: EnvParams,
     ):
-        image = jax.numpy.zeros(
+        image = jnp.zeros(
             (self.image_channels, obs.map_features.energy.shape[0], obs.map_features.energy.shape[1]),
-            dtype=jax.numpy.float32,
+            dtype=jnp.float32,
         ) 
 
-        vector = jax.numpy.zeros(
+        vector = jnp.zeros(
             (self.vector_size), 
-            dtype=jax.numpy.float32
+            dtype=jnp.float32
         )
     
         ############# HANDLES IMAGE ##############
@@ -116,7 +155,7 @@ class HybridTransformObs(TransformObs):
         image = image.at[5].set(memory_state.points_awarding) # which cells award points
 
         # enemy units and ally units
-        positions = jax.numpy.array(obs.units.position)
+        positions = jnp.array(obs.units.position)
         image = image.at[
             6,
             positions[team_id, :, 0],
@@ -147,5 +186,7 @@ class HybridTransformObs(TransformObs):
 
         # current_points
         vector= vector.at[11].set(obs.team_points[team_id])
-        vector= vector.at[11].set(obs.team_points[1-team_id])
-        return {'image': image, 'vector': vector, 'position': obs.units.position[team_id]}
+        vector= vector.at[12].set(obs.team_points[1-team_id])
+        vector= vector.at[13].set(memory_state.points_gained)
+        rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
+        return {'image': image, 'vector': rescaled_vector, 'position': obs.units.position[team_id]}

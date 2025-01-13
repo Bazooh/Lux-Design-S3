@@ -5,6 +5,7 @@ from flax import struct
 from functools import partial
 from typing import Optional, Tuple, Union, Any, Literal
 import numpy as np 
+import jax.numpy as jnp
 from gymnax.environments import environment
 import gymnax
 from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams, PlayerAction
@@ -95,10 +96,12 @@ class MemoryWrapper(GymnaxWrapper):
 
 @struct.dataclass
 class LogEnvState:
-    env_state: EnvState
-    episode_returns: float
-    episode_lengths: int
-    timestep: int
+    env_state: environment.EnvState
+    episode_return: list[float]
+    episode_points: list[int]
+    episode_wins: list[int]
+    episode_timestep: int
+    global_timestep: int
 
 class LogWrapper(GymnaxWrapper):
     """Log the episode returns and lengths."""
@@ -111,12 +114,13 @@ class LogWrapper(GymnaxWrapper):
     ) -> Tuple[chex.Array, LogEnvState]:
         obs, env_state = self._env.reset(key, params)
         log_env_state = LogEnvState(
-                                    env_state=env_state, 
-                                    episode_returns = {k: 0 for k in obs.keys()},
-                                    episode_lengths=0,
-                                    timestep=0
-                                )
-        
+            env_state=env_state,
+            episode_return=jnp.array([0, 0]),
+            episode_points=jnp.array([0, 0]),
+            episode_wins=jnp.array([0, 0]),
+            episode_timestep=0,
+            global_timestep=0
+        )
         return obs, log_env_state
 
     def step(
@@ -129,15 +133,23 @@ class LogWrapper(GymnaxWrapper):
         obs, env_state, reward, done, info = self._env.step(
             key, log_env_state.env_state, action, params
         )
-        new_episode_return = {k: (log_env_state.episode_returns[k] + r)* (1 - done) for (k,r) in reward.items()}
-        new_episode_length = (log_env_state.episode_lengths + 1) * (1 - done)
+
+        new_episode_return = (log_env_state.episode_return + jnp.array([reward["player_0"], reward["player_1"]])) * (1 - done)
+        new_episode_points =  info["final_observation"]["player_0"].team_points * (1 - done)
+        new_episode_wins = info["final_observation"]["player_0"].team_wins * (1 - done)
         new_log_env_state = LogEnvState(
             env_state=env_state,
-            episode_returns = new_episode_return,
-            episode_lengths = new_episode_length,
-            timestep=log_env_state.timestep+1
+            episode_return=new_episode_return,
+            episode_points=new_episode_points,
+            episode_wins=new_episode_wins,
+            episode_timestep=(log_env_state.episode_timestep + 1)*(1 - done),
+            global_timestep=log_env_state.global_timestep + 1,
         )
-        info["timestep"] = new_log_env_state.timestep
+        info["episode_return"] = new_log_env_state.episode_return
+        info["episode_points"] = new_log_env_state.episode_points
+        info["episode_wins"] = new_log_env_state.episode_wins
+        info["global_timestep"] = new_log_env_state.global_timestep
+        info["episode_timestep"] = new_log_env_state.episode_timestep
         info["returned_episode"] = done
         return obs, new_log_env_state, reward, done, info
 
