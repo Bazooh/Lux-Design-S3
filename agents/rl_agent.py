@@ -1,13 +1,7 @@
 from luxai_s3.env import PlayerAction
 from agents.tensor_converters.tensor import TensorConverter, BasicTensorConverter
-from agents.reward_shapers.reward import (
-    # GreedyExploreRewardShaper,
-    DistanceToNearestRelicRewardShaper,
-    GreedyRewardShaper,
-    RewardShaper,
-)
 from agents.base_agent import Agent, N_Actions, N_Agents
-from agents.obs import EnvParams, Obs, VecObs
+from agents.obs import EnvParams, Obs
 
 from abc import ABC, abstractmethod
 import random
@@ -31,41 +25,27 @@ class RLAgent(Agent, ABC):
         device: str,
         model: torch.nn.Module,
         tensor_converter: TensorConverter,
-        reward_shaper: RewardShaper,
-        symetric_player_1: bool = True,
     ) -> None:
         super().__init__(player, env_params)
         self.device = device
         self.model = model
         self.tensor_converter = tensor_converter
-        self.reward_shaper = reward_shaper
-        self.symetric_player_1 = symetric_player_1
-
-    def update_memory(self, obs: Obs) -> None:
-        self.tensor_converter.update_memory(
-            VecObs.from_obs(obs), np.array([self.team_id])
-        )
 
     def actions(
         self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
-        self.update_memory(obs)
-        return self.symetric_action(
-            self.sample_action(self.obs_to_tensor(obs), epsilon=0)
-        )
+        self.tensor_converter.update_memory(obs, self.team_id)
+        obs_tensor = torch.from_numpy(self.tensor_converter.convert(obs, self.team_id)).float()
 
-    def get_actions_and_tensor(
-        self, obs: Obs, update_memory=True
-    ) -> tuple[
-        np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]], torch.Tensor
-    ]:
-        if update_memory:
-            self.update_memory(obs)
-        tensor = self.obs_to_tensor(obs)
-        return self.symetric_action(self.sample_action(tensor, epsilon=0)), tensor
+        with torch.no_grad():
+            out = self.model(obs_tensor.unsqueeze(0).to(self.device)).cpu().squeeze(0)
+
+        actions = np.zeros((16, 3), dtype=np.int32)
+        actions[:, 0] = out.argmax(1).int()
+        return self.symetric_action(actions)
 
     def symetric_action(self, action: PlayerAction) -> PlayerAction:
-        if self.team_id == 0 or not self.symetric_player_1:
+        if self.team_id == 0:
             return action
 
         action = action.copy()
@@ -80,18 +60,6 @@ class RLAgent(Agent, ABC):
     @torch.no_grad()
     def sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:
         return self._sample_action(obs_tensor, epsilon)
-
-    def obs_to_tensor(self, obs: Obs) -> torch.Tensor:
-        """! Warning ! This function does not update the memory"""
-        return self.tensor_converter.convert(
-            VecObs.from_obs(obs), np.array([self.team_id])
-        ).squeeze(0)
-
-    def save_net(self, path: str) -> None:
-        torch.save(self.model.state_dict(), path)
-
-    def load_net(self, path: str) -> None:
-        self.model.load_state_dict(torch.load(path))
 
 
 class BasicRLAgent(RLAgent):
@@ -110,9 +78,7 @@ class BasicRLAgent(RLAgent):
             env_params=env_params,
             device=device,
             model=model,
-            tensor_converter=BasicTensorConverter(1),
-            reward_shaper=GreedyRewardShaper() + DistanceToNearestRelicRewardShaper(),
-            symetric_player_1=True,
+            tensor_converter=BasicTensorConverter(),
         )
 
     def _sample_action(self, obs_tensor: torch.Tensor, epsilon: float) -> PlayerAction:

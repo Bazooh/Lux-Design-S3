@@ -37,6 +37,6 @@ class BasicTensorConverter(TensorConverter):
             c.NebulaChannel(),
             c.EnergyChannel(),
             c.EnemiesChannel(),
-            c.RelicPointsChannels(),
             c.AllyUnitsChannels(),
+            c.RelicPointsChannels(),
         )

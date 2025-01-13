@@ -1,8 +1,3 @@
-from agents.reward_shapers.vec_reward import (
-    VecGreedyRewardShaper,
-    VecDistanceToNearestRelicRewardShaper,
-)
-
 import torch
 from torch import nn
 
@@ -19,9 +14,6 @@ class VecBasicRLAgent:
         self.device = device
         self.model = model
         self.mixte_strategy = mixte_strategy
-        self.reward_shaper = VecGreedyRewardShaper(
-            n_envs
-        ) + VecDistanceToNearestRelicRewardShaper(n_envs)
 
     @torch.no_grad()
     def sample_actions(self, obs_tensors: torch.Tensor, epsilon: float) -> torch.Tensor:

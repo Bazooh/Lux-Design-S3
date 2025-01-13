@@ -11,7 +11,12 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from agents.models.dense import CNN
-from agents.reward_shapers.reward import DefaultRewardShaper, RewardShaper
+from agents.reward_shapers.reward import (
+    DistanceToNearestRelicRewardShaper,
+    GreedyExploreRewardShaper,
+    GreedyRewardShaper,
+    RewardShaper,
+)
 from agents.tensor_converters.tensor import BasicTensorConverter
 from luxai_s3.wrappers import RecordEpisode, Actions, PlayerAction, PlayerReward
 
@@ -32,7 +37,7 @@ from env_interface import (
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
 PROFILE = False  # if enabled, profiles the code
-USE_WANDB = False  # if enabled, logs data on wandb server
+USE_WANDB = True  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:
@@ -277,7 +282,7 @@ def main(
 
             test_score = test(test_env, test_episodes, network, test_agent_instantiator)
             print(
-                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f}, fps : {np.mean(fps):.1f}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
+                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.2f}, test score: {test_score:.2f}, fps : {int(np.mean(fps))}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
             if USE_WANDB:
                 wandb.log(
@@ -314,7 +319,9 @@ if __name__ == "__main__":
         "network_instantiator": lambda: CNN(n_input_channels=23),
         "agent_instantiator": VecBasicRLAgent,
         "test_agent_instantiator": BasicRLAgent,
-        "reward_shaper": DefaultRewardShaper(),
+        "reward_shaper": GreedyRewardShaper()
+        + 0.1 * DistanceToNearestRelicRewardShaper()
+        + 0.01 * GreedyExploreRewardShaper(),
     }
     if USE_WANDB:
         import wandb
