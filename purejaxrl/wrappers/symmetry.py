@@ -17,7 +17,7 @@ class Symmetry(ABC):
     @abstractmethod
     def convert_obs(
         self,
-        team_id_str: str,
+        team_id: int,
         obs: EnvObs,
     ):
         """
@@ -28,7 +28,7 @@ class Symmetry(ABC):
     @abstractmethod
     def convert_action(
         self,
-        team_id_str: str,
+        team_id: int,
         action
     ):
         """
@@ -36,36 +36,44 @@ class Symmetry(ABC):
         """
         pass    
 
-@jax.jit
+@jax.vmap
 def mirror_grid(array):
     """
-    Input: (N, H, W)
-    Output: (N, H, W)
+    Input: (H, W)
+    Output: (H, W)
     """
-    return jnp.flip(jnp.transpose(array, axes=(0, 2, 1)), axis=(1, 2))
+    return jnp.flip(jnp.transpose(array))
 
-@jax.jit
+@jax.vmap
+def mirror_position(pos):
+    """
+    Input: Shape (2): (x,y)
+    Output: Shape 2: (23-y, 23-x)
+    """
+    return 23*jnp.ones(2) - jnp.flip(pos)
+
+@jax.vmap
 def mirror_action(a):
     # a is (3,)
     # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left, 5 is sap
-
+    flip_map = jnp.array([0, 3, 4, 1, 2]) 
     @jax.jit
     def flip_move_action(a):
         # a is (3,)
         # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left
-        a = a.at[0].set([0, 3, 4, 1, 2][a[0]])
+        a = a.at[0].set(flip_map[a[0]])  # Map the first element using flip_map
         return a
 
     @jax.jit
     def flip_sap_action(a):
-        # a = (5, x, y), (x,y) should be replaced by (-y, -x)
-        a = a.at[1:2].set(-a[2], -a[1])
+        # a = (5, x, y), (x,y) should be replaced by (23-y, 13-x)
+        a = a.at[1:].set(23*jnp.ones(2) - jnp.flip(a[1:]))
         return a
     
     a = jax.lax.cond(
-        a < 5,
-        lambda: flip_move_action,
-        lambda: flip_sap_action,
+        a[0] < 5,
+        flip_move_action,
+        flip_sap_action,
         a,
     )
     return a
@@ -73,16 +81,27 @@ def mirror_action(a):
 class ActionAndObsSymmetry(Symmetry):
     def convert_obs(
         self,
-        team_id_str: str,
+        team_id: id,
         obs: EnvObs,
     ):
-        return obs
+        if team_id == 0: # Do nothing
+            return obs
+        else:
+            obs_attributes = list(obs.keys())
+            if "image" in obs_attributes:
+                obs["image"] = mirror_grid(obs["image"])
+            if "position" in obs_attributes:
+                obs["position"] = mirror_position(obs["position"]).astype(int)
+            return obs
 
 
     def convert_action(
         self,
-        team_id_str: str,
+        team_id: id,
         action
     ):
-        return action
+        if team_id == 0: # Do nothing
+            return action
+        else:
+            return mirror_action(action).astype(int)
 

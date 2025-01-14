@@ -5,7 +5,7 @@ from flax import struct
 import jax, chex
 from functools import partial
 from typing import Any
-
+import numpy as np
 class Memory(ABC):
     def __init__(self):
         pass
@@ -37,7 +37,8 @@ class RelicPointMemory(Memory):
                     relics_found=jnp.zeros((24,24), dtype = jnp.int8),
                     points_awarding= jnp.zeros((24,24), dtype = jnp.int8),
                     last_step_team_points=0,
-                    points_gained=0
+                    points_gained=0,
+
         )
     #@partial(jax.jit, static_argnums=(0,2))
     def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState):
@@ -45,125 +46,67 @@ class RelicPointMemory(Memory):
         Update rule 1:
         - Update the relics_found to 1 if a relic is discovered.
         Update rule 2:
-        - If I expect N points this round (based on the point map), and I win exactly N points, then set the useless ones to -1
-        Update rule 3:
         - If a unit is oob of relic, then set the points_awarding of the units position to -1.
-        Update rule 4:
+        Update rule 3:
         - If N is the number of the units in range of a relic, and we have gained N points, then set the points_awarding of all the units positions to 1.
-        """
+        Update rule 4:
+        - If I sit on exactly N points square (N farming units), and I win exactly N points, then set the non farming ones to -1
+        """    
 
-        def compute_farming_units(units_pos, points_awarding):
-            """
-            Identify the units that are farming relics. A unit is farming if it sits on a points awarding square.
-            """
-            def is_farming(unit_pos):
-                return points_awarding[unit_pos[0], unit_pos[1]] == 1
-            return jax.vmap(is_farming)(units_pos)
-        
-        def compute_inbound_units(units_pos, new_relics_found):
-            """
-            Identify units that are not within a Manhattan distance of 2 from any relic.
-            """
-            def is_inbound(unit_pos):
-                neighbors = jnp.array([
-                        [unit_pos[0] + i, unit_pos[1] + j]
-                        for i in range(-2, 3)
-                        for j in range(-2, 3)
-                ])
-                
-                # Ensure neighbors are within bounds
-                valid_mask = ((neighbors >= 0) & (neighbors < 24)).all(axis=1)  # Check both x and y are within bounds
-                neighbors = jnp.where(valid_mask[:, None], neighbors, -1)  # Replace invalid neighbors with -1
-                
-                # Mask out invalid neighbors before indexing
-                neighbor_values = jnp.where(
-                    (neighbors[:, 0] >= 0) & (neighbors[:, 1] >= 0),  # Only consider valid neighbors
-                    new_relics_found[neighbors[:, 0], neighbors[:, 1]],
-                    0  # Default to 0 for invalid neighbors
-                )
-                return jnp.any(neighbor_values == 1)
-            return jax.vmap(is_inbound)(units_pos)
-        
-        def compute_oob_units(units_pos, new_relics_found):
-            """
-            Identify units that are not within a Manhattan distance of 2 from any relic.
-            """
-            def is_inbound(unit_pos):
-                neighbors = jnp.array([
-                        [unit_pos[0] + i, unit_pos[1] + j]
-                        for i in range(-2, 3)
-                        for j in range(-2, 3)
-                ])
-                
-                # Ensure neighbors are within bounds
-                valid_mask = ((neighbors >= 0) & (neighbors < 24)).all(axis=1)  # Check both x and y are within bounds
-                neighbors = jnp.where(valid_mask[:, None], neighbors, -1)  # Replace invalid neighbors with -1
-                
-                # Mask out invalid neighbors before indexing
-                neighbor_values = jnp.where(
-                    (neighbors[:, 0] >= 0) & (neighbors[:, 1] >= 0),  # Only consider valid neighbors
-                    new_relics_found[neighbors[:, 0], neighbors[:, 1]],
-                    0  # Default to 0 for invalid neighbors
-                )
-                return jnp.all(neighbor_values < 1)
-            return jax.vmap(is_inbound)(units_pos)
-    
-        
-        ########## Update rule 1:  ##########
+        ########## UPDATE RULE 1  ##########
         new_relics_found = memory_state.relics_found
-        new_points_awarding = memory_state.points_awarding
         viewed_relic_obs_indices = obs.get_avaible_relics()
         currently_viewing_relics = jnp.zeros((24,24), dtype = jnp.int8).at[obs.relic_nodes[viewed_relic_obs_indices, 0], obs.relic_nodes[viewed_relic_obs_indices, 1]].set(1)
         new_relics_found = new_relics_found + obs.sensor_mask * (
             (new_relics_found == 0) * (2 * currently_viewing_relics - 1)
         )
+        points_gained = max(0, obs.team_points[team_id] - memory_state.last_step_team_points)
 
-        ########## Update rule 2:  ##########
-        points_gained = obs.team_points[team_id] - memory_state.last_step_team_points
+        ########## UPDATE RULE 2  ##########
+        # Cases surrounded by no relics -> no points
+        new_points_awarding = memory_state.points_awarding
+        alive_units_id = obs.get_avaible_units(team_id)
+        unit_positions = np.array(obs.units.position[team_id])
+        for unit_id in alive_units_id:
+            unit_pos = unit_positions[unit_id]
+            x, y = unit_pos[0].item(), unit_pos[1].item()
 
-        alive_units_mask = obs.units_mask[team_id]
-        alive_units_pos = obs.units.position[team_id][alive_units_mask]
+            if memory_state.points_awarding[x, y] != 0:
+                continue
 
-        farming_units_mask = compute_farming_units(obs.units.position[team_id], new_points_awarding)
-        not_farming_a_priori_pos = obs.units.position[team_id][~farming_units_mask]
+            min_x = max(0, x - 2)
+            max_x = min(24, x + 3)
+            min_y = max(0, y - 2)
+            max_y = min(24, y + 3)
 
-        outbound_units_mask = compute_inbound_units(obs.units.position[team_id], new_relics_found)
-        outbound_units_pos = obs.units.position[team_id][outbound_units_mask]
+            # If we are sure there are no relics around the unit, then this case earns no points !
+            if (new_relics_found[min_x:max_x, min_y:max_y] == -1).all():
+                new_points_awarding = new_points_awarding.at[x,y].set(-1)
 
-        inbounds_units_mask = compute_oob_units(obs.units.position[team_id], new_relics_found)
-        inbounds_units_pos = obs.units.position[team_id][inbounds_units_mask]
-    
-        new_points_awarding = jax.lax.cond(
-            points_gained == jnp.sum(farming_units_mask),
-            lambda _: new_points_awarding.at[not_farming_a_priori_pos[:, 0], not_farming_a_priori_pos[:, 1]].set(-1),
-            lambda _: new_points_awarding,
-            operand=None
-        )
 
-        ########## Update rule 3:  ##########
-        new_points_awarding = new_points_awarding.at[outbound_units_pos[:, 0], outbound_units_pos[:, 1]].set(-1)
-
-        ########## Update rule 4:  ##########
-        new_points_awarding = jax.lax.cond(
-            points_gained == jnp.sum(inbounds_units_mask),
-            lambda _: new_points_awarding.at[inbounds_units_pos[:, 0], inbounds_units_pos[:, 1]].set(1),
-            lambda _: new_points_awarding,
-            operand=None
-        )
-
-        ########## Update rule 5:  ##########
-        new_points_awarding = jax.lax.cond(
-            points_gained == 0,
-            lambda _: new_points_awarding.at[alive_units_pos[:, 0], alive_units_pos[:, 1]].set(-1),
-            lambda _: new_points_awarding,
-            operand=None
-        )
+        ########## UPDATE RULE 3 AND 4  ##########
+        alive_units_pos = obs.units.position[team_id][alive_units_id]
+        unknown_points_mask = new_points_awarding[
+            alive_units_pos[:, 0], alive_units_pos[:, 1]
+        ]
+        expected_gain = (unknown_points_mask == 1).sum().item()
+        unknown_points_mask_is_unknown = (unknown_points_mask == 0)
+        
+        if points_gained == expected_gain: # RULE 4
+            new_points_awarding = new_points_awarding.at[
+                alive_units_pos[:, 0], alive_units_pos[:, 1]
+            ].subtract(unknown_points_mask_is_unknown)
+        else:
+            if unknown_points_mask_is_unknown.sum().item() == points_gained - expected_gain: # RULE 3
+               new_points_awarding = new_points_awarding.at[
+                    alive_units_pos[:, 0], alive_units_pos[:, 1]
+                ].add(unknown_points_mask_is_unknown)
 
         return RelicPointMemoryState(
             relics_found=new_relics_found,
             points_awarding=new_points_awarding,
             last_step_team_points=obs.team_points[team_id],
-            points_gained=points_gained
+            points_gained=points_gained,
         )
     
     def expand(self, obs, team_id, memory_state):

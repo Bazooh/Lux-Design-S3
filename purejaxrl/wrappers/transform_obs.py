@@ -62,10 +62,10 @@ class HybridTransformObs(TransformObs):
             "Asteroid": 1,
             "Nebula": 1,
             "Energy_Field": 1,
-            "Relic": 1,
-            "Points": 1,
             "Ally_Units": 1,
             "Enemy_Units": 1,
+            "Relic": 1,
+            "Points": 1,
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # Game Parameters
@@ -151,23 +151,23 @@ class HybridTransformObs(TransformObs):
         image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
         image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
         image = image.at[3].set(obs.map_features.energy / 20) # energy field
-        image = image.at[4].set(memory_state.relics_found) # relics_found from memory
-        image = image.at[5].set(memory_state.points_awarding) # which cells award points
 
         # enemy units and ally units
         positions = jnp.array(obs.units.position)
         image = image.at[
-            6,
+            4,
             positions[team_id, :, 0],
             positions[team_id, :, 1],
         ].set((obs.units.energy[team_id] + 1) / 400)
 
         image = image.at[
-            7,
+            5,
             positions[1- team_id, :, 0],
             positions[1- team_id, :, 1],
         ].set(obs.units.energy[1 -team_id] + 1) / 400
 
+        image = image.at[6].set(memory_state.relics_found)
+        image = image.at[7].set(memory_state.points_awarding)    
 
         ############# GET INDIVIDUAL VECTORS ##############
 

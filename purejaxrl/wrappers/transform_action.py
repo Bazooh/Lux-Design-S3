@@ -31,6 +31,7 @@ class SimplerActionNoSap(TransformAction):
     def __init__(self):
         super().__init__()
         self.action_space = gymnax.environments.spaces.Discrete(6)
+    
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
         self,

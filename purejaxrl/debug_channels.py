@@ -48,7 +48,7 @@ def rollout(
 
     stack_obs_0 = [] # Contains the observations of the agent 0
     stack_obs_1 = [] # Contains the observations of the agent 1
-
+    stack_relic_w = []
     for step_idx in range(steps):
         # redo the observation conversion: agent_0 and agent_1 
         agent_0.memory_state = agent_0.memory.update(obs = obs["player_0"], team_id=agent_0.team_id, memory_state=agent_0.memory_state)
@@ -57,9 +57,11 @@ def rollout(
         expanded_obs_1 = agent_1.memory.expand(obs["player_1"], agent_1.team_id, agent_1.memory_state)
         transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs = expanded_obs_0, params=env_params, memory_state=agent_0.memory_state)
         transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs = expanded_obs_1, params=env_params, memory_state=agent_1.memory_state)
-        stack_obs_0.append(transformed_obs_0)
-        stack_obs_1.append(transformed_obs_1)
-
+        transformed_obs_sym_obs_0 = agent_0.symmetry.convert_obs(team_id = agent_0.team_id, obs = transformed_obs_0)
+        transformed_obs_sym_obs_1 = agent_1.symmetry.convert_obs(team_id = agent_1.team_id, obs = transformed_obs_1)
+        stack_obs_0.append(transformed_obs_sym_obs_0)
+        stack_obs_1.append(transformed_obs_sym_obs_1)
+        stack_relic_w.append(env_state.relic_nodes_map_weights)
         action = {
             "player_0": actor_0.act(step = step_idx, obs = EnvObs_to_dict(obs["player_0"])), 
             "player_1": actor_1.act(step = step_idx, obs = EnvObs_to_dict(obs["player_1"])),
@@ -75,7 +77,8 @@ def rollout(
     vector_p1 = np.stack([obs["vector"] for obs in stack_obs_1])
     print(channels_p0.shape, channels_p1.shape, len(channel_names))
     print(vector_p0.shape, vector_p1.shape, len(vector_names))
-    return channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names
+    stack_relic_w = np.stack(stack_relic_w)
+    return channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names, stack_relic_w
 
 COLUMNS = 14
 
@@ -121,23 +124,34 @@ def plot_vector_features(vectors: np.ndarray, axes_row: np.ndarray, title_prefix
             fontweight="bold"
         )
 
+# Function to plot relic weights
+def plot_relic_weights(relic_weights: np.ndarray, axes_row: np.ndarray, title_prefix: str):
+    """Plots the relic weights as a heatmap in the fifth row."""
+    for i, ax in enumerate(axes_row):
+        ax.clear()
+        ax.axis("off")
+        if i == 0:  # Display the heatmap only in the first column
+            ax.imshow(relic_weights.T, cmap="viridis", origin="upper")
+            ax.set_title(f"{title_prefix} Relic Weights", fontsize=6)
 
 
-fig, axes = plt.subplots(4, COLUMNS, figsize=(20, 6))
+fig, axes = plt.subplots(5, COLUMNS, figsize=(25, 8))
 
 # Update function for animation
-def update(frame_idx: int, channels: list[list[np.ndarray]], vectors: list[list[np.ndarray]], channel_names: list[str], vector_names: list[str], progressbar):
+def update(frame_idx: int, 
+           channels: list[list[np.ndarray]], vectors: list[list[np.ndarray]], relic_weights, 
+           channel_names: list[str], vector_names: list[str], progressbar):
     """Updates the plot for a given frame."""
     fig.suptitle(f"Frame {frame_idx}", fontsize=16)
     # Player 0 Channels (Row 0)
-    plot_channel_features(channels[0][frame_idx], axes[0, :], "P0 - Chan.", channel_names)
+    plot_channel_features(channels[0][frame_idx], axes[0, :], "P0-Chan.", channel_names)
     # Player 0 Vectors (Row 1)
-    plot_vector_features(vectors[0][frame_idx], axes[1, :len(vector_names)], "P0 - Vec.", vector_names)
+    plot_vector_features(vectors[0][frame_idx], axes[1, :len(vector_names)], "P0-Vec.", vector_names)
     # Player 1 Channels (Row 2)
-    plot_channel_features(channels[1][frame_idx], axes[2, :], "P1 - Chan.", channel_names)
+    plot_channel_features(channels[1][frame_idx], axes[2, :], "P1-Chan.", channel_names)
     # Player 1 Vectors (Row 3)
-    plot_vector_features(vectors[1][frame_idx], axes[3, :len(vector_names)], "P1 - Vec.", vector_names)
-
+    plot_vector_features(vectors[1][frame_idx], axes[3, :len(vector_names)], "P1-Vec.", vector_names)
+    plot_relic_weights(relic_weights[frame_idx], axes[4, :], "Relic Weights")
     progressbar.update(1)
 
 
@@ -155,11 +169,11 @@ if __name__ == "__main__":
     vanilla_env = LuxAIS3Env(auto_reset=True)
     env_params = sample_params(key)
     
-    channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names = rollout(
+    channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names, relic_w = rollout(
         agent_0 = JaxAgent("player_0", env_params.__dict__),
         agent_1 = JaxAgent("player_1", env_params.__dict__),
-        actor_0 = NaiveAgent("player_0", env_params.__dict__),
-        actor_1 = NaiveAgent("player_1", env_params.__dict__),
+        actor_0 = RelicboundAgent("player_0", env_params.__dict__),
+        actor_1 = RelicboundAgent("player_1", env_params.__dict__),
         key = key,
         vanilla_env = vanilla_env,
         env_params = env_params,
@@ -170,15 +184,17 @@ if __name__ == "__main__":
     vector = np.stack([vector_p0, vector_p1])
     n_frames = len(channels_p0)
     
-    progressbar = tqdm(total=n_frames + 1)
+    progressbar = tqdm(total=n_frames)
 
     anim = FuncAnimation(
         fig,
         lambda frame_idx: update(
-            frame_idx, channels=channels, vectors=vector, channel_names=channel_names, vector_names=vector_names, progressbar=progressbar
+            frame_idx, 
+            channels=channels, vectors=vector, relic_weights=relic_w, 
+            channel_names=channel_names, vector_names=vector_names, progressbar=progressbar
         ),
         frames=n_frames,
-        interval=150,
+        interval=250,
     )
 
     anim.save("purejarxrl_debug_channels.gif")

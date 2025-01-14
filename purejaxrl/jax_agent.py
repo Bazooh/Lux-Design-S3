@@ -68,9 +68,11 @@ class RawJaxAgent:
         self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
         expanded_obs = self.memory.expand(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
         transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = expanded_obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
-        action = self.forward(self.key, transformed_obs=transformed_obs)
-        transformed_action = self.transform_action.convert(team_id=self.team_id, action = action, obs = expanded_obs, params=EnvParams.from_dict(self.env_params))
-        return transformed_action
+        transformed_obs_sym = self.symmetry.convert_obs(team_id = self.team_id, obs = transformed_obs)
+        action = self.forward(self.key, transformed_obs=transformed_obs_sym)
+        transformed_action = self.transform_action.convert(team_id = self.team_id, action = action, obs = transformed_obs_sym, params=EnvParams.from_dict(self.env_params))
+        transformed_action_sym = self.symmetry.convert_action(team_id = self.team_id, action = transformed_action)
+        return transformed_action_sym
     
 
     def act(
