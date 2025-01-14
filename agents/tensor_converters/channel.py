@@ -37,6 +37,14 @@ class TensorChannel(TensorChannels):
         return self._convert(obs, team_id).reshape((1, 24, 24))
 
 
+class SymetricSensorChannel(TensorChannel):
+    def convert(self, obs: Obs, team_id: int) -> np.ndarray:
+        tensor = self._convert(obs, team_id)
+        mask = ~obs.sensor_mask
+        tensor[mask] = np.flip(tensor * obs.sensor_mask, axis=(0, 1)).T[mask]
+        return tensor.reshape((1, 24, 24))
+
+
 class SensorChannel(TensorChannel):
     name = "Sensor"
 
@@ -44,14 +52,14 @@ class SensorChannel(TensorChannel):
         return ~obs.sensor_mask
 
 
-class AsteroidChannel(TensorChannel):
+class AsteroidChannel(SymetricSensorChannel):
     name = "Asteroid"
 
     def _convert(self, obs: Obs, team_id: int) -> np.ndarray:
         return obs.map_features.tile_type == Tiles.ASTEROID
 
 
-class NebulaChannel(TensorChannel):
+class NebulaChannel(SymetricSensorChannel):
     name = "Nebula"
 
     def _convert(self, obs: Obs, team_id: int) -> np.ndarray:
@@ -81,6 +89,9 @@ class RelicChannel(TensorChannel):
             self.relic_tensor[
                 relic_nodes_discovered[:, 0], relic_nodes_discovered[:, 1]
             ] = 1
+            self.relic_tensor[
+                23 - relic_nodes_discovered[:, 1], 23 - relic_nodes_discovered[:, 0]
+            ] = 1
 
         if len(self.discovered_relics_id) == 6:
             self.discovered_all_relics = True
@@ -89,7 +100,7 @@ class RelicChannel(TensorChannel):
         return self.relic_tensor
 
 
-class EnergyChannel(TensorChannel):
+class EnergyChannel(SymetricSensorChannel):
     name = "Energy"
 
     def _convert(self, obs: Obs, team_id: int) -> np.ndarray:
@@ -184,6 +195,8 @@ class RelicPointsChannels(TensorChannels):
             * obs.sensor_mask
             * (2 * self.relic_channel.relic_tensor - 1)
         )
+        self.unknown_relics_tensor += np.flip(self.unknown_relics_tensor, axis=(0, 1)).T
+        self.unknown_relics_tensor = np.clip(self.unknown_relics_tensor, -1, 1)
 
         team_points = cast(int, obs.team_points[team_id].item())
         points_gained = team_points - self.last_team_points
@@ -228,10 +241,16 @@ class RelicPointsChannels(TensorChannels):
                     alive_units_pos[:, 0], alive_units_pos[:, 1]
                 ] += unknown_points_mask_is_unknown
 
+        self.unknown_points_tensor += np.flip(self.unknown_points_tensor, axis=(0, 1)).T
+        self.unknown_points_tensor = np.clip(self.unknown_points_tensor, -1, 1)
+
         if (self.unknown_points_tensor != 0).all():
             self.discovered_all_points = True
 
     def _convert(self, obs: Obs, team_id: int) -> np.ndarray:
         return np.stack(
-            (self.relic_channel.convert(obs, team_id)[0], self.unknown_points_tensor)
+            (
+                self.relic_channel.convert(obs, team_id)[0],
+                np.maximum(self.unknown_points_tensor, 0),
+            )
         )

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-
 import torch
 
 from agents.reward_shapers.reward import RewardShaper
@@ -36,6 +35,8 @@ VecPlayerReward = np.ndarray[
 VecPlayerAgentMask = np.ndarray[
     tuple[BatchSize, N_Players, N_Agents], np.dtype[np.bool_]
 ]
+
+TensorInfo = Literal["channels", "raw_inputs"]
 
 
 class EnvInterface(LuxAIS3GymEnv):
@@ -181,63 +182,74 @@ class EnvInterfaceForVec(LuxAIS3GymEnv):
     ):
         self.tensor_converter_0 = tensor_converter_instantiator()
         self.tensor_converter_1 = tensor_converter_instantiator()
-        self.observation_space = gym.spaces.Box(
-            low=-1,
-            high=1,
-            shape=(2, self.tensor_converter_0.n_channels(), 24, 24),
-            dtype=np.float32,
+        self.observation_space = gym.spaces.Dict(
+            {
+                "channels": gym.spaces.Box(
+                    low=-1,
+                    high=1,
+                    shape=(2, self.tensor_converter_0.n_channels(), 24, 24),
+                    dtype=np.float32,
+                ),
+                "raw_inputs": gym.spaces.Box(
+                    low=-1,
+                    high=1,
+                    shape=(2, self.tensor_converter_0.n_raw_inputs()),
+                    dtype=np.float32,
+                ),
+            }
         )
 
         self.reward_shaper = reward_shaper
         super().__init__(numpy_output=True)
 
-    def to_tensor(self, obs: GodObs) -> np.ndarray:
-        return np.stack(
-            (
-                self.tensor_converter_0.convert(obs.player_0, 0),
-                self.tensor_converter_1.convert(obs.player_1, 1),
-            )
-        )
+    def to_tensor(self, obs: GodObs) -> dict[TensorInfo, np.ndarray]:
+        return {
+            "channels": np.stack(
+                (
+                    self.tensor_converter_0.convert_channels(obs.player_0, 0),
+                    self.tensor_converter_1.convert_channels(obs.player_1, 1),
+                )
+            ),
+            "raw_inputs": np.stack(
+                (
+                    self.tensor_converter_0.convert_raw_inputs(obs.player_0, 0),
+                    self.tensor_converter_1.convert_raw_inputs(obs.player_1, 1),
+                )
+            ),
+        }
 
     def reset(  # type: ignore
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[np.ndarray, EnvParams]:
+    ) -> tuple[dict[TensorInfo, np.ndarray], EnvParams]:
         self.tensor_converter_0.reset_memory()
         self.tensor_converter_1.reset_memory()
 
         obs, info = super().reset(seed=seed, options=options)
-        self.obs = GodObs.from_dict(obs)
         self.env_param = EnvParams.from_dict(info["params"])
 
         self.reward = np.zeros((2, 16), dtype=np.float32)
 
-        return self.to_tensor(self.obs), info["params"]
+        return self.to_tensor(GodObs.from_dict(obs)), info["params"]
 
     def step(  # type: ignore
         self, action: np.ndarray
     ) -> tuple[
-        np.ndarray,
+        dict[TensorInfo, np.ndarray],
         float,
         float,
         float,
         dict[str, Any],
     ]:
-        awake = np.stack(
-            (self.obs.player_0.units_mask[0], self.obs.player_1.units_mask[1])
-        )
-
         obs, reward, terminated, truncated, info = super().step(
             {"player_0": action[0], "player_1": symetric_action(action[1])}
         )
-        self.obs = GodObs.from_dict(obs)
-        tensor_obs = self.to_tensor(self.obs)
+        obs = GodObs.from_dict(obs)
+        tensor_obs = self.to_tensor(obs)
 
-        self.tensor_converter_0.update_memory(self.obs.player_0, 0)
-        self.tensor_converter_1.update_memory(self.obs.player_1, 1)
+        self.tensor_converter_0.update_memory(obs.player_0, 0)
+        self.tensor_converter_1.update_memory(obs.player_1, 1)
 
-        done = np.stack(
-            (self.obs.player_0.units_mask[0], self.obs.player_1.units_mask[1])
-        )
+        done = np.stack((obs.player_0.units_mask[0], obs.player_1.units_mask[1]))
 
         self.reward = np.stack(
             (
@@ -245,22 +257,21 @@ class EnvInterfaceForVec(LuxAIS3GymEnv):
                     self.env_param,
                     self.reward[0],
                     action[0],
-                    self.obs.player_0,
-                    tensor_obs[0],
+                    obs.player_0,
+                    tensor_obs["channels"][0],
                     0,
                 ),
                 self.reward_shaper.convert(
                     self.env_param,
                     self.reward[1],
                     action[1],
-                    self.obs.player_1,
-                    tensor_obs[1],
+                    obs.player_1,
+                    tensor_obs["channels"][1],
                     1,
                 ),
             )
         )
         info["reward"] = self.reward
-        info["awake"] = awake
         info["done"] = done
         info["game_finished"] = truncated["player_0"].item()
 
@@ -276,6 +287,7 @@ class VecEnvInterface(SyncVectorEnv):
         reward_shaper: RewardShaper,
     ):
         self.n_envs = n_envs
+        self.n_channels = tensor_converter_instantiator().n_channels()
         super().__init__(
             [
                 lambda: EnvInterfaceForVec(tensor_converter_instantiator, reward_shaper)
@@ -292,17 +304,20 @@ class VecEnvInterface(SyncVectorEnv):
     def step(  # type: ignore
         self, actions: VecPlayerAction
     ) -> tuple[
-        torch.Tensor,
+        dict[TensorInfo, torch.Tensor],
         VecPlayerReward,
-        VecPlayerAgentMask,
+        bool,
         VecPlayerAgentMask,
         dict[str, Any],
     ]:
         obs, _, _, _, info = super().step(actions)
         return (
-            torch.from_numpy(obs),
+            {
+                "channels": torch.from_numpy(obs["channels"]),
+                "raw_inputs": torch.from_numpy(obs["raw_inputs"]),
+            },
             np.stack(info["reward"]),
-            np.stack(info["awake"]),
+            info["game_finished"].all(),
             np.stack(info["done"]),
             info,
         )

@@ -79,7 +79,7 @@ class GreedyRewardShaper(RewardShaper):
         next_tensor_obs: np.ndarray,
         team_id: int,
     ) -> Reward:
-        point_tensor = next_tensor_obs[-1] * (next_tensor_obs[-1] > 0)
+        point_tensor = next_tensor_obs[-1]
         n_unit_tensor = (next_tensor_obs[-18:-2] > 0).sum(0)
 
         n_units = n_unit_tensor[

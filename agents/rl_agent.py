@@ -35,10 +35,22 @@ class RLAgent(Agent, ABC):
         self, obs: Obs, remainingOverageTime: int = 60
     ) -> np.ndarray[tuple[N_Agents, N_Actions], np.dtype[np.int32]]:
         self.tensor_converter.update_memory(obs, self.team_id)
-        obs_tensor = torch.from_numpy(self.tensor_converter.convert(obs, self.team_id)).float()
+        obs_channel_tensor = torch.from_numpy(
+            self.tensor_converter.convert_channels(obs, self.team_id)
+        ).float()
+        obs_raw_input_tensor = torch.from_numpy(
+            self.tensor_converter.convert_raw_inputs(obs, self.team_id)
+        ).float()
 
         with torch.no_grad():
-            out = self.model(obs_tensor.unsqueeze(0).to(self.device)).cpu().squeeze(0)
+            out = (
+                self.model(
+                    obs_channel_tensor.unsqueeze(0).to(self.device),
+                    obs_raw_input_tensor.unsqueeze(0).to(self.device),
+                )
+                .cpu()
+                .squeeze(0)
+            )
 
         actions = np.zeros((16, 3), dtype=np.int32)
         actions[:, 0] = out.argmax(1).int()

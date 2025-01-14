@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from env_interface import TensorInfo
 
 
 class VecBasicRLAgent:
@@ -16,9 +17,11 @@ class VecBasicRLAgent:
         self.mixte_strategy = mixte_strategy
 
     @torch.no_grad()
-    def sample_actions(self, obs_tensors: torch.Tensor, epsilon: float) -> torch.Tensor:
+    def sample_actions(
+        self, obs: dict[TensorInfo, torch.Tensor], epsilon: float
+    ) -> torch.Tensor:
         # ^ WARNING ^ : This function does not use the sap action (it only moves the units)
-        batch_size = obs_tensors.shape[0]
+        batch_size = obs["channels"].shape[0]
 
         mask = torch.rand(batch_size) < epsilon
         actions = torch.zeros((batch_size, 16, 3), dtype=torch.int32)
@@ -29,7 +32,10 @@ class VecBasicRLAgent:
             )
             return actions
 
-        out: torch.Tensor = self.model(obs_tensors[~mask].to(self.device)).cpu()
+        out: torch.Tensor = self.model(
+            obs["channels"].view(self.n_envs * 2, -1, 24, 24)[~mask].to(self.device),
+            obs["raw_inputs"].view(self.n_envs * 2, -1)[~mask].to(self.device),
+        ).cpu()
 
         actions[mask, :, 0] = torch.randint(
             0, 5, actions[mask, :, 0].shape[:2], dtype=torch.int32
