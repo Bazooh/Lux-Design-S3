@@ -39,7 +39,7 @@ from env_interface import (
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
 PROFILE = False  # if enabled, profiles the code
-USE_WANDB = True  # if enabled, logs data on wandb server
+USE_WANDB = False  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:
@@ -222,10 +222,10 @@ def main(
     env = VecEnvInterface(n_envs, BasicTensorConverter, reward_shaper)
     test_env = RecordEpisode("records") if monitor else EnvInterface()
 
-    network = CNN(env.n_channels).to(SAMPLING_DEVICE)
+    network = CNN(env.n_channels, env.n_raw_inputs).to(SAMPLING_DEVICE)
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
-    network_target = CNN(env.n_channels).to(TRAINING_DEVICE)
+    network_target = CNN(env.n_channels, env.n_raw_inputs).to(TRAINING_DEVICE)
     network_target.load_state_dict(network.state_dict())
 
     memory = ReplayBuffer(buffer_limit)
@@ -245,7 +245,7 @@ def main(
         )
         obs, env_params = env.reset()
         agent = agent_instantiator(
-            env_params,
+            n_envs=n_envs,
             device=SAMPLING_DEVICE,
             model=network,
         )

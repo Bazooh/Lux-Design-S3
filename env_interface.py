@@ -287,7 +287,9 @@ class VecEnvInterface(SyncVectorEnv):
         reward_shaper: RewardShaper,
     ):
         self.n_envs = n_envs
-        self.n_channels = tensor_converter_instantiator().n_channels()
+        t = tensor_converter_instantiator()
+        self.n_channels = t.n_channels()
+        self.n_raw_inputs = t.n_raw_inputs()
         super().__init__(
             [
                 lambda: EnvInterfaceForVec(tensor_converter_instantiator, reward_shaper)

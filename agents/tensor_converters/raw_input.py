@@ -36,41 +36,41 @@ class StepsLeftRawInput(TensorRawInput):
     name = "StepsLeft"
 
     def _convert(self, obs: Obs, team_id: int):
-        return np.array((500 - obs.steps) / 500)
+        return np.array([(500 - obs.steps) / 500])
 
 
 class MatchStepsLeftRawInput(TensorRawInput):
     name = "MatchStepsLeft"
 
     def _convert(self, obs: Obs, team_id: int):
-        return np.array((100 - obs.match_steps) / 100)
+        return np.array([(100 - obs.match_steps) / 100])
 
 
 class TeamPointsRawInput(TensorRawInput):
     name = "TeamPoints"
 
     def _convert(self, obs: Obs, team_id: int):
-        return obs.team_points[team_id] / 100
+        return np.array([obs.team_points[team_id] / 100])
 
 
 class EnemyPointsRawInput(TensorRawInput):
     name = "EnemyPoints"
 
     def _convert(self, obs: Obs, team_id: int):
-        return obs.team_points[1 - team_id] / 100
+        return np.array([obs.team_points[1 - team_id] / 100])
 
 
-class PointsRawInput(TensorRawInput):
-    name = "Points"
+class PointsRawInput(TensorRawInputs):
+    names = ["TeamPoints", "EnemyPoints"]
+    n_channels = 2
 
     def _convert(self, obs: Obs, team_id: int):
-        return (
-            np.concatenate(obs.team_points[team_id], obs.team_points[1 - team_id]) / 100
-        )
+        return np.array([obs.team_points[team_id], obs.team_points[1 - team_id]]) / 100
 
 
-class UnitsEnergyRawInput(TensorRawInput):
-    name = "UnitsEnergy"
+class UnitsEnergyRawInput(TensorRawInputs):
+    names = [f"UnitsEnergy{i}" for i in range(16)]
+    n_channels = 16
 
     def _convert(self, obs: Obs, team_id: int):
         return obs.units.energy[team_id] / 400

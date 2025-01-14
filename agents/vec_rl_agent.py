@@ -21,7 +21,7 @@ class VecBasicRLAgent:
         self, obs: dict[TensorInfo, torch.Tensor], epsilon: float
     ) -> torch.Tensor:
         # ^ WARNING ^ : This function does not use the sap action (it only moves the units)
-        batch_size = obs["channels"].shape[0]
+        batch_size = obs["channels"].shape[0] * 2
 
         mask = torch.rand(batch_size) < epsilon
         actions = torch.zeros((batch_size, 16, 3), dtype=torch.int32)
