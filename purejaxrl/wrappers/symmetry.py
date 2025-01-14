@@ -50,7 +50,7 @@ def mirror_position(pos):
     Input: Shape (2): (x,y)
     Output: Shape 2: (23-y, 23-x)
     """
-    return 23*jnp.ones(2) - jnp.flip(pos)
+    return 23*jnp.ones(2, dtype=int) - jnp.flip(pos)
 
 @jax.vmap
 def mirror_action(a):
@@ -66,8 +66,8 @@ def mirror_action(a):
 
     @jax.jit
     def flip_sap_action(a):
-        # a = (5, x, y), (x,y) should be replaced by (23-y, 13-x)
-        a = a.at[1:].set(23*jnp.ones(2) - jnp.flip(a[1:]))
+        # a = (5, x, y), (x,y) should be replaced by (-y, -x)
+        a = a.at[1:].set(jnp.array([-1*a[2], -1*a[1]]))
         return a
     
     a = jax.lax.cond(
@@ -91,7 +91,7 @@ class ActionAndObsSymmetry(Symmetry):
             if "image" in obs_attributes:
                 obs["image"] = mirror_grid(obs["image"])
             if "position" in obs_attributes:
-                obs["position"] = mirror_position(obs["position"]).astype(int)
+                obs["position"] = mirror_position(obs["position"])
             return obs
 
 
@@ -103,5 +103,5 @@ class ActionAndObsSymmetry(Symmetry):
         if team_id == 0: # Do nothing
             return action
         else:
-            return mirror_action(action).astype(int)
+            return mirror_action(action)
 

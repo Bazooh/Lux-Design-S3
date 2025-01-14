@@ -239,7 +239,10 @@ class SymmetryWrapper(GymnaxWrapper):
 
     def reset(self, key: chex.PRNGKey, params: Optional[EnvParams] = None):
         obs, state = self._env.reset(key, params)
-        symmetrized_obs = {k: self.symmetry.convert_obs(team_id_str=k, obs = o) for k, o in obs.items()}
+        symmetrized_obs = {
+            "player_0": self.symmetry.convert_obs(team_id=0, obs = obs["player_0"]),
+            "player_1": self.symmetry.convert_obs(team_id=1, obs = obs["player_1"]),
+        }
         return symmetrized_obs, state
 
     def step(
@@ -249,8 +252,15 @@ class SymmetryWrapper(GymnaxWrapper):
         action: PlayerAction,
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
-        unsymmetrized_action = {k: self.symmetry.convert_action(team_id_str=k, action = a) for k, a in action.items()} # turns a symmetric action back to an unsymmetric one
+        print(action["player_0"].shape)
+        unsymmetrized_action = {
+            "player_0": self.symmetry.convert_action(team_id=0, action = action["player_0"]),
+            "player_1": self.symmetry.convert_action(team_id=1, action = action["player_1"]),
+        } # turns a symmetric action back to an unsymmetric one
         obs, state, reward, done, info = self._env.step(key, env_mem_state, unsymmetrized_action, params)
-        symmetrized_obs = {k: self.symmetry.convert_obs(team_id_str=k, obs = o) for k, o in obs.items()}
+        symmetrized_obs = {
+            "player_0": self.symmetry.convert_obs(team_id=0, obs = obs["player_0"]),
+            "player_1": self.symmetry.convert_obs(team_id=1, obs = obs["player_1"]),
+        }
         return symmetrized_obs, state, reward, done, info
     

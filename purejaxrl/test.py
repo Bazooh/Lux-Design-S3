@@ -1,7 +1,8 @@
 import jax.numpy as jnp
 import jax
-p = jnp.array([[0,1],[2,3]])
-def sym(pos):
-    print(23*jnp.ones(2) - jnp.flip(pos))
+@jax.jit
+def sum_of_positive(x):
+  return jnp.where(x > 0, x, 0)
 
-print(jax.vmap(sym)(p))
+print(sum_of_positive(jnp.array([-1, 2, 3, -4])))
+

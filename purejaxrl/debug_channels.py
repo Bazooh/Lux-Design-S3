@@ -49,7 +49,7 @@ def rollout(
     stack_obs_0 = [] # Contains the observations of the agent 0
     stack_obs_1 = [] # Contains the observations of the agent 1
     stack_relic_w = []
-    for step_idx in range(steps):
+    for step_idx in tqdm(range(steps)):
         # redo the observation conversion: agent_0 and agent_1 
         agent_0.memory_state = agent_0.memory.update(obs = obs["player_0"], team_id=agent_0.team_id, memory_state=agent_0.memory_state)
         agent_1.memory_state = agent_1.memory.update(obs = obs["player_1"], team_id=agent_1.team_id, memory_state=agent_1.memory_state)
@@ -172,8 +172,8 @@ if __name__ == "__main__":
     channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names, relic_w = rollout(
         agent_0 = JaxAgent("player_0", env_params.__dict__),
         agent_1 = JaxAgent("player_1", env_params.__dict__),
-        actor_0 = RelicboundAgent("player_0", env_params.__dict__),
-        actor_1 = RelicboundAgent("player_1", env_params.__dict__),
+        actor_0 = NaiveAgent("player_0", env_params.__dict__),
+        actor_1 = NaiveAgent("player_1", env_params.__dict__),
         key = key,
         vanilla_env = vanilla_env,
         env_params = env_params,

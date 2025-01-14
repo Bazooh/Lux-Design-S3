@@ -40,7 +40,7 @@ class RelicPointMemory(Memory):
                     points_gained=0,
 
         )
-    #@partial(jax.jit, static_argnums=(0,2))
+    @partial(jax.jit, static_argnums=(0,2))
     def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState):
         """
         Update rule 1:
@@ -55,52 +55,64 @@ class RelicPointMemory(Memory):
 
         ########## UPDATE RULE 1  ##########
         new_relics_found = memory_state.relics_found
-        viewed_relic_obs_indices = obs.get_avaible_relics()
-        currently_viewing_relics = jnp.zeros((24,24), dtype = jnp.int8).at[obs.relic_nodes[viewed_relic_obs_indices, 0], obs.relic_nodes[viewed_relic_obs_indices, 1]].set(1)
+        currently_viewing_relics = jnp.zeros((24,24), dtype = jnp.int8).at[obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)
+        currently_viewing_relics = currently_viewing_relics.at[0, 0].set(0)
+        currently_viewing_relics = currently_viewing_relics.at[23, 23].set(0)
         new_relics_found = new_relics_found + obs.sensor_mask * (
             (new_relics_found == 0) * (2 * currently_viewing_relics - 1)
         )
-        points_gained = max(0, obs.team_points[team_id] - memory_state.last_step_team_points)
-
+        points_gained = jnp.maximum(0.0, obs.team_points[team_id] - memory_state.last_step_team_points)
+        new_points_awarding = memory_state.points_awarding
+        
         ########## UPDATE RULE 2  ##########
         # Cases surrounded by no relics -> no points
-        new_points_awarding = memory_state.points_awarding
-        alive_units_id = obs.get_avaible_units(team_id)
-        unit_positions = np.array(obs.units.position[team_id])
-        for unit_id in alive_units_id:
-            unit_pos = unit_positions[unit_id]
-            x, y = unit_pos[0].item(), unit_pos[1].item()
+        positions = obs.units.position[team_id]
 
-            if memory_state.points_awarding[x, y] != 0:
-                continue
+        def process_out_of_range_unit(unit_pos):
+            # Extract the neighborhood using dynamic_slice
+            neighborhood = jax.lax.dynamic_slice(
+                new_relics_found, 
+                start_indices=(unit_pos[0]-2, unit_pos[1]-2), 
+                slice_sizes=(5, 5)
+            )
+            no_relics = jnp.all(neighborhood == -1)
+            is_alive = unit_pos.sum() > 0
+            new_awarding_update = jnp.where(
+                no_relics & is_alive, 
+                -1, 
+                new_points_awarding[unit_pos[0], unit_pos[1]]
+            )
+            return new_awarding_update
+        updates = jax.vmap(process_out_of_range_unit)(positions)
 
-            min_x = max(0, x - 2)
-            max_x = min(24, x + 3)
-            min_y = max(0, y - 2)
-            max_y = min(24, y + 3)
+        new_points_awarding = new_points_awarding.at[positions[:, 0], positions[:, 1]].set(updates)
 
-            # If we are sure there are no relics around the unit, then this case earns no points !
-            if (new_relics_found[min_x:max_x, min_y:max_y] == -1).all():
-                new_points_awarding = new_points_awarding.at[x,y].set(-1)
-
-
-        ########## UPDATE RULE 3 AND 4  ##########
-        alive_units_pos = obs.units.position[team_id][alive_units_id]
-        unknown_points_mask = new_points_awarding[
-            alive_units_pos[:, 0], alive_units_pos[:, 1]
+        # RULE 3 AND 4 REFACTORED FOR JIT COMPATIBILITY
+        active_points_awarding_mask = new_points_awarding[
+            positions[:, 0], positions[:, 1]
         ]
-        expected_gain = (unknown_points_mask == 1).sum().item()
-        unknown_points_mask_is_unknown = (unknown_points_mask == 0)
+        expected_gain = jnp.sum(active_points_awarding_mask == 1)
+        unknown_points_mask_is_unknown = (active_points_awarding_mask == 0)
+
+        new_points_awarding = jnp.where(
+            points_gained == expected_gain, # Apply RULE 4:
+            jnp.clip(new_points_awarding.at[positions[:, 0], positions[:, 1]].subtract(
+                unknown_points_mask_is_unknown * obs.units_mask[team_id]),
+                min = -1,
+                max = 1
+            ),            
+            new_points_awarding
+        )
         
-        if points_gained == expected_gain: # RULE 4
-            new_points_awarding = new_points_awarding.at[
-                alive_units_pos[:, 0], alive_units_pos[:, 1]
-            ].subtract(unknown_points_mask_is_unknown)
-        else:
-            if unknown_points_mask_is_unknown.sum().item() == points_gained - expected_gain: # RULE 3
-               new_points_awarding = new_points_awarding.at[
-                    alive_units_pos[:, 0], alive_units_pos[:, 1]
-                ].add(unknown_points_mask_is_unknown)
+        new_points_awarding = jnp.where(
+            jnp.sum(unknown_points_mask_is_unknown) == (points_gained - expected_gain), # Apply RULE 3:
+            jnp.clip(new_points_awarding.at[positions[:, 0], positions[:, 1]].add(
+                unknown_points_mask_is_unknown * obs.units_mask[team_id]), 
+                min = -1,
+                max = 1
+            ),
+            new_points_awarding
+        )
 
         return RelicPointMemoryState(
             relics_found=new_relics_found,

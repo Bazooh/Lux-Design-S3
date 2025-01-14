@@ -20,7 +20,7 @@ def make_env(config_path = "purejaxrl/jax_config.yaml"):
     env = TransformRewardWrapper(env, config["env_args"]["transform_reward"])
     env = TransformActionWrapper(env, config["env_args"]["transform_action"])
     env = TransformObsWrapper(env, config["env_args"]["transform_obs"])
-    env = SymmetryWrapper(env, config["env_args"]["symmetry"])
+    #env = SymmetryWrapper(env, config["env_args"]["symmetry"])
     return env
 
 if __name__ == "__main__":

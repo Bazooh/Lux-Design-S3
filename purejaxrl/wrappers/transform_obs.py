@@ -189,4 +189,8 @@ class HybridTransformObs(TransformObs):
         vector= vector.at[12].set(obs.team_points[1-team_id])
         vector= vector.at[13].set(memory_state.points_gained)
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
-        return {'image': image, 'vector': rescaled_vector, 'position': obs.units.position[team_id]}
+        return {
+            'image': jax.lax.stop_gradient(image),
+            'vector': jax.lax.stop_gradient(rescaled_vector),
+            'position': jax.lax.stop_gradient(obs.units.position[team_id]),
+        }
