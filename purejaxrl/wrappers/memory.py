@@ -76,7 +76,7 @@ class RelicPointMemory(Memory):
                 slice_sizes=(5, 5)
             )
             no_relics = jnp.all(neighborhood == -1)
-            is_alive = unit_pos.sum() > 0
+            is_alive = unit_pos.sum() >= 0
             new_awarding_update = jnp.where(
                 no_relics & is_alive, 
                 -1, 

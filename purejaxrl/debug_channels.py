@@ -177,7 +177,7 @@ if __name__ == "__main__":
         key = key,
         vanilla_env = vanilla_env,
         env_params = env_params,
-        steps=200
+        steps=100
     )
     
     channels = np.stack([channels_p0, channels_p1])

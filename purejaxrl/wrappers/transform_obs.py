@@ -10,6 +10,8 @@ import gymnax
 from typing import Any
 import jax.numpy as jnp
 import numpy as np
+import chex
+
 class TransformObs(ABC):
     """
     Abstract base class for converting observations into tensor representations.
@@ -54,7 +56,7 @@ class HybridTransformObs(TransformObs):
             - relic nodes relative positions
             - agent energy
     """
-
+    
     def __init__(self):
         super().__init__()
         self.image_features = { # Key: Name of the feature, Value: Number of channels required representing the feature
@@ -147,10 +149,15 @@ class HybridTransformObs(TransformObs):
         )
     
         ############# HANDLES IMAGE ##############
+        mask_unseen = jnp.logical_not(obs.sensor_mask)
         image = image.at[0].set(obs.sensor_mask) # unknown
         image = image.at[1].set(obs.map_features.tile_type == Tiles.ASTEROID) # asteroids
         image = image.at[2].set(obs.map_features.tile_type == Tiles.NEBULA) # nebula
         image = image.at[3].set(obs.map_features.energy / 20) # energy field
+
+        image = image.at[1, :].add(jnp.multiply(jnp.flip(image[1], axis=(0, 1)).T,mask_unseen)) # symmetrize asteroid
+        image = image.at[2, :].add(jnp.multiply(jnp.flip(image[2], axis=(0, 1)).T,mask_unseen)) # symmetrize nebula
+        image = image.at[3, :].add(jnp.multiply(jnp.flip(image[3], axis=(0, 1)).T,mask_unseen)) # symmetrize energy field
 
         # enemy units and ally units
         positions = jnp.array(obs.units.position)
@@ -168,8 +175,10 @@ class HybridTransformObs(TransformObs):
 
         image = image.at[6].set(memory_state.relics_found)
         image = image.at[7].set(memory_state.points_awarding)    
-
-        ############# GET INDIVIDUAL VECTORS ##############
+        image = image.at[6, :].add(jnp.multiply(jnp.flip(image[6] == 1, axis=(0, 1)).T, mask_unseen)) # symmetrize relics
+        image = image.at[7, :].add(jnp.multiply(jnp.flip(image[7] == 1, axis=(0, 1)).T, mask_unseen))
+        image = image.at[6, :].set(jnp.clip(image[6], -1, 1))
+        image = image.at[7, :].set(jnp.clip(image[7], -1, 1))
 
         # Game parameters
         vector = vector.at[0].set(params.unit_move_cost)
