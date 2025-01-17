@@ -7,7 +7,7 @@ from env_interface import RecordEpisode
 import torch
 
 
-network = CNN(23)
+network = CNN(23, 20)
 network.load_state_dict(
     torch.load("models_weights/network_2550.pth", weights_only=True)
 )

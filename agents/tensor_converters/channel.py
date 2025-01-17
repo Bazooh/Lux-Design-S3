@@ -41,7 +41,7 @@ class SymetricSensorChannel(TensorChannel):
     def convert(self, obs: Obs, team_id: int) -> np.ndarray:
         tensor = self._convert(obs, team_id)
         mask = ~obs.sensor_mask
-        tensor[mask] = np.flip(tensor * obs.sensor_mask, axis=(0, 1)).T[mask]
+        tensor[mask] = np.flip(tensor, axis=(0, 1)).T[mask]
         return tensor.reshape((1, 24, 24))
 
 

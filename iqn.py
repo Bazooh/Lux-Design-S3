@@ -39,7 +39,7 @@ from env_interface import (
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
 PROFILE = False  # if enabled, profiles the code
-USE_WANDB = False  # if enabled, logs data on wandb server
+USE_WANDB = True  # if enabled, logs data on wandb server
 
 
 class ReplayBuffer:

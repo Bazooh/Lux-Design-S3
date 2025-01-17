@@ -28,8 +28,12 @@ def rollout(n_iter: int = 100):
         tensor_converter0.update_memory(observation.player_0, 0)
         tensor_converter1.update_memory(observation.player_1, 1)
 
-        numpy_tensors[0].append(tensor_converter0.convert(observation.player_0, 0))
-        numpy_tensors[1].append(tensor_converter1.convert(observation.player_1, 1))
+        numpy_tensors[0].append(
+            tensor_converter0.convert_channels(observation.player_0, 0)
+        )
+        numpy_tensors[1].append(
+            tensor_converter1.convert_channels(observation.player_1, 1)
+        )
         actions: Actions = {
             "player_0": agent0.actions(observation.player_0),
             "player_1": agent1.actions(observation.player_1),
@@ -87,7 +91,7 @@ def main():
         fig,
         lambda frame_idx, numpy_tensors=numpy_tensors, progressbar=progressbar: update(
             frame_idx, numpy_tensors, progressbar
-        ),
+        ),  # type: ignore
         frames=n_frames,
         interval=100,
     )
