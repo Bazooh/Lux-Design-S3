@@ -1,13 +1,12 @@
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from agents.base_agent import Agent
-from purejaxrl.network import HybridActorCritic
 import jax, chex
-import dataclasses
 from typing import Any
 import jax.numpy as jnp
 from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params
 from luxai_s3.env import LuxAIS3Env
+from parse_config import parse_config
+from purejaxrl.env.make_env import make_env
 
 def eval_checkpoints(
         network: Any,
@@ -91,10 +90,10 @@ def eval_checkpoints(
 
 
 def run_episode_and_record(
+        rec_env: Any, 
         network: Any,
         network_params_0: Any, 
         network_params_1: Any, 
-        rec_env: Any, 
         key: chex.PRNGKey,
     ):
     """
@@ -113,8 +112,6 @@ def run_episode_and_record(
         rec_env.fixed_env_params.max_steps_in_match + 1
     ) * rec_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
 
-    points = jax.numpy.zeros((max_episode_steps, 2))
-
     @jax.jit
     def forward(rng, obs, network_params_0, network_params_1):
         # GET OBS BATCHES
@@ -125,80 +122,34 @@ def run_episode_and_record(
         # SELECT ACTION: PLAYER 0
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_0, **obs_batch_player_0) # probs is (16, 5)
-        action_0 = sample_greedy_action(logits)[0] # (16,)
+        action_0 = sample_action(key= _rng, logits=logits)[0] # (16,)
 
         # SELECT ACTION: PLAYER 1
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_1, **obs_batch_player_0) # probs is (16, 5)
-        action_1 = sample_greedy_action(logits)[0] # (16,)
-
+        action_1 = sample_action(key= _rng, logits=logits)[0] # (16,)
         return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
     
-    for step_idx in range(max_episode_steps):
+    for _ in range(max_episode_steps):
         rng, _rng = jax.random.split(rng)
         action = forward(rng, obs, network_params_0, network_params_1)
         rng, _rng = jax.random.split(rng)
         obs, env_state, reward, done, info = rec_env.step(rng, env_state, action, env_params)
-        reward_batch =  jnp.stack([reward[a] for a in rec_env.players])
-        points = points.at[step_idx].set(reward_batch)
-        print("Step:", step_idx+1)
-        print(f"info: global timestep {info['global_timestep']}, episode timestep {info['episode_timestep']}, episode return {info['episode_return']}, episode points {info['episode_points']}, episode wins {info['episode_wins']}")
-        print(state.env_state.memory_state_player_0.points_gained)
-        obs, state, reward, done, info = rec_env.step(key, state, {player: rec_env.action_space.sample(key) for player in rec_env.players}, params=env_params)
 
     rec_env.close()
-    return points # shape (max_episode_steps, 2)
-
-# if __name__ == "__main__":
-
-#     from make_env import make_env
-
-#     # EVAL 
-#     seed = 1
-#     eval_env = make_env()
-#     key = jax.random.PRNGKey(seed)
-#     # INIT NETWORK
-#     network = HybridActorCritic(
-#         action_dim=eval_env.action_space.n,
-#     )
-#     # init params 0
-#     rng, _rng = jax.random.split(key)
-#     network_params_0 = init_network_params(key, network, init_x=eval_env.observation_space.sample(_rng))
-#     rng, _rng = jax.random.split(key)
-#     network_params_1 = init_network_params(key, network, init_x=eval_env.observation_space.sample(_rng))
-
-#     reward = eval_checkpoints(
-#         network = network,
-#         network_params_0 = network_params_0,
-#         network_params_1 = network_params_1,
-#         key = key, 
-#         eval_env = eval_env
-#     )
-#     print("reward:", reward["player_0"].sum(axis = 0), reward["player_1"].sum(axis = 0))
-
 
 if __name__ == "__main__":
-    from make_env import make_env
-    from purejaxrl.wrappers.record_wrapper import RecordEpisode
     import numpy as np
-    # RECORD   
-    seed = np.random.randint(0, 100)
-    rec_env = RecordEpisode(make_env(), save_dir="test", save_on_close=True, save_on_reset=True, save_format="html")
+    config = parse_config()
+    rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
+    network = config["network"]["model"]
+    seed = np.random.randint(0, 10000)
     key = jax.random.PRNGKey(seed)
-    # INIT NETWORK
-    network = HybridActorCritic(
-        action_dim=rec_env.action_space.n,
-    )
-    # init params 0
-    rng, _rng = jax.random.split(key)
-    network_params_0 = init_network_params(key, network, init_x=rec_env.observation_space.sample(_rng))
-    rng, _rng = jax.random.split(key)
-    network_params_1 = init_network_params(key, network, init_x=rec_env.observation_space.sample(_rng))
-    points = run_episode_and_record(
+    
+    run_episode_and_record(
+        rec_env = rec_env,
         network = network,
-        network_params_0 = network_params_0,
-        network_params_1 = network_params_1,
+        network_params_0 = config["network"]["network_params"],
+        network_params_1 = config["network"]["network_params"],
         key = key, 
-        rec_env = rec_env
     )
-    print("points:", points.sum(axis=0))

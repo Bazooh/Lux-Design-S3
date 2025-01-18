@@ -1,10 +1,7 @@
 import jax.numpy as jnp
 import jax
 import flax.linen as nn
-from functools import partial
-from flax.linen.initializers import constant, orthogonal
 from typing import Sequence
-import distrax
 
 class SELayer(nn.Module):
     """
@@ -117,13 +114,11 @@ class HybridActorCritic(nn.Module):
         value = jnp.squeeze(value_head(x.mean(axis=(2, 3))), axis=-1)
 
         # Gather logits based on position
-        logit_maps = conv_block_1(res_block_2(x))
-        row_indices, col_indices = position[..., 0], position[..., 1]  # Shape: (N, 16)
-
-        logits = logit_maps[
-            jnp.arange(logit_maps.shape[0])[:, None, None],
-            row_indices[..., None],
-            col_indices[..., None],
-            :
-        ][:, :, 0, :]  # Shape: (N, 16, 6)
-        return logits, value
+        logits_maps = conv_block_1(res_block_2(x))
+        def gather_logits(logits_map, pos):
+            # logits_map: Shape (24, 24, 6)
+            # pos: Shape (16, 2)
+            return logits_map[pos[:, 0], pos[:, 1], :]  # Shape (16, 6)
+        
+        logits_gathered = jax.vmap(gather_logits)(logits_maps, position) # Shape: (N, 16, 6)
+        return logits_gathered, value

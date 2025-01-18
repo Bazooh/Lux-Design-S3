@@ -8,12 +8,10 @@ from purejaxrl.utils import sample_action
 from purejaxrl.parse_config import parse_config
 
 # misc
-from purejaxrl.wrappers.memory import Memory
-from purejaxrl.wrappers.transform_reward import TransformReward
-from purejaxrl.wrappers.transform_obs import TransformObs
-from purejaxrl.wrappers.transform_action import TransformAction
-from purejaxrl.wrappers.symmetry import Symmetry
-
+from purejaxrl.env.memory import Memory
+from purejaxrl.env.transform_reward import TransformReward
+from purejaxrl.env.transform_obs import TransformObs
+from purejaxrl.env.transform_action import TransformAction
 
 def symetric_action_not_vectorized(action: int):
     return [0, 3, 4, 1, 2][action]
@@ -24,12 +22,11 @@ class RawJaxAgent:
         player: str,
         env_cfg,
         network_params,
-        network,
+        model,
         transform_obs: TransformObs,
         transform_action: TransformAction,
         transform_reward: TransformReward,
         memory: Memory,
-        symmetry: Symmetry
     ):
         self.player = player
         self.opp_player = "player_1" if self.player == "player_0" else "player_0"
@@ -39,13 +36,12 @@ class RawJaxAgent:
         np.random.seed(0)
         self.env_params = env_cfg
         self.key = jax.random.PRNGKey(0)
-        self.network = network
+        self.model = model
         self.network_params = network_params
         self.transform_obs = transform_obs
         self.transform_action = transform_action
         self.transform_reward = transform_reward
         self.memory = memory
-        self.symmetry = symmetry
         self.memory_state = self.memory.reset()
 
     @partial(jax.jit, static_argnums=(0,))
@@ -55,7 +51,7 @@ class RawJaxAgent:
         transformed_obs: Any,
     ):
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
-        logits, value = self.network.apply(self.network_params, **transformed_obs_batched) # probs is (16, 6)
+        logits, value = self.model.apply(self.network_params, **transformed_obs_batched) # logits is (16, 6)
         action = sample_action(key, logits)[0]
         return action 
 
@@ -68,11 +64,9 @@ class RawJaxAgent:
         self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
         expanded_obs = self.memory.expand(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
         transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = expanded_obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
-        transformed_obs_sym = self.symmetry.convert_obs(team_id = self.team_id, obs = transformed_obs)
-        action = self.forward(self.key, transformed_obs=transformed_obs_sym)
-        transformed_action = self.transform_action.convert(team_id = self.team_id, action = action, obs = transformed_obs_sym, params=EnvParams.from_dict(self.env_params))
-        transformed_action_sym = self.symmetry.convert_action(team_id = self.team_id, action = transformed_action)
-        return transformed_action_sym
+        action = self.forward(self.key, transformed_obs=transformed_obs)
+        transformed_action = self.transform_action.convert(team_id = self.team_id, action = action, obs = transformed_obs, params=EnvParams.from_dict(self.env_params))
+        return transformed_action
     
 
     def act(
