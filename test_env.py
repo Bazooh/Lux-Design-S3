@@ -1,48 +1,34 @@
 import numpy as np
-from regex import B
-from agents.lux.utils import Direction
-from agents.models.dense import CNN
-from agents.rl_agent import BasicRLAgent
-from env_interface import EnvInterfaceForVec, EnvInterface
+from env_interface import EnvInterfaceForVec
 from gymnasium.vector import SyncVectorEnv
 
 
 # vec_env = SyncVectorEnv([lambda: EnvInterfaceForVec() for _ in range(3)])
 
-# vec_env.reset()
+# obs, info = vec_env.reset()
+# obs, a, b, c, d = vec_env.step(np.zeros((3, 2, 16, 3), dtype=np.int32))
+# print(a)
+# print(b)
+# print(type(c))
+# print(d.keys())
 
-# print(vec_env.step([np.zeros((2, 16, 3), dtype=np.int32) for _ in range(3)]))
+import torch
 
-# env = EnvInterface()
+# Create a tensor of shape (6, 3) where 2*n=6 and p=3
+input_tensor = torch.tensor([
+    [1, 2, 3],  # Row 0
+    [4, 5, 6],  # Row 1
+    [7, 8, 9],  # Row 2
+    [10, 11, 12],  # Row 3
+    [13, 14, 15],  # Row 4
+    [16, 17, 18],  # Row 5
+])
 
-# print(env.reset()[1])
+# Perform the transformation
+n = input_tensor.shape[0] // 2
+result = input_tensor.view(2, n, -1).permute(1, 0, 2)
 
-env = EnvInterface()
-
-_, env_params = env.reset()
-player_0 = BasicRLAgent("player_0", env_params, "cpu", CNN(19))
-player_1 = BasicRLAgent("player_1", env_params, "cpu", CNN(19))
-
-player_0_actions = np.zeros((16, 3), dtype=np.int32)
-player_1_actions = np.zeros((16, 3), dtype=np.int32)
-_, _, _, _, _ = env.step(
-    {
-        "player_0": player_0_actions,
-        "player_1": player_1_actions,
-    }
-)
-
-player_0_actions[0, 0] = Direction.DOWN
-player_1_actions[0, 0] = Direction.LEFT
-
-obs, _, _, _, _ = env.step(
-    {
-        "player_0": player_0_actions,
-        "player_1": player_1_actions,
-    }
-)
-
-tensor_0 = player_0.obs_to_tensor(obs.player_0)[3]
-tensor_1 = player_1.obs_to_tensor(obs.player_1)[3]
-
-pass
+print("Input Tensor:")
+print(input_tensor)
+print("\nResult Tensor:")
+print(result)

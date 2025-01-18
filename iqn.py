@@ -1,6 +1,6 @@
 import collections
 import random
-from typing import Callable, Literal
+from typing import Callable
 
 import numpy as np
 import torch
@@ -11,13 +11,30 @@ import torch.optim as optim
 from tqdm import tqdm
 
 from agents.models.dense import CNN
-from luxai_s3.wrappers import RecordEpisode, PlayerAction, Actions
-from agents.rl_agent import BasicRLAgent, RLAgent
-from rule_based.naive.agent import NaiveAgent
-from agents.reward_shapers.reward import Reward
+from agents.reward_shapers.reward import (
+    DistanceToNearestRelicRewardShaper,
+    GreedyExploreRewardShaper,
+    GreedyRewardShaper,
+    RewardShaper,
+)
+from agents.tensor_converters.tensor import BasicTensorConverter
+from luxai_s3.wrappers import Actions, PlayerAction, PlayerReward
+
+from agents.rl_agent import BasicRLAgent
+from agents.vec_rl_agent import VecBasicRLAgent
+from rule_based.naive.naive_agent import NaiveAgent
 
 import time
-from env_interface import EnvInterface
+from env_interface import (
+    TensorInfo,
+    RecordEpisode,
+    EnvInterface,
+    PlayerAgentMask,
+    VecEnvInterface,
+    VecPlayerAction,
+    VecPlayerReward,
+    VecPlayerAgentMask,
+)
 
 from config import TRAINING_DEVICE, SAMPLING_DEVICE
 
@@ -30,49 +47,73 @@ class ReplayBuffer:
         self.buffer: collections.deque[
             tuple[
                 torch.Tensor,
-                PlayerAction,
-                Reward,
                 torch.Tensor,
-                np.ndarray[Literal[16], np.dtype[np.bool_]],
-                np.ndarray[Literal[16], np.dtype[np.bool_]],
+                PlayerAction,
+                PlayerReward,
+                torch.Tensor,
+                torch.Tensor,
+                PlayerAgentMask,
+                PlayerAgentMask,
             ]
         ] = collections.deque(maxlen=buffer_limit)
 
     def put(
         self,
-        obs: torch.Tensor,
-        actions: PlayerAction,
-        reward: Reward,
-        next_obs: torch.Tensor,
-        done: np.ndarray[Literal[16], np.dtype[np.bool_]],
-        awake: np.ndarray[Literal[16], np.dtype[np.bool_]],
+        obs: dict[TensorInfo, torch.Tensor],
+        actions: VecPlayerAction,
+        reward: VecPlayerReward,
+        next_obs: dict[TensorInfo, torch.Tensor],
+        done: VecPlayerAgentMask,
+        awake: VecPlayerAgentMask,
     ):
-        self.buffer.append((obs, actions, reward, next_obs, done, awake))
+        size = obs["channels"].shape[0]
+        for player_id in range(2):
+            for i in range(size):
+                self.buffer.append(
+                    (
+                        obs["channels"][i, player_id],
+                        obs["raw_inputs"][i, player_id],
+                        actions[i, player_id],
+                        reward[i, player_id],
+                        next_obs["channels"][i, player_id],
+                        next_obs["raw_inputs"][i, player_id],
+                        done[i, player_id],
+                        awake[i, player_id],
+                    )
+                )
 
     def sample(self, n: int):
         """obs, actions, reward, next_obs, done, awake\n
         Awake and Done maks are True when the unit is alive"""
         mini_batch = random.sample(self.buffer, n)
-        s_tensor = torch.empty((n, *mini_batch[0][0].shape), dtype=torch.float)
-        a_tensor = torch.empty((n, *mini_batch[0][1].shape), dtype=torch.float)
-        r_tensor = torch.empty((n, *mini_batch[0][2].shape), dtype=torch.float)
-        s_prime_tensor = torch.empty((n, *mini_batch[0][3].shape), dtype=torch.float)
-        done_mask_tensor = torch.empty((n, *mini_batch[0][4].shape), dtype=torch.float)
-        awake_mask_tensor = torch.empty((n, *mini_batch[0][5].shape), dtype=torch.float)
+        s_c_tensor = torch.empty((n, *mini_batch[0][0].shape), dtype=torch.float)
+        s_r_tensor = torch.empty((n, *mini_batch[0][1].shape), dtype=torch.float)
+        a_tensor = torch.empty((n, *mini_batch[0][2].shape), dtype=torch.float)
+        r_tensor = torch.empty((n, *mini_batch[0][3].shape), dtype=torch.float)
+        s_c_prime_tensor = torch.empty((n, *mini_batch[0][4].shape), dtype=torch.float)
+        s_r_prime_tensor = torch.empty((n, *mini_batch[0][5].shape), dtype=torch.float)
+        done_mask_tensor = torch.empty((n, *mini_batch[0][6].shape), dtype=torch.float)
+        awake_mask_tensor = torch.empty((n, *mini_batch[0][7].shape), dtype=torch.float)
 
-        for i, (s, a, r, s_prime, done, awake) in enumerate(mini_batch):
-            s_tensor[i] = s
-            a_tensor[i] = torch.tensor(a)
-            r_tensor[i] = torch.tensor(r)
-            s_prime_tensor[i] = s_prime
-            done_mask_tensor[i] = torch.tensor(done)
-            awake_mask_tensor[i] = torch.tensor(awake)
+        for i, (s_c, s_r, a, r, s_c_prime, s_r_prime, done, awake) in enumerate(
+            mini_batch
+        ):
+            s_c_tensor[i] = s_c
+            s_r_tensor[i] = s_r
+            a_tensor[i] = torch.from_numpy(a)
+            r_tensor[i] = torch.from_numpy(r)
+            s_c_prime_tensor[i] = s_c_prime
+            s_r_prime_tensor[i] = s_r_prime
+            done_mask_tensor[i] = torch.from_numpy(done)
+            awake_mask_tensor[i] = torch.from_numpy(awake)
 
         return (
-            s_tensor,
+            s_c_tensor,
+            s_r_tensor,
             a_tensor,
             r_tensor,
-            s_prime_tensor,
+            s_c_prime_tensor,
+            s_r_prime_tensor,
             done_mask_tensor,
             awake_mask_tensor,
         )
@@ -95,12 +136,19 @@ def train(
     train_loss = 0
 
     for _ in range(update_iter):
-        s, a, r, s_prime, done_mask, awake_mask = memory.sample(batch_size)
+        s_c, s_r, a, r, s_c_prime, s_r_prime, done_mask, awake_mask = memory.sample(
+            batch_size
+        )
 
-        q_out: torch.Tensor = q(s.to(TRAINING_DEVICE)).cpu()
+        q_out: torch.Tensor = q(s_c.to(TRAINING_DEVICE), s_r.to(TRAINING_DEVICE)).cpu()
 
         q_a = q_out.gather(2, a[:, :, 0].unsqueeze(-1).long()).squeeze(-1)
-        max_q_prime = q_target(s_prime.to(TRAINING_DEVICE)).cpu().max(dim=2).values
+        max_q_prime = (
+            q_target(s_c_prime.to(TRAINING_DEVICE), s_r_prime.to(TRAINING_DEVICE))
+            .cpu()
+            .max(dim=2)
+            .values
+        )
 
         target = r + gamma * max_q_prime * done_mask
         loss = F.smooth_l1_loss(q_a * awake_mask, target.detach() * awake_mask)
@@ -120,7 +168,7 @@ def test(
     env: EnvInterface | RecordEpisode,
     num_episodes: int,
     network: nn.Module,
-    agent_instantiator: Callable[..., RLAgent],
+    agent_instantiator: Callable[..., BasicRLAgent],
 ) -> float:
     score: float = 0
 
@@ -156,36 +204,30 @@ def main(
     test_episodes: int,
     warm_up_steps: int,
     update_iter: int,
-    network_instantiator: Callable[[], nn.Module],
-    agent_instantiator: Callable[..., RLAgent],
-    monitor: bool = False,
-    save_format: Literal["json", "html"] = "json",
+    n_envs: int,
+    agent_instantiator: Callable[..., VecBasicRLAgent],
+    test_agent_instantiator: Callable[..., BasicRLAgent],
+    reward_shaper: RewardShaper,
+    monitor: bool = True,
     resume_path: str | None = None,
     resume_iter: int | None = None,
 ):
-    assert (
-        resume_path is None or resume_iter is not None
-    ), "resume_iter must be provided if resume_path is provided"
-    assert (
-        resume_iter is None or resume_path is not None
-    ), "resume_path must be provided if resume_iter is provided"
+    assert resume_path is None or resume_iter is not None, (
+        "resume_iter must be provided if resume_path is provided"
+    )
+    assert resume_iter is None or resume_path is not None, (
+        "resume_path must be provided if resume_iter is provided"
+    )
 
-    env = EnvInterface()
-    # vec_env = SyncVectorEnv(lambda: EnvInterface() for _ in range(4))
+    env = VecEnvInterface(n_envs, BasicTensorConverter, reward_shaper)
+    test_env = RecordEpisode("records") if monitor else EnvInterface()
 
-    network = network_instantiator().to(SAMPLING_DEVICE)
+    network = CNN(env.n_channels, env.n_raw_inputs).to(SAMPLING_DEVICE)
     if resume_path is not None:
         network.load_state_dict(torch.load(resume_path))
-    network_target = network_instantiator().to(TRAINING_DEVICE)
+    network_target = CNN(env.n_channels, env.n_raw_inputs).to(TRAINING_DEVICE)
     network_target.load_state_dict(network.state_dict())
 
-    test_env = EnvInterface()
-    if monitor:
-        test_env = RecordEpisode(
-            test_env,
-            save_dir="records",
-            save_format=save_format,
-        )
     memory = ReplayBuffer(buffer_limit)
 
     optimizer = optim.Adam(network.parameters(), lr=lr)
@@ -202,106 +244,33 @@ def main(
             - (max_epsilon - min_epsilon) * (episode_i / (0.4 * max_episodes)),
         )
         obs, env_params = env.reset()
-        agent_0 = agent_instantiator(
-            "player_0",
-            env_params,
-            device=SAMPLING_DEVICE,
-            model=network,
-        )
-        agent_1 = agent_instantiator(
-            "player_1",
-            env_params,
+        agent = agent_instantiator(
+            n_envs=n_envs,
             device=SAMPLING_DEVICE,
             model=network,
         )
 
-        obs, _, _, _, _ = env.step(
-            {
-                "player_0": np.zeros((16, 3), dtype=np.int32),
-                "player_1": np.zeros((16, 3), dtype=np.int32),
-            }
+        obs, rewards, games_finished, awake_mask, info = env.step(
+            np.zeros((n_envs, 2, 16, 3), dtype=np.int32)
         )
-        obs_tensor_0 = agent_0.obs_to_tensor(obs.player_0)
-        obs_tensor_1 = agent_1.obs_to_tensor(obs.player_1)
 
-        agent_0.update_obs(obs.player_0)
-        agent_1.update_obs(obs.player_1)
-
-        reward_0: Reward = np.zeros(16, dtype=np.float32)
-        reward_1: Reward = np.zeros(16, dtype=np.float32)
         simulation_score: float = 0
-        game_finished = False
         count_frames: int = 0
         start_time = time.time()
-        while not game_finished:
+        while not games_finished:
             count_frames += 1
 
-            actions = agent_0.sample_action(
-                torch.stack((obs_tensor_0, obs_tensor_1)), epsilon
-            )
-            actions_0, actions_1 = actions[0], actions[1]
+            actions = agent.sample_actions(obs, epsilon).view(n_envs, 2, 16, 3).numpy()
 
-            next_obs, _, _, truncated, _ = env.step(
-                {
-                    "player_0": actions_0,
-                    "player_1": agent_1.symetric_action(actions_1),
-                }
-            )
-            game_finished = truncated["player_0"].item() or truncated["player_1"].item()
+            next_obs, rewards, games_finished, done_mask, info = env.step(actions)
 
-            agent_0.update_obs(next_obs.player_0)
-            agent_1.update_obs(next_obs.player_1)
+            memory.put(obs, actions, rewards, next_obs, done_mask, awake_mask)
 
-            next_obs_tensor_0 = agent_0.obs_to_tensor(next_obs.player_0)
-            next_obs_tensor_1 = agent_1.obs_to_tensor(next_obs.player_1)
-
-            reward_0 = agent_0.reward_shaper.convert(
-                env_params,
-                reward_0,
-                obs.player_0,
-                obs_tensor_0,
-                actions_0,
-                next_obs.player_0,
-                next_obs_tensor_0,
-                0,
-            )
-            reward_1 = agent_1.reward_shaper.convert(
-                env_params,
-                reward_1,
-                obs.player_1,
-                obs_tensor_1,
-                actions_1,
-                next_obs.player_1,
-                next_obs_tensor_1,
-                1,
-            )
-
-            awake_mask_0 = np.array(obs.player_0.units_mask[0])
-
-            memory.put(
-                obs_tensor_0,
-                actions_0,
-                reward_0,
-                next_obs_tensor_0,
-                np.array(next_obs.player_0.units_mask[0]),
-                awake_mask_0,
-            )
-            memory.put(
-                obs_tensor_1,
-                actions_1,
-                reward_1,
-                next_obs_tensor_1,
-                np.array(next_obs.player_1.units_mask[1]),
-                np.array(obs.player_1.units_mask[1]),
-            )
-
-            simulation_score += (reward_0 * awake_mask_0).mean().item()
-
-            obs_tensor_0 = next_obs_tensor_0
-            obs_tensor_1 = next_obs_tensor_1
+            simulation_score += (rewards * awake_mask)[:, 0].mean().item()
             obs = next_obs
+            awake_mask = done_mask
 
-        score += simulation_score / obs.player_0.steps
+        score += simulation_score / count_frames
 
         if memory.size() > warm_up_steps:
             train_loss = train(
@@ -314,16 +283,16 @@ def main(
                 update_iter,
             )
 
-        fps.append(count_frames / (time.time() - start_time))
+        fps.append(count_frames * n_envs / (time.time() - start_time))
 
         # EVALUATION
         if episode_i % log_interval == 0 and episode_i != 0:
             network_target.load_state_dict(network.state_dict())
             torch.save(network.state_dict(), f"models_weights/network_{episode_i}.pth")
 
-            test_score = test(test_env, test_episodes, network, agent_instantiator)
+            test_score = test(test_env, test_episodes, network, test_agent_instantiator)
             print(
-                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.1f}, test score: {test_score:.1f}, fps : {np.mean(fps):.1f}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
+                f"#{episode_i:<10}/{max_episodes} episodes, avg train score : {score / log_interval:.2f}, test score: {test_score:.2f}, fps : {int(np.mean(fps))}, n_buffer : {memory.size()}, eps : {epsilon:.1f}"
             )
             if USE_WANDB:
                 wandb.log(
@@ -349,15 +318,19 @@ if __name__ == "__main__":
         "batch_size": 32,
         "gamma": 0.99,
         "buffer_limit": 50000,
-        "log_interval": 100,
-        "max_episodes": 10000,
+        "log_interval": 50,
+        "max_episodes": 4000,
         "max_epsilon": 0.9,
         "min_epsilon": 0.1,
         "test_episodes": 0,
         "warm_up_steps": 2000,
-        "update_iter": 10,
-        "network_instantiator": lambda: CNN(n_input_channels=19),
-        "agent_instantiator": BasicRLAgent,
+        "update_iter": 20,
+        "n_envs": 4,
+        "agent_instantiator": VecBasicRLAgent,
+        "test_agent_instantiator": BasicRLAgent,
+        "reward_shaper": GreedyRewardShaper()
+        + 0.1 * DistanceToNearestRelicRewardShaper()
+        + 0.01 * GreedyExploreRewardShaper(),
     }
     if USE_WANDB:
         import wandb
@@ -373,8 +346,6 @@ if __name__ == "__main__":
 
     else:
         main(
-            monitor=True,
-            save_format="html",
             # resume_path="models_weights/network_1000.pth",
             # resume_iter=1000,
             **kwargs,

@@ -1,8 +1,10 @@
 from flax import struct
 import jax
 import jax.numpy as jnp
-MAP_TYPES = ["dev0", "random"]
 from typing import Any
+
+MAP_TYPES = ["dev0", "random"]
+
 
 @struct.dataclass
 class EnvParams:
@@ -87,6 +89,7 @@ class EnvParams:
     def from_dict(env_params: dict[str, Any]) -> "EnvParams":
         return EnvParams(**env_params)
 
+
 env_params_ranges = dict(
     # map_type=[1],
     unit_move_cost=list(range(1, 6)),
@@ -107,9 +110,13 @@ env_params_ranges = dict(
 def serialize_env_params(env_params: EnvParams) -> dict:
     serialized = {}
     for field_name, field_value in env_params.__dict__.items():
-        if isinstance(field_value, (int, float, str, bool)):  # Directly serializable types
+        if isinstance(
+            field_value, (int, float, str, bool)
+        ):  # Directly serializable types
             serialized[field_name] = field_value
-        elif isinstance(field_value, list) or isinstance(field_value, tuple):  # Serialize lists/tuples
+        elif isinstance(field_value, list) or isinstance(
+            field_value, tuple
+        ):  # Serialize lists/tuples
             serialized[field_name] = list(field_value)
         elif isinstance(field_value, jnp.ndarray):  # Convert JAX arrays to lists
             serialized[field_name] = jax.device_get(field_value).tolist()

@@ -5,3 +5,8 @@ flax
 jax_tqdm
 distrax
 terminalplot
+torch
+numpy
+tqdm
+pygame
+colorama

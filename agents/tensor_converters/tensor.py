@@ -1,143 +1,67 @@
-from abc import ABC, abstractmethod
-import numpy as np
-import torch
-from agents.lux.utils import Tiles
-from agents.memory.memory import Memory, RelicMemory, RelicPointMemory
 from agents.obs import Obs
+import agents.tensor_converters.channel as c
+import agents.tensor_converters.raw_input as r
+
+import numpy as np
 
 
-class TensorConverter(ABC):
-    """
-    Abstract base class for converting observations into tensor representations.
-    """
-
-    def __init__(self):
-        self.channel_names = []
+class TensorConverter:
+    def __init__(self, *infos: c.TensorChannels | r.TensorRawInputs):
+        self.channels = [
+            channel for channel in infos if isinstance(channel, c.TensorChannels)
+        ]
+        self.raw_inputs = [
+            raw_input for raw_input in infos if isinstance(raw_input, r.TensorRawInputs)
+        ]
 
     def n_channels(self) -> int:
-        return len(self.channel_names)
+        return sum(channel.n_channels for channel in self.channels)
 
-    @abstractmethod
-    def convert(
-        self,
-        obs: Obs,
-        team_id: int,
-        symetric_player_1: bool = True,
-        memory: Memory | None = None,
-    ) -> torch.Tensor:
-        """
-        Convert an observation into a tensor representation.
+    def n_raw_inputs(self) -> int:
+        return sum(raw_input.n_channels for raw_input in self.raw_inputs)
 
-        Args:
-            obs (Obs): The environment observation.
-            team_id (int): The team identifier.
+    def channel_names(self) -> list[str]:
+        return [name for channel in self.channels for name in channel.names]
 
-        Returns:
-            torch.Tensor: The converted tensor representation.
-        """
+    def raw_input_names(self) -> list[str]:
+        return [name for raw_input in self.raw_inputs for name in raw_input.names]
 
+    def update_memory(self, obs: Obs, team_id: int) -> None:
+        for channel in self.channels:
+            channel.update_memory(obs, team_id)
+        for raw_input in self.raw_inputs:
+            raw_input.update_memory(obs, team_id)
 
-class BasicMapExtractor(TensorConverter):
-    def __init__(self):
-        super().__init__()
-        self.channel_names = [
-            "Unknown",
-            "Asteroid",
-            "Nebula",
-            "Relic",
-            "Points",
-            "Energy_Field",
-            "Enemy_Units",
-        ]
-        self.channel_names += [f"Ally_Unit_{i}" for i in range(1, 17)]
+    def reset_memory(self) -> None:
+        for channel in self.channels:
+            channel.reset_memory()
+        for raw_input in self.raw_inputs:
+            raw_input.reset_memory()
 
-    def convert(
-        self,
-        obs: Obs,
-        team_id: int,
-        symetric_player_1: bool = True,
-        memory: Memory | None = None,
-    ) -> torch.Tensor:
-        """
-        Shape : (22, width, height)
-
-        0: Unknown    (0: Known, 1: Unknown)
-        1: Asteroid   (0: Empty or unknown, 1: Asteroid)
-        2: Nebula     (0: Empty or unknown, 1: Nebula)
-        3: Relic      (0: Empty or unknown, 1: Relic)
-        4: Points     (0: Unknown, 1: Points, -1: No points)
-        5: Energy     (0-1: Energy amount / max_unit_energy)
-        6: Enemy      (0-max_units: Sum enemy unit energy / max_unit_energy)
-        7 - 22: Units (0-1: Unit energy / max_unit_energy)
-        """
-
-        tensor = torch.zeros(
-            23,
-            obs.map_features.energy.shape[0],
-            obs.map_features.energy.shape[1],
-            dtype=torch.float32,
+    def convert_channels(self, obs: Obs, teams_id: int) -> np.ndarray:
+        """Convert an observation into a tensor representation."""
+        return np.concatenate(
+            [channel.convert(obs, teams_id) for channel in self.channels]
         )
 
-        tensor[0] = ~torch.from_numpy(obs.sensor_mask)
-        tensor[1] = torch.from_numpy(obs.map_features.tile_type) == Tiles.ASTEROID
-        tensor[2] = torch.from_numpy(obs.map_features.tile_type) == Tiles.NEBULA
-
-        if isinstance(memory, RelicMemory):
-            tensor[3] = memory.relic_tensor
-        else:
-            relic_nodes = np.array(obs.relic_nodes[obs.relic_nodes_mask])
-            tensor[3, relic_nodes[:, 0], relic_nodes[:, 1]] = 1
-
-        if isinstance(memory, RelicPointMemory):
-            tensor[4] = memory.unknown_points_tensor
-
-        tensor[5] = torch.from_numpy(obs.map_features.energy) / 20
-
-        positions = np.array(obs.units.position)
-        tensor[
-            6,
-            positions[1 - team_id, :, 0],
-            positions[1 - team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[1 - team_id]) + 1) / 400
-
-        tensor[
-            torch.arange(7, 23),
-            positions[team_id, :, 0],
-            positions[team_id, :, 1],
-        ] = (torch.from_numpy(obs.units.energy[team_id]) + 1) / 400
-
-        return tensor.flip(1, 2) if symetric_player_1 and team_id == 1 else tensor
+    def convert_raw_inputs(self, obs: Obs, teams_id: int) -> np.ndarray:
+        return np.concatenate(
+            [raw_input.convert(obs, teams_id) for raw_input in self.raw_inputs]
+        )
 
 
-class MinimalTensorConverter(TensorConverter):
+class BasicTensorConverter(TensorConverter):
     def __init__(self):
-        super().__init__()
-        self.channel_names = ["Unknown", "Asteroid", "Nebula"]
-        self.channel_names += [f"Ally_Unit_{i + 1}" for i in range(16)]
-
-    def convert(
-        self,
-        obs: Obs,
-        team_id: int,
-        symetric_player_1: bool = True,
-        memory: Memory | None = None,
-    ) -> torch.Tensor:
-        """
-        Shape : (19, width, height)
-
-        0: Unknown    (0: Known, 1: Unknown)
-        1: Asteroid   (0: Empty or unknown, 1: Asteroid)
-        2: Nebula     (0: Empty or unknown, 1: Nebula)
-        3 - 18: Units (1: Unit is here, 0: Unit is not here)
-        """
-        width, height = obs.map_features.energy.shape
-        tensor = torch.zeros(19, width, height, dtype=torch.float32)
-
-        tensor[0] = ~torch.from_numpy(obs.sensor_mask)
-        tensor[1] = torch.from_numpy(obs.map_features.tile_type) == Tiles.ASTEROID
-        tensor[2] = torch.from_numpy(obs.map_features.tile_type) == Tiles.NEBULA
-
-        positions = obs.units.position[team_id]
-        tensor[torch.arange(3, 19), positions[:, 0], positions[:, 1]] = 1
-
-        return tensor.flip(1, 2) if symetric_player_1 and team_id == 1 else tensor
+        super().__init__(
+            c.SensorChannel(),
+            c.AsteroidChannel(),
+            c.NebulaChannel(),
+            c.EnergyChannel(),
+            c.EnemiesChannel(),
+            c.AllyUnitsChannels(),
+            c.RelicPointsChannels(),
+            r.StepsLeftRawInput(),
+            r.MatchStepsLeftRawInput(),
+            r.PointsRawInput(),
+            r.UnitsEnergyRawInput(),
+        )

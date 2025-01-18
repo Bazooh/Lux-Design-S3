@@ -33,7 +33,7 @@ class Memory(ABC):
 class RelicMemory(Memory):
     def _reset(self):
         self.discovered_relics_id: set[int] = set()
-        self.discovered_relics_id_list: list[int] = []
+        self.relic_nodes_mask = np.zeros(6, dtype=np.bool_)
         self.relic_positions = -np.ones((6, 2), dtype=np.int32)
         self.discovered_all_relics = False
         self.discovered_this_frame_id: set[int] = set()
@@ -50,7 +50,7 @@ class RelicMemory(Memory):
         relic_nodes = np.array(obs.relic_nodes)
         for relic_id in self.discovered_this_frame_id:
             self.discovered_relics_id.add(relic_id)
-            self.discovered_relics_id_list.append(relic_id)
+            self.relic_nodes_mask[relic_id] = True
             self.relic_positions[relic_id] = relic_nodes[relic_id]
 
         if len(self.discovered_this_frame_id) != 0:
@@ -64,20 +64,18 @@ class RelicMemory(Memory):
             self.discovered_all_relics = True
 
     def _expand(self, obs: Obs, team_id: int) -> Obs:
-        obs = Obs(
+        return Obs(
             units=obs.units,
             units_mask=obs.units_mask,
             sensor_mask=obs.sensor_mask,
             map_features=obs.map_features,
             relic_nodes=self.relic_positions,
-            relic_nodes_mask=np.array(self.discovered_relics_id_list),
+            relic_nodes_mask=self.relic_nodes_mask,
             team_points=obs.team_points,
             team_wins=obs.team_wins,
             steps=obs.steps,
             match_steps=obs.match_steps,
         )
-
-        return obs
 
 
 class RelicPointMemory(RelicMemory):
