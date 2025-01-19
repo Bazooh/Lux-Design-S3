@@ -19,8 +19,24 @@ def sample_params(rng_key, match_count_per_episode = 5):
     return params
 
 @jax.jit
-def sample_action(key, logits):
-    action = jax.random.categorical(key=key, logits=logits, axis=-1)  # Shape: (N, 16)
+def sample_action(key, logits, noise_std=0.0):
+    """
+    Samples an action with optional noise added to logits for exploration.
+
+    Args:
+        key: PRNG key for sampling.
+        logits: Logits output from the policy network. Shape: (N, 16, action_dim).
+        noise_std: Standard deviation of Gaussian noise to add.
+
+    Returns:
+        action: Sampled action. Shape: (N, 16).
+    """
+    # Add Gaussian noise to logits
+    noise = jax.random.normal(key, shape=logits.shape) * noise_std * jnp.sum(jax.lax.stop_gradient(logits), axis=-1, keepdims=True)
+    noisy_logits = logits + noise
+
+    # Sample action from noisy logits
+    action = jax.random.categorical(key=key, logits=noisy_logits, axis=-1)  # Shape: (N, 16)
     return action
 
 @jax.jit

@@ -25,13 +25,15 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     else:
         raise ValueError(f"Transform obs {config_dict['env_args']['transform_obs']} not supported")
     
-    from purejaxrl.env.transform_reward import BasicPointReward, BasicExplorationReward,BasicEnergyReward
+    from purejaxrl.env.transform_reward import BasicPointReward, BasicExplorationReward,BasicEnergyReward, BasicFoundRelicReward
     if config_dict["env_args"]["transform_reward"] == "BasicPointReward":
         transform_reward = BasicPointReward()
     elif config_dict["env_args"]["transform_reward"] == "BasicExplorationReward":
         transform_reward = BasicExplorationReward()
     elif config_dict["env_args"]["transform_reward"] == "BasicEnergyReward":
         transform_reward = BasicEnergyReward()
+    elif config_dict["env_args"]["transform_reward"] == "BasicFoundRelicReward":
+        transform_reward = BasicFoundRelicReward()
     else:
         raise ValueError(f"Transform reward {config_dict['env_args']['transform_reward']} not supported")
 
@@ -80,6 +82,6 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "max_grad_norm": float(config_dict["ppo"]["max_grad_norm"]),
             "anneal_lr": bool(config_dict["ppo"]["anneal_lr"]),
             "seed": int(config_dict["ppo"]["seed"]),
-            "record_freq": int(config_dict["ppo"]["record_freq"]),
+            "action_noise": float(config_dict["ppo"]["action_noise"]),
         }
     }

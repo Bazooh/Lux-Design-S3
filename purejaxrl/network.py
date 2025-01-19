@@ -105,7 +105,7 @@ class HybridActorCritic(nn.Module):
             nn.Dense(16),
             nn.leaky_relu,
         ])
-        res_blocks_1 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(6)])
+        res_blocks_1 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(4)])
         res_blocks_2 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(2)])
         value_head = nn.Sequential([
             nn.Dense(32),

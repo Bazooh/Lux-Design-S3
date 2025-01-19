@@ -95,14 +95,14 @@ def make_train(config, debug=False,):
                 rng, _rng = jax.random.split(rng)
                 logits, value = model.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 6)
                 mask_awake = (last_obs_batch_player_0['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
-                action_0 = sample_action(_rng, logits)
+                action_0 = sample_action(_rng, logits, noise_std=config["ppo"]["action_noise"])
                 log_prob_0 = get_logprob(logits, mask_awake, action_0)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 logits, value = model.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 6)
                 mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
-                action_1 = sample_action(_rng, logits)
+                action_1 = sample_action(_rng, logits, noise_std=config["ppo"]["action_noise"])
                 log_prob_1 = get_logprob(logits, mask_awake, action_1)
 
                 # STEP ENV

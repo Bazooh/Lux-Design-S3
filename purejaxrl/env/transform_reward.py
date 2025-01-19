@@ -57,8 +57,23 @@ class BasicExplorationReward(TransformReward):
         params: EnvParams,
         reward: float,
     ):
-        return jax.numpy.mean(obs.sensor_mask)
-    
+        return jax.numpy.sum(jax.numpy.clip(obs.sensor_mask.astype(jax.numpy.int8) - last_obs.sensor_mask.astype(jax.numpy.int8), min=0, max=1))
+
+class BasicFoundRelicReward(TransformReward):
+    def __init__(self):
+        super().__init__()
+        pass
+    @partial(jax.jit, static_argnums=(0, 1))
+    def convert(
+        self,
+        team_id: int,
+        obs: EnvObs,
+        last_obs: EnvObs,
+        params: EnvParams,
+        reward: float,
+    ):
+        return jax.numpy.sum(jax.numpy.clip(obs.relic_nodes_mask.astype(jax.numpy.int8) - last_obs.relic_nodes_mask.astype(jax.numpy.int8), min=0, max=1))
+      
 
 class BasicEnergyReward(TransformReward):
     def __init__(self):

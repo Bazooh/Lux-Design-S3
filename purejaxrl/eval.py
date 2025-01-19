@@ -122,12 +122,12 @@ def run_episode_and_record(
         # SELECT ACTION: PLAYER 0
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_0, **obs_batch_player_0) # probs is (16, 5)
-        action_0 = sample_action(key= _rng, logits=logits)[0] # (16,)
+        action_0 = sample_action(key= _rng, logits=logits, noise_std=0.01)[0] # (16,)
 
         # SELECT ACTION: PLAYER 1
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_1, **obs_batch_player_0) # probs is (16, 5)
-        action_1 = sample_action(key= _rng, logits=logits)[0] # (16,)
+        action_1 = sample_action(key= _rng, logits=logits, noise_std=0.01)[0] # (16,)
         return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
     
     for _ in range(max_episode_steps):

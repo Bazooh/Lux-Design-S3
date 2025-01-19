@@ -1,6 +1,6 @@
 env_args:
   transform_obs: HybridTransformObs
-  transform_reward: BasicExplorationReward
+  transform_reward: BasicFoundRelicReward
   transform_action: SimplerActionNoSap
   memory: RelicPointMemory
 
@@ -15,7 +15,7 @@ ppo:
   total_timesteps: 1e6
   update_epochs: 4
   num_minibatches: 4
-  gamma: 0.995
+  gamma: 0.99
   gae_lambda: 0.9
   clip_grad_norm: 0.5
   clip_eps: 0.2
@@ -24,4 +24,4 @@ ppo:
   max_grad_norm: 0.5
   anneal_lr: True
   seed: 0
-  record_freq: 10
+  action_noise: 0.1
