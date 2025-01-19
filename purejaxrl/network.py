@@ -57,15 +57,20 @@ class ResidualBlock(nn.Module):
 
 class HybridActorCritic(nn.Module):
     """
-                    Image (B,C,24,24)
-                        |
-                        | Transpose
-                        V
-                    Image (B,24,24,C)                    
+
+                    Image (B,C,24,24)    
+                        |                
+                        | Transpose      
+                        V              
+                    Image (B,24,24,C)     Vector (B,V)
+                        |                /
+                        | Concat        / FC + Expand  
+                        V              V  
+                    Image (B,24,24,C')                      
                         |
                         | 1x1-Conv
                         V
-                    Image (B,24,24,32)
+                    Image (B,24,24,32)                      
                         |
                         | ResBlock 1
                         V
@@ -88,16 +93,20 @@ class HybridActorCritic(nn.Module):
 
     @nn.compact
     def __call__(self, image, vector, position):
-        conv_block_0 = nn.Sequential([
-            nn.Conv(32, kernel_size=1, strides=1, padding=0),
+        conv1_1 = nn.Sequential([
+            nn.Conv(64, kernel_size=1, strides=1, padding=0),
             nn.leaky_relu,
         ]) # conv block 
-        conv_block_1 = nn.Sequential([
+        conv1_2 = nn.Sequential([
             nn.Conv(self.action_dim, kernel_size=1, strides=1, padding=0),
             nn.leaky_relu,
         ]) # conv block 
-        res_block_1 = ResidualBlock(in_channel=32, out_channel=32, kernel_size=5, padding=2) 
-        res_block_2 = ResidualBlock(in_channel=32, out_channel=32, kernel_size=5, padding=2)
+        fc_vec = nn.Sequential([
+            nn.Dense(16),
+            nn.leaky_relu,
+        ])
+        res_blocks_1 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(6)])
+        res_blocks_2 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(2)])
         value_head = nn.Sequential([
             nn.Dense(32),
             nn.leaky_relu,
@@ -108,13 +117,32 @@ class HybridActorCritic(nn.Module):
 
         # Transpose image for channel-last format
         image = image.transpose(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
+        B, H, W, C = image.shape
 
+        # Process the vector
+        vector = fc_vec(vector) # (N, V) -> (N, 16)
+        vector = vector.reshape((B, 1, 1, -1))  # (N, 16) -> (N, 1, 1, 16)
+        vector = jnp.tile(vector, (1, H, W, 1))  # (N, 1, 1, 16) -> (N, H, W, 16)
+
+        # Concatenate
+        x = jnp.concatenate((image, vector), axis=-1)  # (N, H, W, C + 16)
+        
+        # 1x1 Conv
+        x = conv1_1(x)  # (N, H, W, C + 16) -> (N, H, W, 32) 
+        
+        # Resblock1
+        x = res_blocks_1(x)
+        
         # Compute value using the value head
-        x = res_block_1(conv_block_0(image))
         value = jnp.squeeze(value_head(x.mean(axis=(2, 3))), axis=-1)
 
+        # Resblock2
+        x = res_blocks_2(x)
+
+        # Compute logit maps: 1x1 Conv
+        logits_maps = conv1_2(x)
+
         # Gather logits based on position
-        logits_maps = conv_block_1(res_block_2(x))
         def gather_logits(logits_map, pos):
             # logits_map: Shape (24, 24, 6)
             # pos: Shape (16, 2)

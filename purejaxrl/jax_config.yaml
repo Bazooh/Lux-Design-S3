@@ -9,7 +9,7 @@ network:
   checkpoint: None
 
 ppo:
-  lr: 1e-4
+  lr: 5e-5
   num_envs: 8
   num_steps: 1000
   total_timesteps: 1e6
