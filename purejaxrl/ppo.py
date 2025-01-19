@@ -256,32 +256,51 @@ def make_train(config, debug=False,):
             if debug:
                 def callback(metric):
                     game_info, loss_info = metric
-                    return_values = jnp.mean(game_info["episode_return"][game_info["returned_episode"]], axis=0)
-                    return_points = jnp.mean(game_info["episode_points"][game_info["returned_episode"]], axis=0)
-                    episode_wins = jnp.mean(game_info["episode_wins"][game_info["returned_episode"]], axis=0)
-                    episode_winner = jnp.mean(game_info["episode_winner"][game_info["returned_episode"]], axis=0)
-                    timesteps = game_info["global_timestep"][game_info["returned_episode"]] * config["ppo"]["num_envs"]
+                
+                    returned_episodes = game_info["returned_episode"]
+                    if jnp.sum(returned_episodes) == 0:
+                        return  # Skip if no episodes have ended
+
+                    # Compute main metrics
+                    return_values = jnp.mean(game_info["episode_return"][returned_episodes], axis=0)
+                    episode_wins = jnp.mean(game_info["episode_wins"][returned_episodes], axis=0)
+                    episode_winner = jnp.mean(game_info["episode_winner"][returned_episodes], axis=0)
+                    timesteps = game_info["global_timestep"][returned_episodes] * config["ppo"]["num_envs"]
                     global_timestep = jnp.sum(timesteps)
+
+                    # Compute loss metrics
                     value_loss = jnp.mean(jnp.array([jnp.mean(info[0]) for info in loss_info]))
                     loss_actor = jnp.mean(jnp.array([jnp.mean(info[1]) for info in loss_info]))
                     entropy = jnp.mean(jnp.array([jnp.mean(info[2]) for info in loss_info]))
 
+                    # Initialize metrics dictionary
                     metrics = {
                         "reward/return_values": return_values[0],
-                        "reward/return_points": return_points[0],
                         "reward/episode_wins": episode_wins[0],
                         "reward/episode_winner": episode_winner[0],
                         "loss/value_loss": value_loss,
                         "loss/loss_actor": loss_actor,
                         "loss/entropy": entropy,
                     }
+                    player_stats = game_info[f"episode_stats_player_0"]
+                    for key, value in player_stats.__dict__.items():
+                        metrics[f"reward/episode_{key}"] = jnp.mean(
+                            value[returned_episodes], axis=0
+                        )
 
+                    # Log metrics to WandB and print to console
                     if len(timesteps) > 0:
                         wandb.log(metrics)
                         print(
-                            f"timesteps: {global_timestep}, return_values: {return_values[0]:.2f}, return_points: {return_points[0]:.2f}, episode_wins: {episode_wins[0]:.2f}, episode_winner: {episode_winner[0]:.2f}"
+                            f"Global Timestep: {global_timestep}, "
+                            f"Return Values: {return_values[0]:.2f}, "
+                            f"Return Points: {metrics['reward/episode_points_gained']:.2f}, "
+                            f"Episode Wins: {episode_wins[0]:.2f}, "
+                            f"Episode Winner: {episode_winner[0]:.2f}"
                         )
-                jax.debug.callback(callback, (game_info, loss_info))       
+
+                # Attach callback to JAX debug
+                jax.debug.callback(callback, (game_info, loss_info))    
             runner_state = (train_state, network_params_1, env_state, last_obs, rng, env_params)
             
             return runner_state, game_info

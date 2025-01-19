@@ -1,4 +1,5 @@
 env_args:
+  tracker: GlobalTracker
   transform_obs: HybridTransformObs
   transform_reward: BasicPointReward
   transform_action: SimplerActionNoSap
@@ -9,12 +10,12 @@ network:
   checkpoint: None
 
 ppo:
-  lr: 1e-5
+  lr: 5e-5
   num_envs: 8
   num_steps: 1000
-  total_timesteps: 5e7
+  total_timesteps: 1e7
   update_epochs: 4
-  num_minibatches: 8
+  num_minibatches: 4
   gamma: 0.99
   gae_lambda: 0.9
   clip_grad_norm: 0.5

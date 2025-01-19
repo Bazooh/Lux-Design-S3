@@ -9,7 +9,7 @@ import yaml
 from luxai_s3.params import EnvParams
 from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName, EnvParams
 from purejaxrl.env.wrappers import LogWrapper, SimplifyTruncationWrapper, \
-    TransformActionWrapper, TransformObsWrapper, TransformRewardWrapper, MemoryWrapper, RecordEpisodeWrapper
+    TransformActionWrapper, TransformObsWrapper, TransformRewardWrapper, MemoryWrapper, RecordEpisodeWrapper, TrackerWrapper
 
 def make_env(env_args, record=False, **record_kwargs):
     env = LuxAIS3Env(auto_reset=True)
@@ -17,6 +17,7 @@ def make_env(env_args, record=False, **record_kwargs):
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)
     env = MemoryWrapper(env, env_args["memory"])
+    env = TrackerWrapper(env, env_args["tracker"])
     env = TransformRewardWrapper(env, env_args["transform_reward"])
     env = TransformActionWrapper(env, env_args["transform_action"])
     env = TransformObsWrapper(env, env_args["transform_obs"])

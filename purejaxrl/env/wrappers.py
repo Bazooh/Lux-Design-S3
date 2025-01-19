@@ -1,3 +1,4 @@
+import flax.struct
 import gymnax.environments.spaces
 import jax
 import chex
@@ -12,8 +13,9 @@ from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams, PlayerAction
 from purejaxrl.env.transform_reward import TransformReward
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
+from purejaxrl.env.tracker import Tracker
 from purejaxrl.env.memory import Memory
-
+import flax
 # for recording
 from purejaxrl.utils import serialize_metadata
 from luxai_s3.state import serialize_env_actions, serialize_env_states
@@ -141,6 +143,7 @@ class SimplifyTruncationWrapper(GymnaxWrapper):
         done = truncated_dict["player_0"] | terminated_dict["player_0"]
         return obs, env_state, reward, done, info 
 
+
 ################################## MEMORY WRAPPER ##################################
 @struct.dataclass
 class Env_Mem_State:
@@ -186,6 +189,39 @@ class MemoryWrapper(GymnaxWrapper):
         return expanded_obs, env_mem_state, reward, done, info
 
 
+################################## TRACKER WRAPPER ##################################
+class TrackerWrapper(GymnaxWrapper):
+    def __init__(self, env: MemoryWrapper, tracker: Tracker):
+        super().__init__(env)
+        self.tracker = tracker
+
+    def step(
+        self,
+        key: chex.PRNGKey,
+        env_state: Env_Mem_State,
+        action: PlayerAction,
+        params: Optional[EnvParams] = None,
+    ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
+        last_mem_state_player_0, last_mem_state_player_1 = env_state.memory_state_player_0, env_state.memory_state_player_1 
+        last_obs = self._env.get_obs(env_state.env_state)
+        obs, env_state, reward, done, info = self._env.step(key, env_state, action, params)
+        info["stats"]={
+            "player_0": self.tracker.get_player_statistics(team_id=0, 
+                                                    last_obs=last_obs["player_0"], 
+                                                    last_mem_state = last_mem_state_player_0, 
+                                                    obs = obs["player_0"], 
+                                                    mem_state = env_state.memory_state_player_0,
+                                                    params = params),
+            "player_1": self.tracker.get_player_statistics(team_id=1, 
+                                                    last_obs=last_obs["player_1"], 
+                                                    last_mem_state = last_mem_state_player_1,
+                                                    obs = obs["player_1"], 
+                                                    mem_state = env_state.memory_state_player_1,
+                                                    params = params)
+        }
+        return obs, env_state, reward, done, info
+
+
 ################################## REWARD WRAPPER ##################################
 class TransformRewardWrapper(GymnaxWrapper):
     """"
@@ -205,8 +241,8 @@ class TransformRewardWrapper(GymnaxWrapper):
         last_obs = self._env.get_obs(env_mem_state.env_state)
         obs, state, reward, done, info = self._env.step(key, env_mem_state, action, params)
         transformed_reward = {
-            "player_0": self.transform_reward.convert(team_id=0, last_obs=last_obs["player_0"], obs = obs["player_0"], reward = reward["player_0"], params = params),
-            "player_1": self.transform_reward.convert(team_id=1, last_obs=last_obs["player_1"], obs = obs["player_1"], reward = reward["player_1"], params = params),
+            "player_0": self.transform_reward.convert(team_id=0, last_obs=last_obs["player_0"], obs = obs["player_0"], params = params, player_stats = info["stats"]["player_0"]),
+            "player_1": self.transform_reward.convert(team_id=1, last_obs=last_obs["player_1"], obs = obs["player_1"], params = params, player_stats = info["stats"]["player_1"]),
         }
         return obs, state, transformed_reward, done, info
     
@@ -216,7 +252,7 @@ class TransformActionWrapper(GymnaxWrapper):
     """"
     Changes the action of the environment
     """
-    def __init__(self, env: TransformReward, transform_action: TransformAction):
+    def __init__(self, env: TransformRewardWrapper, transform_action: TransformAction):
         self.transform_action = transform_action
         super().__init__(env)
     
@@ -277,6 +313,7 @@ class TransformObsWrapper(GymnaxWrapper):
 
 
 ################################## LOG WRAPPER ##################################
+from purejaxrl.env.tracker import Tracker, PlayerStats
 @struct.dataclass
 class LogEnvState:
     env_state: Env_Mem_State
@@ -285,10 +322,12 @@ class LogEnvState:
     episode_wins: chex.Array
     episode_timestep: int
     global_timestep: int
+    episode_stats_player_0: PlayerStats
+    episode_stats_player_1: PlayerStats
 
 class LogWrapper(GymnaxWrapper):
     """Log the episode returns and lengths."""
-    def __init__(self, env: TransformActionWrapper, replace_info: bool = False):
+    def __init__(self, env: TransformObsWrapper, replace_info: bool = False):
         super().__init__(env)
         self.replace_info = replace_info
 
@@ -296,11 +335,13 @@ class LogWrapper(GymnaxWrapper):
         obs, env_state = self._env.reset(key, params)
         log_env_state = LogEnvState(
             env_state=env_state,
-            episode_return=jnp.array([0.0, 0.0]),
+            episode_return=jnp.array([0.0, 0.0], dtype=jnp.float16),
             episode_points=jnp.array([0, 0]),
             episode_wins=jnp.array([0.0, 0.0]),
             episode_timestep=0,
-            global_timestep=0
+            global_timestep=0,
+            episode_stats_player_0=PlayerStats(),
+            episode_stats_player_1=PlayerStats(),
         )
         return obs, log_env_state
 
@@ -315,35 +356,71 @@ class LogWrapper(GymnaxWrapper):
             key, log_env_state.env_state, action, params
         )
 
-        new_episode_return = (log_env_state.episode_return + jnp.array([reward["player_0"], reward["player_1"]])) 
-        new_episode_points =  log_env_state.episode_points + jnp.array([log_env_state.env_state.memory_state_player_0.points_gained, log_env_state.env_state.memory_state_player_1.points_gained])
-        new_episode_wins = log_env_state.env_state.env_state.team_wins
-        current_episode_wins = jnp.where(new_episode_points[0] > new_episode_points[1], 
-                                        jnp.array([1.0, 0.0]), 
-                                        jnp.where(new_episode_points[0] < new_episode_points[1], 
-                                                    jnp.array([0.0, 1.0]), 
-                                                    jnp.array([0.5, 0.5])))
-        new_episode_wins+= current_episode_wins
+        # Update episode returns
+        new_episode_return = log_env_state.episode_return + jnp.array(
+            [reward["player_0"], reward["player_1"]]
+        )
 
+        # Update episode points
+        new_episode_points = log_env_state.env_state.env_state.team_points + jnp.array(
+            [info["stats"]["player_0"].points_gained, info["stats"]["player_1"].points_gained]
+        )
+
+        # Update cumulative statistics for each player
+        new_episode_stats_player_0 = PlayerStats(
+            **{field: getattr(log_env_state.episode_stats_player_0, field) + getattr(info["stats"]["player_0"], field)
+               for field in PlayerStats.__dataclass_fields__}
+        )
+        new_episode_stats_player_1 = PlayerStats(
+            **{field: getattr(log_env_state.episode_stats_player_1, field) + getattr(info["stats"]["player_1"], field)
+               for field in PlayerStats.__dataclass_fields__}
+        )
+
+        # Update wins based on points
+        current_episode_wins = jnp.where(
+            new_episode_points[0] > new_episode_points[1],
+            jnp.array([1.0, 0.0]),
+            jnp.where(
+                new_episode_points[0] < new_episode_points[1],
+                jnp.array([0.0, 1.0]),
+                jnp.array([0.5, 0.5]),
+            ),
+        )
+        new_episode_wins = log_env_state.env_state.env_state.team_wins + current_episode_wins
+
+        # Prepare info dictionary
+        if self.replace_info:
+            info = {}
+        info["episode_return"] = new_episode_return
+        info["episode_wins"] = new_episode_wins
+        info["episode_stats_player_0"] = new_episode_stats_player_0
+        info["episode_stats_player_1"] = new_episode_stats_player_1
+        info["episode_winner"] = jnp.where(
+            new_episode_wins[0] > new_episode_wins[1],
+            jnp.array([1, 0]),
+            jnp.where(
+                new_episode_wins[0] < new_episode_wins[1],
+                jnp.array([0, 1]),
+                jnp.array([0.5, 0.5]),
+            ),
+        )
+        info["global_timestep"] = (log_env_state.episode_timestep + 1) * (1 - done)
+        info["episode_timestep"] = log_env_state.global_timestep + 1
+        info["returned_episode"] = done
+
+        # Create new LogEnvState
         new_log_env_state = LogEnvState(
             env_state=env_state,
-            episode_return= new_episode_return * (1 - done),
-            episode_points= new_episode_points * (1 - done),
-            episode_wins= new_episode_wins * (1 - done),
+            episode_return=new_episode_return * (1 - done),
+            episode_points=new_episode_points * (1 - done),
+            episode_wins=new_episode_wins * (1 - done),
             episode_timestep=(log_env_state.episode_timestep + 1) * (1 - done),
             global_timestep=log_env_state.global_timestep + 1,
+            episode_stats_player_0=PlayerStats(
+                **{field: getattr(new_episode_stats_player_0, field) * (1-done)
+                for field in PlayerStats.__dataclass_fields__}),
+            episode_stats_player_1=PlayerStats(
+                **{field: getattr(new_episode_stats_player_1, field) * (1-done)
+                for field in PlayerStats.__dataclass_fields__}),
         )
-        
-        if self.replace_info: info = {}
-        info["episode_return"] = new_episode_return
-        info["episode_points"] = new_episode_points
-        info["episode_wins"] = new_episode_wins
-        info["episode_winner"] = jnp.where(new_episode_wins[0] > new_episode_wins[1], 
-                                        jnp.array([1, 0]), 
-                                        jnp.where(new_episode_wins[0] < new_episode_wins[1], 
-                                                    jnp.array([0.0, 1.0]), 
-                                                    jnp.array([0.5, 0.5])))
-        info["global_timestep"] = new_log_env_state.global_timestep
-        info["episode_timestep"] = new_log_env_state.episode_timestep
-        info["returned_episode"] = done
         return obs, new_log_env_state, reward, done, info

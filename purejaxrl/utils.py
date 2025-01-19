@@ -32,7 +32,7 @@ def sample_action(key, logits, noise_std=0.0):
         action: Sampled action. Shape: (N, 16).
     """
     # Add Gaussian noise to logits
-    noise = jax.random.normal(key, shape=logits.shape) * noise_std
+    noise = jax.random.normal(key, shape=logits.shape) * noise_std * jax.numpy.max(jax.lax.stop_gradient(logits))
     noisy_logits = logits + noise
 
     # Sample action from noisy logits

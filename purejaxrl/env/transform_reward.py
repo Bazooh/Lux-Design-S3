@@ -3,7 +3,8 @@ from src.luxai_s3.state import EnvObs
 import jax
 from functools import partial
 from luxai_s3.params import EnvParams, env_params_ranges
-
+from purejaxrl.env.tracker import PlayerStats
+from typing import Any
 class TransformReward(ABC):
     """
     Abstract base class for reshaping rewards
@@ -21,6 +22,7 @@ class TransformReward(ABC):
         obs: EnvObs,
         params: EnvParams,
         reward: float,
+        player_stats: Any
     ):
         """
         Converts a reward into a reshaped reward
@@ -38,25 +40,9 @@ class BasicPointReward(TransformReward):
         obs: EnvObs,
         last_obs: EnvObs,
         params: EnvParams,
-        reward: float,
+        player_stats: PlayerStats
     ):
-        points_gained = jax.numpy.maximum(0, obs.team_points[team_id] - last_obs.team_points[team_id])
-        return points_gained
-
-class BasicExplorationReward(TransformReward):
-    def __init__(self):
-        super().__init__()
-        pass
-    @partial(jax.jit, static_argnums=(0, 1))
-    def convert(
-        self,
-        team_id: int,
-        obs: EnvObs,
-        last_obs: EnvObs,
-        params: EnvParams,
-        reward: float,
-    ):
-        return jax.numpy.mean(jax.numpy.clip(obs.sensor_mask.astype(jax.numpy.int8) - last_obs.sensor_mask.astype(jax.numpy.int8), min=0, max=1))
+        return player_stats.points_gained
 
 class BasicFoundRelicReward(TransformReward):
     def __init__(self):
@@ -69,10 +55,24 @@ class BasicFoundRelicReward(TransformReward):
         obs: EnvObs,
         last_obs: EnvObs,
         params: EnvParams,
-        reward: float,
+        player_stats: PlayerStats
     ):
-        return jax.numpy.sum(jax.numpy.clip(obs.relic_nodes_mask.astype(jax.numpy.int8) - last_obs.relic_nodes_mask.astype(jax.numpy.int8), min=0, max=1))
-      
+        return player_stats.relics_discovered
+
+class BasicFoundPointReward(TransformReward):
+    def __init__(self):
+        super().__init__()
+        pass
+    @partial(jax.jit, static_argnums=(0, 1))
+    def convert(
+        self,
+        team_id: int,
+        obs: EnvObs,
+        last_obs: EnvObs,
+        params: EnvParams,
+        player_stats: PlayerStats
+    ):
+        return player_stats.points_discovered 
 
 class BasicEnergyReward(TransformReward):
     def __init__(self):
@@ -85,12 +85,6 @@ class BasicEnergyReward(TransformReward):
         obs: EnvObs,
         last_obs: EnvObs,
         params: EnvParams,
-        reward: float,
+        player_stats: dict
     ):
-        energy_map = jax.numpy.zeros((obs.map_features.energy.shape[0], obs.map_features.energy.shape[1]), dtype=jax.numpy.float32)
-        energy_map = energy_map.at[
-            obs.units.position[1- team_id, :, 0],
-            obs.units.position[1- team_id, :, 1],
-        ].set(obs.units.energy[1 -team_id] + 1) / 400
-
-        return jax.numpy.sum(energy_map)
+        return player_stats["cumulated_energy"]

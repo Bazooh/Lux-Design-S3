@@ -7,6 +7,12 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         config_dict = yaml.safe_load(file)
 
     ###### Environment arguments ######    
+    if config_dict["env_args"]["tracker"] == "GlobalTracker":
+        from purejaxrl.env.tracker import GlobalTracker
+        tracker = GlobalTracker()
+    else:
+        raise ValueError(f"Tracker {config_dict['env_args']['tracker']} not supported")
+    
     if config_dict["env_args"]["memory"] == "RelicPointMemory":
         from purejaxrl.env.memory import RelicPointMemory
         memory = RelicPointMemory()
@@ -25,11 +31,11 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     else:
         raise ValueError(f"Transform obs {config_dict['env_args']['transform_obs']} not supported")
     
-    from purejaxrl.env.transform_reward import BasicPointReward, BasicExplorationReward,BasicEnergyReward, BasicFoundRelicReward
+    from purejaxrl.env.transform_reward import BasicPointReward, BasicEnergyReward, BasicFoundRelicReward, BasicFoundPointReward
     if config_dict["env_args"]["transform_reward"] == "BasicPointReward":
         transform_reward = BasicPointReward()
-    elif config_dict["env_args"]["transform_reward"] == "BasicExplorationReward":
-        transform_reward = BasicExplorationReward()
+    elif config_dict["env_args"]["transform_reward"] == "BasicFoundPointReward":
+        transform_reward = BasicFoundPointReward()
     elif config_dict["env_args"]["transform_reward"] == "BasicEnergyReward":
         transform_reward = BasicEnergyReward()
     elif config_dict["env_args"]["transform_reward"] == "BasicFoundRelicReward":
@@ -65,6 +71,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "network_params": network_params,
         },
         "env_args":{
+            "tracker": tracker,
             "memory": memory,
             "transform_action": transform_action,
             "transform_obs": transform_obs,
