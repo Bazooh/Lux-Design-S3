@@ -41,6 +41,10 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     if config_dict["network"]["model"] == "HybridActorCritic":
         from purejaxrl.network import HybridActorCritic
         network = HybridActorCritic(transform_action.action_space.n)
+        tabulate_fn = flax.linen.tabulate(network, jax.random.key(0))
+        x = transform_obs.observation_space.sample(jax.random.PRNGKey(0))
+        x = {feat: jax.numpy.expand_dims(value, axis=0) for feat, value in x.items()}
+        print(tabulate_fn(**x))
     else:
         raise ValueError(f"Network {config_dict['network']['model']} not supported")
     

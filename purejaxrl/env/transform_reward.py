@@ -41,7 +41,6 @@ class BasicPointReward(TransformReward):
         reward: float,
     ):
         points_gained = jax.numpy.maximum(0, obs.team_points[team_id] - last_obs.team_points[team_id])
-        units_mask = jax.numpy.sum(obs.units_mask[team_id])
         return points_gained
 
 class BasicExplorationReward(TransformReward):
@@ -57,7 +56,7 @@ class BasicExplorationReward(TransformReward):
         params: EnvParams,
         reward: float,
     ):
-        return jax.numpy.sum(jax.numpy.clip(obs.sensor_mask.astype(jax.numpy.int8) - last_obs.sensor_mask.astype(jax.numpy.int8), min=0, max=1))
+        return jax.numpy.mean(jax.numpy.clip(obs.sensor_mask.astype(jax.numpy.int8) - last_obs.sensor_mask.astype(jax.numpy.int8), min=0, max=1))
 
 class BasicFoundRelicReward(TransformReward):
     def __init__(self):

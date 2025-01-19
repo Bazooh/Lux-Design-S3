@@ -14,7 +14,7 @@ from purejaxrl.parse_config import parse_config
 import wandb
 from purejaxrl.eval import run_episode_and_record
 """
-Reference:  PPO implementation from PUREJAXRL
+Reference:  ppo implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
 
 I changed it to feature 2 players, represented by two 'network_params':
@@ -36,7 +36,7 @@ def make_train(config, debug=False,):
     config["ppo"]["num_updates"] =  (config["ppo"]["total_timesteps"]// (config["ppo"]["num_steps"] * config["ppo"]["num_envs"]))
     config["ppo"]["minibatch_size"] = (config["ppo"]["num_envs"] * config["ppo"]["num_steps"] // config["ppo"]["num_minibatches"])
     print('-'*100)
-    print("Starting PPO with config:", config["ppo"])
+    print("Starting ppo with config:", config["ppo"])
     print('-'*100)
     def linear_schedule(count):
         frac = (
@@ -256,25 +256,32 @@ def make_train(config, debug=False,):
             if debug:
                 def callback(metric):
                     game_info, loss_info = metric
-                    return_values = jnp.mean(game_info["episode_return"][game_info["returned_episode"]], axis = 0)
-                    return_points = jnp.mean(game_info["episode_points"][game_info["returned_episode"]], axis = 0)
-                    episode_wins = jnp.mean(game_info["episode_wins"][game_info["returned_episode"]], axis = 0)
-                    episode_winner = jnp.mean(game_info["episode_winner"][game_info["returned_episode"]], axis = 0)
+                    return_values = jnp.mean(game_info["episode_return"][game_info["returned_episode"]], axis=0)
+                    return_points = jnp.mean(game_info["episode_points"][game_info["returned_episode"]], axis=0)
+                    episode_wins = jnp.mean(game_info["episode_wins"][game_info["returned_episode"]], axis=0)
+                    episode_winner = jnp.mean(game_info["episode_winner"][game_info["returned_episode"]], axis=0)
                     timesteps = game_info["global_timestep"][game_info["returned_episode"]] * config["ppo"]["num_envs"]
                     global_timestep = jnp.sum(timesteps)
+                    value_loss = jnp.mean(jnp.array([jnp.mean(info[0]) for info in loss_info]))
+                    loss_actor = jnp.mean(jnp.array([jnp.mean(info[1]) for info in loss_info]))
+                    entropy = jnp.mean(jnp.array([jnp.mean(info[2]) for info in loss_info]))
+
                     metrics = {
-                        "return_values": return_values[0],
-                        "return_points": return_points[0],
-                        "episode_wins": episode_wins[0],
-                        "episode_winner": episode_winner[0],
+                        "reward/return_values": return_values[0],
+                        "reward/return_points": return_points[0],
+                        "reward/episode_wins": episode_wins[0],
+                        "reward/episode_winner": episode_winner[0],
+                        "loss/value_loss": value_loss,
+                        "loss/loss_actor": loss_actor,
+                        "loss/entropy": entropy,
                     }
 
-                    if len(timesteps) > 0: 
+                    if len(timesteps) > 0:
                         wandb.log(metrics)
                         print(
                             f"timesteps: {global_timestep}, return_values: {return_values[0]:.2f}, return_points: {return_points[0]:.2f}, episode_wins: {episode_wins[0]:.2f}, episode_winner: {episode_winner[0]:.2f}"
                         )
-                jax.debug.callback(callback, (game_info, loss_info))          
+                jax.debug.callback(callback, (game_info, loss_info))       
             runner_state = (train_state, network_params_1, env_state, last_obs, rng, env_params)
             
             return runner_state, game_info
@@ -305,7 +312,7 @@ if __name__ == "__main__":
     
     runner_state = out["runner_state"]
     train_state = runner_state[0]
-    rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "purejaxrl/ppo_replays", save_format = "html")
+    rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "purejaxrl/replays/ppo", save_format = "html")
     run_episode_and_record(
         rec_env=rec_env,
         network=config["network"]["model"],
