@@ -1,0 +1,27 @@
+env_args:
+  transform_obs: HybridTransformObs
+  transform_reward: BasicExplorationReward
+  transform_action: SimplerActionNoSap
+  memory: RelicPointMemory
+
+network:
+  model: HybridActorCritic
+  checkpoint: None
+
+ppo:
+  lr: 5e-5
+  num_envs: 8
+  num_steps: 1000
+  total_timesteps: 1e6
+  update_epochs: 4
+  num_minibatches: 4
+  gamma: 0.995
+  gae_lambda: 0.9
+  clip_grad_norm: 0.5
+  clip_eps: 0.2
+  ent_coef: 0.1
+  vf_coef: 0.25
+  max_grad_norm: 0.5
+  anneal_lr: True
+  seed: 0
+  record_freq: 10

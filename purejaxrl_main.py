@@ -5,7 +5,8 @@ from argparse import Namespace
 
 import numpy as np
 
-from purejaxrl.jax_agent import JaxAgent
+from purejaxrl.jax_agent import RawJaxAgent, JaxAgent
+
 # from lux.config import EnvConfig
 from agents.lux.kit import from_json
 ### DO NOT REMOVE THE FOLLOWING CODE ###

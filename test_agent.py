@@ -1,7 +1,7 @@
 import numpy as np
 from agents.rl_agent import BasicRLAgent
 from agents.models.dense import CNN
-from rule_based.naive.naive_agent import NaiveAgent
+from rule_based.naive.agent import NaiveAgent
 from config import SAMPLING_DEVICE
 from env_interface import RecordEpisode
 import torch

@@ -5,7 +5,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."
 
 import json
 from argparse import Namespace
-from naive_agent import NaiveAgent
+from rule_based.naive.agent import NaiveAgent
 from agents.lux.kit import from_json
 
 ### DO NOT REMOVE THE FOLLOWING CODE ###

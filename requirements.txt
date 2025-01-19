@@ -1,3 +1,10 @@
+jax
+gymnax
+optax
+flax
+jax_tqdm
+distrax
+terminalplot
 torch
 numpy
 tqdm
