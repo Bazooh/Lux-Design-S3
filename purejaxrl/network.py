@@ -66,7 +66,7 @@ class ResidualBlock(nn.Module):
         out = nn.leaky_relu(out)
         return out
 
-class HybridActorCritic(nn.Module):
+class Pix2Pix_AC(nn.Module):
     """
 
                     Image (B,C,24,24)    
@@ -106,11 +106,11 @@ class HybridActorCritic(nn.Module):
     def __call__(self, image, vector, position):
         conv1_1 = nn.Sequential([
             nn.Conv(64, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
+            nn.relu,
         ], name='conv1_1') # conv 1x1 block 
         conv1_2 = nn.Sequential([
             nn.Conv(self.action_dim, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
+            nn.relu,
         ], name='conv1_2') # conv 1x1 block 
         fc_vec = nn.Sequential([
             nn.Dense(16, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),

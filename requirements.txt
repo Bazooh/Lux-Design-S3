@@ -4,7 +4,7 @@ optax
 flax
 jax_tqdm
 distrax
-terminalplot
+termplotlib
 torch
 numpy
 tqdm

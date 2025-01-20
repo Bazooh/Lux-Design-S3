@@ -3,98 +3,59 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 from typing import Any
 import jax.numpy as jnp
-from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params
-from luxai_s3.env import LuxAIS3Env
+from utils import sample_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params, plot_stats, EnvObs_to_dict
 from parse_config import parse_config
-from purejaxrl.env.make_env import make_env
+from purejaxrl.env.make_env import make_env, make_vanilla_env, TrackerWrapper, LogWrapper
+from tqdm import tqdm
+import numpy as np
+from purejaxrl.jax_agent import JaxAgent, RawJaxAgent
+from rule_based.random.agent import RandomAgent
+from rule_based.relicbound.agent import RelicboundAgent
+from rule_based.naive.agent import NaiveAgent
 
-def eval_checkpoints(
-        network: Any,
-        network_params_0: Any, 
-        network_params_1: Any, 
-        eval_env: Any, 
+def run_match(
+        agent_0: Any, 
+        agent_1: Any, 
+        vanilla_env: TrackerWrapper, 
+        env_params,
         key: chex.PRNGKey,
-        num_eval_episodes: int = 4
     ):
     """
     Evaluate the trained agent against a reference agent using a separate eval environment.
     """
-    num_envs = num_eval_episodes  # the matches are run in different envs
     rng, _rng = jax.random.split(key)
-
-    # define the vmapped functions 
-    reset_fn = jax.vmap(eval_env.reset)
-    step_fn = jax.vmap(eval_env.step)
-    sample_params_fn = jax.vmap(sample_params)
-
-    # sample random params initially
-    rng, _rng = jax.random.split(rng)
-    rng_params = jax.random.split(key, num_envs)
-    env_params = sample_params_fn(rng_params)
-    
-    # reset 
-    rng, _rng = jax.random.split(rng)
-    reset_rng = jax.random.split(key, num_envs)
-    obs, state = reset_fn(reset_rng, env_params)
+    obs, env_state = vanilla_env.reset(rng, env_params)
 
     max_episode_steps = (
-        eval_env.fixed_env_params.max_steps_in_match + 1
-    ) * eval_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
+        vanilla_env.fixed_env_params.max_steps_in_match + 1
+    ) * vanilla_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
 
+    stack_stats = []
 
-    @jax.jit
-    def five_games_rollout(runner_state):
-        def _env_step(runner_state, _):
-            env_state, last_obs, rng, env_params = runner_state
-            rng, _rng = jax.random.split(rng)
-            rng_step = jax.random.split(_rng, num_envs)
-            
-            # GET OBS BATCHES
-            last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs, eval_env.players)
+    for step_idx in tqdm(range(max_episode_steps)):
+        action = {
+            "player_0": agent_0.act(step = step_idx, obs = EnvObs_to_dict(obs["player_0"])), 
+            "player_1": agent_1.act(step = step_idx, obs = EnvObs_to_dict(obs["player_1"])),
+        }
+        rng, _rng = jax.random.split(rng)
+        obs, env_state, reward, done, info = vanilla_env.step(rng, env_state, action, env_params)
+        stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
 
-            # SELECT ACTION: PLAYER 0
-            rng, _rng = jax.random.split(rng)
-            logits, value = network.apply(network_params_0, **last_obs_batch_player_0) # probs is (N, 16, 5)
-            action_0 = sample_action(_rng, logits)
-
-            # SELECT ACTION: PLAYER 1
-            rng, _rng = jax.random.split(rng)
-            logits, value = network.apply(network_params_1, **last_obs_batch_player_0) # probs is (N, 16, 5)
-            action_1 = sample_action(_rng, logits)
+    stats_arrays = {
+        "episode_stats_player_0": {stat: np.array([getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names},
+        "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names}
+    }
         
-            obs, env_state, reward, done, info = step_fn(
-                rng_step,
-                env_state,
-                {
-                    eval_env.players[0]: action_0,
-                    eval_env.players[1]: action_1,
-                },
-                env_params,
-            )
-            return (env_state, last_obs, rng, env_params), (
-                obs,
-                env_state,
-                reward,
-                done,
-                info,
-            )
-        
-        _, (obs, env_state, reward, done, info) = jax.lax.scan(
-            _env_step, runner_state, length=max_episode_steps, unroll=1
-        ) # at the end, reward contains the vector of the different game results
-        return reward
-    
-    runner_state = state, obs, rng, env_params
-    reward = five_games_rollout(runner_state)
-    return reward
+    plot_stats(stats_arrays)
 
 
 def run_episode_and_record(
-        rec_env: Any, 
+        rec_env: LogWrapper, 
         network: Any,
         network_params_0: Any, 
         network_params_1: Any, 
         key: chex.PRNGKey,
+        steps: int
     ):
     """
     Evaluate the trained agent against a reference agent using a separate eval environment.
@@ -108,10 +69,6 @@ def run_episode_and_record(
     rng, _rng = jax.random.split(rng)
     obs, env_state = rec_env.reset(rng, env_params)
 
-    max_episode_steps = (
-        rec_env.fixed_env_params.max_steps_in_match + 1
-    ) * rec_env.fixed_env_params.match_count_per_episode # 101 * 5 steps per env
-
     @jax.jit
     def forward(rng, obs, network_params_0, network_params_1):
         # GET OBS BATCHES
@@ -122,34 +79,71 @@ def run_episode_and_record(
         # SELECT ACTION: PLAYER 0
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_0, **obs_batch_player_0) # probs is (16, 5)
-        action_0 = sample_action(key= _rng, logits=logits, noise_std=0.01)[0] # (16,)
+        action_0 = sample_action(key= _rng, logits=logits)[0] # (16,)
 
         # SELECT ACTION: PLAYER 1
         rng, _rng = jax.random.split(rng)
         logits, value = network.apply(network_params_1, **obs_batch_player_0) # probs is (16, 5)
-        action_1 = sample_action(key= _rng, logits=logits, noise_std=0.01)[0] # (16,)
+        action_1 = sample_action(key= _rng, logits=logits)[0] # (16,)
         return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
+
+    stack_stats = []
     
-    for _ in range(max_episode_steps):
+    for _ in tqdm(range(steps)):
         rng, _rng = jax.random.split(rng)
         action = forward(rng, obs, network_params_0, network_params_1)
         rng, _rng = jax.random.split(rng)
         obs, env_state, reward, done, info = rec_env.step(rng, env_state, action, env_params)
-
+        stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
+    
     rec_env.close()
 
-if __name__ == "__main__":
-    import numpy as np
+    stats_arrays = {
+        "episode_stats_player_0": {stat: np.array([getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names},
+        "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names}
+    }
+    
+    plot_stats(stats_arrays)
+
+def test_a():
+
     config = parse_config()
-    rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
-    network = config["network"]["model"]
     seed = np.random.randint(0, 10000)
     key = jax.random.PRNGKey(seed)
+    rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
+    network = config["network"]["model"]
+    rec_env = LogWrapper(rec_env, replace_info=True)
+    steps = 100
     
     run_episode_and_record(
         rec_env = rec_env,
         network = network,
         network_params_0 = config["network"]["network_params"],
         network_params_1 = config["network"]["network_params"],
+        steps = steps,
         key = key, 
     )
+
+
+
+def test_b():
+
+    config = parse_config()
+    seed = np.random.randint(0, 10000)
+    key = jax.random.PRNGKey(seed)
+    vanilla_env = make_vanilla_env(config["env_args"])
+    vanilla_env = LogWrapper(vanilla_env)
+    env_params = sample_params(key)
+    
+    run_match(
+        agent_0 = NaiveAgent("player_0", env_params.__dict__),
+        agent_1 = NaiveAgent("player_1", env_params.__dict__),
+        key = key,
+        vanilla_env = vanilla_env,
+        env_params = env_params
+    )
+
+
+if __name__ == "__main__":
+    test_a()
+    test_b()

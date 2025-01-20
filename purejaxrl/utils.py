@@ -2,6 +2,8 @@ import jax
 import jax.numpy as jnp
 from luxai_s3.params import EnvParams
 from luxai_s3.params import env_params_ranges
+import numpy as np
+import termplotlib as tpl
 
 def sample_params(rng_key, match_count_per_episode = 5):
     randomized_game_params = dict()
@@ -19,7 +21,7 @@ def sample_params(rng_key, match_count_per_episode = 5):
     return params
 
 @jax.jit
-def sample_action(key, logits, noise_std=0.0):
+def sample_action(key, logits, action_temperature=1.0):
     """
     Samples an action with optional noise added to logits for exploration.
 
@@ -32,16 +34,10 @@ def sample_action(key, logits, noise_std=0.0):
         action: Sampled action. Shape: (N, 16).
     """
     # Add Gaussian noise to logits
-    noise = jax.random.normal(key, shape=logits.shape) * noise_std * jax.numpy.max(jax.lax.stop_gradient(logits))
-    noisy_logits = logits + noise
+    scaled_logits = (logits - jnp.mean(logits, axis=-1, keepdims=True)) / action_temperature
 
     # Sample action from noisy logits
-    action = jax.random.categorical(key=key, logits=noisy_logits, axis=-1)  # Shape: (N, 16)
-    return action
-
-@jax.jit
-def sample_greedy_action(logits): # input (N, 16, 6)
-    action = jax.numpy.argmax(logits, axis=-1)  # Shape: (N, 16)
+    action = jax.random.categorical(key=key, logits=scaled_logits, axis=-1)  # Shape: (N, 16)
     return action
 
 @jax.jit
@@ -121,3 +117,51 @@ def mirror_action(a):
         a,
     )
     return a
+
+
+def plot_stats(stats_arrays):
+    """
+    Plot stats for both players over time.
+
+    Parameters
+    ----------
+    stats_arrays : dict of {str: dict of {str: np.ndarray}}
+        A dictionary with two keys: "episode_stats_player_0" and "episode_stats_player_1".
+        Each of these keys contains a dictionary with the following keys: "episode_return", "episode_length", "episode_points", "episode_wins", etc .
+        Each of these keys contains a numpy array of length 120, containing the respective stat at each of the 120 episodes.
+    -------
+    """
+    for stat in stats_arrays["episode_stats_player_0"].keys():
+        y0 = stats_arrays["episode_stats_player_0"][stat]
+        y1 = stats_arrays["episode_stats_player_1"][stat]
+        x = np.arange(len(y0))
+        
+        fig = tpl.figure()
+        fig.plot(x, y0, label=f"{stat} for player 0", width = 150) 
+        fig.show()
+        
+        fig = tpl.figure()
+        fig.plot(x, y1, label=f"{stat} for player 1", width = 150) 
+        fig.show()
+
+from luxai_s3.env import EnvObs
+from typing import Any
+def EnvObs_to_dict(obs: EnvObs) ->  dict[str, Any]:
+    return {
+        "units": {
+            "position": obs.units.position,
+            "energy": obs.units.energy,
+        },
+        "units_mask": obs.units_mask,
+        "sensor_mask": obs.sensor_mask,
+        "map_features": {
+            "energy": obs.map_features.energy,
+            "tile_type": obs.map_features.tile_type,
+        },
+        "relic_nodes": obs.relic_nodes,
+        "relic_nodes_mask": obs.relic_nodes_mask,
+        "team_points": obs.team_points,
+        "team_wins": obs.team_wins,
+        "steps": obs.steps,
+        "match_steps": obs.match_steps
+    }

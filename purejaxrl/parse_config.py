@@ -7,12 +7,11 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         config_dict = yaml.safe_load(file)
 
     ###### Environment arguments ######    
-    if config_dict["env_args"]["tracker"] == "GlobalTracker":
-        from purejaxrl.env.tracker import GlobalTracker
-        tracker = GlobalTracker()
-    else:
-        raise ValueError(f"Tracker {config_dict['env_args']['tracker']} not supported")
-    
+    num_stats = len(config_dict["env_args"]["reward_weights"])//2
+    reward_weights = {
+        config_dict["env_args"]["reward_weights"]["stat_" + str(i)]: config_dict["env_args"]["reward_weights"]["weight_" + str(i)] for i in range(num_stats)
+    }
+
     if config_dict["env_args"]["memory"] == "RelicPointMemory":
         from purejaxrl.env.memory import RelicPointMemory
         memory = RelicPointMemory()
@@ -30,31 +29,16 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         transform_obs = HybridTransformObs()
     else:
         raise ValueError(f"Transform obs {config_dict['env_args']['transform_obs']} not supported")
-    
-    from purejaxrl.env.transform_reward import BasicPointReward, BasicEnergyReward, BasicFoundRelicReward, BasicFoundPointReward
-    if config_dict["env_args"]["transform_reward"] == "BasicPointReward":
-        transform_reward = BasicPointReward()
-    elif config_dict["env_args"]["transform_reward"] == "BasicFoundPointReward":
-        transform_reward = BasicFoundPointReward()
-    elif config_dict["env_args"]["transform_reward"] == "BasicEnergyReward":
-        transform_reward = BasicEnergyReward()
-    elif config_dict["env_args"]["transform_reward"] == "BasicFoundRelicReward":
-        transform_reward = BasicFoundRelicReward()
-    else:
-        raise ValueError(f"Transform reward {config_dict['env_args']['transform_reward']} not supported")
+
 
     ###### Network arguments ######
-    if config_dict["network"]["model"] == "HybridActorCritic":
-        from purejaxrl.network import HybridActorCritic
-        network = HybridActorCritic(transform_action.action_space.n)
-        tabulate_fn = flax.linen.tabulate(network, jax.random.key(0))
-        x = transform_obs.observation_space.sample(jax.random.PRNGKey(0))
-        x = {feat: jax.numpy.expand_dims(value, axis=0) for feat, value in x.items()}
-        print(tabulate_fn(**x))
+    if config_dict["network"]["model"] == "Pix2Pix_AC":
+        from purejaxrl.network import Pix2Pix_AC
+        network = Pix2Pix_AC(transform_action.action_space.n)
     else:
         raise ValueError(f"Network {config_dict['network']['model']} not supported")
     
-    if config_dict["network"]["checkpoint"] == "None":
+    if config_dict["network"]["load_from_checkpoint"] == "None":
         from purejaxrl.utils import init_network_params
         network_params = init_network_params(network=network, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)))
     else:
@@ -71,11 +55,10 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "network_params": network_params,
         },
         "env_args":{
-            "tracker": tracker,
+            "reward_weights": reward_weights, 
             "memory": memory,
             "transform_action": transform_action,
             "transform_obs": transform_obs,
-            "transform_reward": transform_reward
         },
         "ppo": {
             "lr": float(config_dict["ppo"]["lr"]),
@@ -93,6 +76,6 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "max_grad_norm": float(config_dict["ppo"]["max_grad_norm"]),
             "anneal_lr": bool(config_dict["ppo"]["anneal_lr"]),
             "seed": int(config_dict["ppo"]["seed"]),
-            "action_noise": float(config_dict["ppo"]["action_noise"]),
+            "action_temperature": float(config_dict["ppo"]["action_temperature"]),
         }
     }

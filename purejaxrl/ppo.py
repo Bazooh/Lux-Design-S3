@@ -5,11 +5,10 @@ import jax, chex
 import jax.numpy as jnp
 import optax
 from flax.training.train_state import TrainState
-from purejaxrl.env.make_env import make_env
+from purejaxrl.env.make_env import make_env, LogWrapper
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
-from utils import sample_action, sample_greedy_action, get_logprob, get_entropy, get_obs_batch, init_network_params, sample_params
-from purejaxrl.env.wrappers import LogWrapper
+from utils import sample_action, get_logprob, get_entropy, get_obs_batch, init_network_params, sample_params
 from purejaxrl.parse_config import parse_config
 import wandb
 from purejaxrl.eval import run_episode_and_record
@@ -52,7 +51,7 @@ def make_train(config, debug=False,):
 
     def train(key: chex.PRNGKey,):
         
-        # INITIALIZE NETWORK
+        # INITIALIZE NETWORKS
         rng, _rng = jax.random.split(key)
         network_params_0 = init_network_params(_rng, model, init_x=env.observation_space.sample(_rng))
         rng, _rng = jax.random.split(key)
@@ -95,14 +94,14 @@ def make_train(config, debug=False,):
                 rng, _rng = jax.random.split(rng)
                 logits, value = model.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 6)
                 mask_awake = (last_obs_batch_player_0['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
-                action_0 = sample_action(_rng, logits, noise_std=config["ppo"]["action_noise"])
+                action_0 = sample_action(_rng, logits, action_temperature=config["ppo"]["action_temperature"])
                 log_prob_0 = get_logprob(logits, mask_awake, action_0)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 logits, value = model.apply(train_state.params, **last_obs_batch_player_0) # probs is (N, 16, 6)
                 mask_awake = (last_obs_batch_player_1['position'][..., 0] >= 0).astype(jnp.float32)  # Shape: (N, 16), 1 if position >= 0 else 0
-                action_1 = sample_action(_rng, logits, noise_std=config["ppo"]["action_noise"])
+                action_1 = sample_action(_rng, logits, action_temperature=config["ppo"]["action_temperature"])
                 log_prob_1 = get_logprob(logits, mask_awake, action_1)
 
                 # STEP ENV
@@ -263,7 +262,6 @@ def make_train(config, debug=False,):
 
                     # Compute main metrics
                     return_values = jnp.mean(game_info["episode_return"][returned_episodes], axis=0)
-                    episode_wins = jnp.mean(game_info["episode_wins"][returned_episodes], axis=0)
                     episode_winner = jnp.mean(game_info["episode_winner"][returned_episodes], axis=0)
                     timesteps = game_info["global_timestep"][returned_episodes] * config["ppo"]["num_envs"]
                     global_timestep = jnp.sum(timesteps)
@@ -276,7 +274,6 @@ def make_train(config, debug=False,):
                     # Initialize metrics dictionary
                     metrics = {
                         "reward/return_values": return_values[0],
-                        "reward/episode_wins": episode_wins[0],
                         "reward/episode_winner": episode_winner[0],
                         "loss/value_loss": value_loss,
                         "loss/loss_actor": loss_actor,
@@ -294,9 +291,10 @@ def make_train(config, debug=False,):
                         print(
                             f"Global Timestep: {global_timestep}, "
                             f"Return Values: {return_values[0]:.2f}, "
-                            f"Return Points: {metrics['reward/episode_points_gained']:.2f}, "
-                            f"Episode Wins: {episode_wins[0]:.2f}, "
-                            f"Episode Winner: {episode_winner[0]:.2f}"
+                            f"Episode WR: {episode_winner[0]:.2f}, "
+                            f"Entropy: {entropy:.2f}, "
+                            f"Actor Loss: {loss_actor:.2f}, "
+                            f"Value Loss: {value_loss:.2f}, "
                         )
 
                 # Attach callback to JAX debug
@@ -323,6 +321,7 @@ if __name__ == "__main__":
         mode = "online",
     )
     jax.config.update("jax_numpy_dtype_promotion", "standard")
+    jax.config.update('jax_compiler_enable_remat_pass', False)
     config = parse_config()
     train_jit = jax.jit(make_train(config, debug=True))
     rng = jax.random.PRNGKey(seed = config["ppo"]["seed"])
@@ -332,6 +331,7 @@ if __name__ == "__main__":
     runner_state = out["runner_state"]
     train_state = runner_state[0]
     rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "purejaxrl/replays/ppo", save_format = "html")
+    rec_env = LogWrapper(rec_env)
     run_episode_and_record(
         rec_env=rec_env,
         network=config["network"]["model"],

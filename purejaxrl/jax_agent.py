@@ -9,7 +9,6 @@ from purejaxrl.parse_config import parse_config
 
 # misc
 from purejaxrl.env.memory import Memory
-from purejaxrl.env.transform_reward import TransformReward
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
 
@@ -25,7 +24,6 @@ class RawJaxAgent:
         model,
         transform_obs: TransformObs,
         transform_action: TransformAction,
-        transform_reward: TransformReward,
         memory: Memory,
     ):
         self.player = player
@@ -40,7 +38,6 @@ class RawJaxAgent:
         self.network_params = network_params
         self.transform_obs = transform_obs
         self.transform_action = transform_action
-        self.transform_reward = transform_reward
         self.memory = memory
         self.memory_state = self.memory.reset()
 
@@ -82,4 +79,8 @@ class RawJaxAgent:
 class JaxAgent(RawJaxAgent):
     def __init__(self, player: str, env_cfg: str, config_path = "purejaxrl/jax_config.yaml"):
         jax_config = parse_config()
-        super().__init__(player, env_cfg, **jax_config["env_args"], **jax_config["network"] )
+        super().__init__(player, env_cfg, 
+                        transform_action=jax_config["env_args"]["transform_action"],
+                        transform_obs=jax_config["env_args"]["transform_obs"],
+                        memory=jax_config["env_args"]["memory"], 
+                        **jax_config["network"] )
