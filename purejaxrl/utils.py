@@ -131,18 +131,26 @@ def plot_stats(stats_arrays):
         Each of these keys contains a numpy array of length 120, containing the respective stat at each of the 120 episodes.
     -------
     """
-    for stat in stats_arrays["episode_stats_player_0"].keys():
+    stat_names = list(stats_arrays["episode_stats_player_0"].keys())
+    stat_names.reverse()
+    for stat in stat_names:
         y0 = stats_arrays["episode_stats_player_0"][stat]
         y1 = stats_arrays["episode_stats_player_1"][stat]
         x = np.arange(len(y0))
         
         fig = tpl.figure()
-        fig.plot(x, y0, label=f"{stat} for player 0", width = 150) 
+        fig.plot(x, y0, label=f"{stat} for player 0", width = 100, height = 15) 
+        fig.plot(x, y1, label=f"{stat} for player 1", width = 100, height = 15) 
         fig.show()
-        
-        fig = tpl.figure()
-        fig.plot(x, y1, label=f"{stat} for player 1", width = 150) 
-        fig.show()
+    
+    print("-" * 45)
+    stat_names.reverse()
+    print(f"{'Stat Name':<20} {'Player 0':>10} | {'Player 1':>10}")
+    print("-" * 45)
+    for stat in stat_names:
+        y0 = stats_arrays["episode_stats_player_0"][stat]
+        y1 = stats_arrays["episode_stats_player_1"][stat]
+        print(f"{stat:<20} {y0[-1]:>10.2f} | {y1[-1]:>10.2f}")
 
 from luxai_s3.env import EnvObs
 from typing import Any

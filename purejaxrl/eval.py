@@ -113,7 +113,7 @@ def test_a():
     rec_env = make_env(config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
     network = config["network"]["model"]
     rec_env = LogWrapper(rec_env, replace_info=True)
-    steps = 100
+    steps = 105
     
     run_episode_and_record(
         rec_env = rec_env,
@@ -146,4 +146,3 @@ def test_b():
 
 if __name__ == "__main__":
     test_a()
-    test_b()

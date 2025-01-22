@@ -191,19 +191,42 @@ class MemoryWrapper(GymnaxWrapper):
 ################################## TRACKER WRAPPER ##################################
 @struct.dataclass
 class PlayerStats:
-    points_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
     wins: chex.Array = jnp.array(0, dtype=jnp.int32)
-    energy_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
-    relics_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
+    points_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
     points_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
-    units_moved: chex.Array = jnp.array(0, dtype=jnp.int32)
-    collisions: chex.Array = jnp.array(0, dtype=jnp.int32)
+    relics_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
     deaths: chex.Array = jnp.array(0, dtype=jnp.int32)
+    collisions: chex.Array = jnp.array(0, dtype=jnp.int32)
+    units_moved: chex.Array = jnp.array(0, dtype=jnp.int32)
+    energy_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
 
+    def __add__(self, other):
+        return PlayerStats(
+            points_gained=self.points_gained + other.points_gained,
+            wins=self.wins + other.wins,
+            energy_gained=self.energy_gained + other.energy_gained,
+            relics_discovered=self.relics_discovered + other.relics_discovered,
+            points_discovered=self.points_discovered + other.points_discovered,
+            units_moved=self.units_moved + other.units_moved,
+            collisions=self.collisions + other.collisions,
+            deaths=self.deaths + other.deaths
+        )
+    def __mul__(self, x: chex.Array):
+        return PlayerStats(
+            points_gained=self.points_gained * x,
+            wins=self.wins * x,
+            energy_gained=self.energy_gained * x,
+            relics_discovered=self.relics_discovered * x,
+            points_discovered=self.points_discovered * x,
+            units_moved=self.units_moved * x,
+            collisions=self.collisions * x,
+            deaths=self.deaths * x
+        )
+    
 class TrackerWrapper(GymnaxWrapper):
     def __init__(self, env: SimplifyTruncationWrapper):
         super().__init__(env)
-        self.stats_names = ["points_gained", "wins", "energy_gained", "relics_discovered", "points_discovered"]
+        self.stats_names =  PlayerStats.__dataclass_fields__
 
     @partial(jax.jit, static_argnums=(0, 1))
     def get_player_statistics(
@@ -216,44 +239,67 @@ class TrackerWrapper(GymnaxWrapper):
         last_mem_state: Any,
         params: EnvParams,
     ) -> PlayerStats:
-        wins = jax.numpy.maximum(0, obs.team_wins[team_id] - last_obs.team_wins[team_id])
-        points_gained = mem_state.points_gained
-
-        relics_discovered = jax.numpy.sum((mem_state.relics_found == 1) & (last_mem_state.relics_found == 0))
-        points_discovered = jax.numpy.sum((mem_state.points_awarding == 1) & (last_mem_state.points_awarding == 0))
         
-        def calculate_cumulated_energy(units, team_id):
-            energy_map = jnp.zeros((24, 24), dtype=jnp.int32)
-            positions = units.position[team_id]
-            energy_values = units.energy[team_id] + 1
-            return jnp.sum(energy_map.at[positions[:, 0], positions[:, 1]].set(energy_values))
-        cumulated_energy = calculate_cumulated_energy(obs.units, team_id)
-        last_cumulated_energy = calculate_cumulated_energy(last_obs.units, team_id)
+        wins_both_players = obs.team_wins - last_obs.team_wins
+        wins = jax.lax.cond(
+            obs.steps % (params.max_steps_in_match + 1) == 0,  # Check if the game is done
+            lambda: jax.lax.cond(
+                jnp.sum(wins_both_players) == 0,  # Check if it's a tie
+                lambda: 0,  # Return 0 for a tie
+                lambda: 2*wins_both_players[team_id] - 1,  # Return result otherwise 
+            ),
+            lambda: 0 # Return 0 if the game is not done
+        )
+
+        points_gained = mem_state.points_gained
+        relics_discovered = jax.numpy.sum((mem_state.relics_found == 1) & (last_mem_state.relics_found == 0)) // 2
+        points_discovered = jax.numpy.sum((mem_state.points_awarding == 1) & (last_mem_state.points_awarding == 0)) // 2
+        
+        cumulated_energy  = jnp.sum(obs.units.energy[team_id])
+        last_cumulated_energy = jnp.sum(last_obs.units.energy[team_id])
 
         energy_gained = jax.lax.cond(
-            obs.steps % (params.max_steps_in_match+1) == 0,
+            last_obs.steps % (params.max_steps_in_match+1) == 0,
             lambda: 0,
-            lambda: cumulated_energy - last_cumulated_energy
+            lambda: jnp.maximum(0, cumulated_energy - last_cumulated_energy)
         )
         
         current_positions = obs.units.position[team_id]
         last_positions = last_obs.units.position[team_id]
-        active_units_mask = last_obs.units_mask[team_id]
-        moved_units_mask = jax.numpy.any(current_positions != last_positions, axis=-1) & active_units_mask
-        non_static_units_mask = jnp.where(action[:,0] != 0, 0, 1)
-        units_moved = jnp.sum(moved_units_mask)
-        collisions = jnp.sum(moved_units_mask & non_static_units_mask)
-        deaths = jnp.sum(last_obs.units_mask[team_id] & ~ obs.units_mask[team_id])
+
+        last_alive_units_mask = last_obs.units.energy[team_id] > 0
+        alive_units_mask = obs.units.energy[team_id] > 0
+
+        moved_units_mask = jax.numpy.any(current_positions != last_positions, axis=-1)
+        no_actions_units_mask = jnp.where((action[:,0] == 0) | (action[:,0] == 5), 1, 0) 
         
+        units_moved = jax.lax.cond(
+            obs.steps % (params.max_steps_in_match + 1) == 0,
+            lambda: 0,
+            lambda: jnp.sum(moved_units_mask & alive_units_mask),
+        )
+
+        collisions = jax.lax.cond(
+            last_obs.steps % (params.max_steps_in_match + 1) == 0,
+            lambda: 0,
+            lambda: jnp.sum(~no_actions_units_mask & ~moved_units_mask & alive_units_mask) # units that should move but collided to the env
+        )
+        
+        deaths = jax.lax.cond(
+            last_obs.steps % (params.max_steps_in_match + 1) == 0,
+            lambda: 0,
+            lambda: jnp.sum(~alive_units_mask & last_alive_units_mask) # units that were alive but are anymore
+        )
+
         return PlayerStats(
             wins = wins,
-            points_gained=points_gained,
-            energy_gained=energy_gained,
-            relics_discovered=relics_discovered,
-            points_discovered=points_discovered,
-            units_moved=units_moved,
-            collisions=collisions,
-            deaths=deaths
+            points_gained=jax.lax.stop_gradient(points_gained),
+            energy_gained=jax.lax.stop_gradient(energy_gained),
+            relics_discovered=jax.lax.stop_gradient(relics_discovered),
+            points_discovered=jax.lax.stop_gradient(points_discovered),
+            units_moved=jax.lax.stop_gradient(units_moved), 
+            collisions=jax.lax.stop_gradient(collisions),
+            deaths=jax.lax.stop_gradient(deaths),
         )
 
     def step(
@@ -425,14 +471,8 @@ class LogWrapper(GymnaxWrapper):
         )
 
         # Update cumulative statistics for each player
-        new_episode_stats_player_0 = PlayerStats(
-            **{field: getattr(log_env_state.episode_stats_player_0, field) + getattr(info["stats"]["player_0"], field)
-               for field in PlayerStats.__dataclass_fields__}
-        )
-        new_episode_stats_player_1 = PlayerStats(
-            **{field: getattr(log_env_state.episode_stats_player_1, field) + getattr(info["stats"]["player_1"], field)
-               for field in PlayerStats.__dataclass_fields__}
-        )
+        new_episode_stats_player_0 = log_env_state.episode_stats_player_0 + info["stats"]["player_0"]
+        new_episode_stats_player_1 = log_env_state.episode_stats_player_1 + info["stats"]["player_1"]
 
         # Update wins based on points
         current_episode_wins = jnp.where(
@@ -470,11 +510,7 @@ class LogWrapper(GymnaxWrapper):
             episode_return = new_episode_return * (1 - done),
             episode_timestep = log_env_state.episode_timestep + 1,
             global_timestep = log_env_state.global_timestep + 1,
-            episode_stats_player_0 = PlayerStats(
-                **{field: getattr(new_episode_stats_player_0, field) * (1-done)
-                for field in PlayerStats.__dataclass_fields__}),
-            episode_stats_player_1 = PlayerStats(
-                **{field: getattr(new_episode_stats_player_1, field) * (1-done)
-                for field in PlayerStats.__dataclass_fields__}),
+            episode_stats_player_0 = new_episode_stats_player_0 * (1-done),
+            episode_stats_player_1 = new_episode_stats_player_1 * (1-done),
         )
         return obs, new_log_env_state, reward, done, info
