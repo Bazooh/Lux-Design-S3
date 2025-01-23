@@ -3,7 +3,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 from typing import Any
 import jax.numpy as jnp
-from utils import sample_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params, plot_stats, EnvObs_to_dict
+from utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params, plot_stats, EnvObs_to_dict
 from parse_config import parse_config
 from purejaxrl.env.make_env import make_env, make_vanilla_env, TrackerWrapper, LogWrapper
 from tqdm import tqdm
@@ -19,6 +19,7 @@ def run_match(
         vanilla_env: TrackerWrapper, 
         env_params,
         key: chex.PRNGKey,
+        plot: bool = True
     ):
     """
     Evaluate the trained agent against a reference agent using a separate eval environment.
@@ -32,7 +33,7 @@ def run_match(
 
     stack_stats = []
 
-    for step_idx in tqdm(range(max_episode_steps)):
+    for step_idx in tqdm(range(max_episode_steps), desc="Running and recording an episode"):
         action = {
             "player_0": agent_0.act(step = step_idx, obs = EnvObs_to_dict(obs["player_0"])), 
             "player_1": agent_1.act(step = step_idx, obs = EnvObs_to_dict(obs["player_1"])),
@@ -46,7 +47,7 @@ def run_match(
         "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names}
     }
         
-    plot_stats(stats_arrays)
+    if plot: plot_stats(stats_arrays)
 
 
 def run_episode_and_record(
@@ -55,7 +56,8 @@ def run_episode_and_record(
         network_params_0: Any, 
         network_params_1: Any, 
         key: chex.PRNGKey,
-        steps: int
+        steps: int,
+        plot: bool = True
     ):
     """
     Evaluate the trained agent against a reference agent using a separate eval environment.
@@ -78,13 +80,13 @@ def run_episode_and_record(
 
         # SELECT ACTION: PLAYER 0
         rng, _rng = jax.random.split(rng)
-        logits, value = network.apply(network_params_0, **obs_batch_player_0) # probs is (16, 5)
-        action_0 = sample_action(key= _rng, logits=logits)[0] # (16,)
+        logits, _, _ = network.apply({"params": network_params_0}, **obs_batch_player_0) # probs is (16, 5)
+        action_0 = sample_group_action(rng, logits[0]) # (16,)
 
         # SELECT ACTION: PLAYER 1
         rng, _rng = jax.random.split(rng)
-        logits, value = network.apply(network_params_1, **obs_batch_player_0) # probs is (16, 5)
-        action_1 = sample_action(key= _rng, logits=logits)[0] # (16,)
+        logits, _, _ = network.apply({"params": network_params_1}, **obs_batch_player_0) # probs is (16, 5)
+        action_1 = action_0 = sample_group_action(rng, logits[0]) # (16,)
         return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
 
     stack_stats = []
@@ -103,7 +105,7 @@ def run_episode_and_record(
         "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names}
     }
     
-    plot_stats(stats_arrays)
+    if plot: plot_stats(stats_arrays)
 
 def test_a():
 
@@ -136,8 +138,8 @@ def test_b():
     env_params = sample_params(key)
     
     run_match(
-        agent_0 = NaiveAgent("player_0", env_params.__dict__),
-        agent_1 = NaiveAgent("player_1", env_params.__dict__),
+        agent_0 = JaxAgent("player_0", env_params.__dict__),
+        agent_1 = JaxAgent("player_1", env_params.__dict__),
         key = key,
         vanilla_env = vanilla_env,
         env_params = env_params
@@ -146,3 +148,4 @@ def test_b():
 
 if __name__ == "__main__":
     test_a()
+    test_b()

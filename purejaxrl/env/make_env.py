@@ -8,8 +8,8 @@ from purejaxrl.utils import sample_params
 from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName, EnvParams, EnvState
 from purejaxrl.env.wrappers import *
 
-def make_env(env_args, record=False, **record_kwargs) -> TransformObsWrapper:
-    env = LuxAIS3Env(auto_reset=True)
+def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TransformObsWrapper:
+    env = LuxAIS3Env(auto_reset=auto_reset)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)
@@ -21,8 +21,8 @@ def make_env(env_args, record=False, **record_kwargs) -> TransformObsWrapper:
     return env
 
 
-def make_vanilla_env(env_args, record=False, **record_kwargs) -> TrackerWrapper:
-    env = LuxAIS3Env(auto_reset=True)
+def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TrackerWrapper:
+    env = LuxAIS3Env(auto_reset=auto_reset)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)

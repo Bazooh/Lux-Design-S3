@@ -40,7 +40,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     
     if config_dict["network"]["load_from_checkpoint"] == "None":
         from purejaxrl.utils import init_network_params
-        network_params = init_network_params(network=network, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)))
+        network_params = init_network_params(network=network, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)), print_summary = False)
     else:
         raise ValueError(f"Network {config_dict['network']['name']} not supported")
         # from flax.training import orbax_utils
@@ -61,6 +61,9 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "transform_obs": transform_obs,
         },
         "ppo": {
+            "use_wandb": bool(config_dict["ppo"]["use_wandb"]),
+            "record_freq": int(config_dict["ppo"]["record_freq"]),
+            "match_count_per_episode": int(config_dict["ppo"]["match_count_per_episode"]),
             "lr": float(config_dict["ppo"]["lr"]),
             "num_envs": int(config_dict["ppo"]["num_envs"]),
             "num_steps": int(config_dict["ppo"]["num_steps"]),

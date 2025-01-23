@@ -1,161 +1,202 @@
 import jax.numpy as jnp
 import jax
 import flax.linen as nn
-from typing import Sequence
 from flax.linen.initializers import constant, orthogonal
 
 class Flatten(nn.Module):
     def __call__(self, x):
         return x.reshape(x.shape[0], -1)
-    
-class SELayer(nn.Module):
+
+class Conv1x1(nn.Module): 
     """
-    Squeeze-and-Excitation Layer
+    Convolution 1x1
     """
-    channel: int
-    reduction: int
+    channels: int
+    @nn.compact
+    def __call__(self, x):
+        return nn.relu(nn.Conv(self.channels, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x))
+
+class SEBlock(nn.Module):
+    """
+    Squeeze-and-Excitation Block
+    """
+    n_channels: int 
+    reduction: int = 16 # C" = C / reduction
 
     @nn.compact
     def __call__(self, x):
-        b, h, w, c = x.shape
+        B, H, W, C = x.shape
         # Squeeze: Global Average Pooling
-        y = jnp.mean(x, axis=(1, 2), keepdims=False)  # Shape: (b, c)
+        vector = jnp.mean(x, axis=(1, 2), keepdims=False)  # (B, H, W, C) -> (B, C)
         # Excitation: Fully Connected layers with reduction
-        y = nn.Dense(self.channel // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(y)
-        y = nn.relu(y)
-        y = nn.Dense(self.channel, self.channel // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(y)
-        y = nn.sigmoid(y)  # Shape: (b, c)
-        # Reshape for scaling
-        y = jnp.expand_dims(jnp.expand_dims(y, axis=1), axis=1)  # Shape: (b, 1, 1, c)
-        # Scale: Channel-wise multiplication
-        return x * y
+        squeezed_vector = nn.Dense(self.n_channels // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(vector) # (B, C) -> (B, C")
+        squeezed_vector = nn.relu(squeezed_vector)
+        unsqueezed_vector = nn.Dense(self.n_channels, self.n_channels // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(squeezed_vector)  # (B, C") -> (B, CX)  
+        # Go through sigmoid
+        out = nn.sigmoid(unsqueezed_vector)  # (B, C)
+        out_expanded = jnp.tile(out.reshape((B, 1, 1, -1)), (1, H, W, 1))  # (B, C) -> (B, H, W, C)
+        # Rescale original image
+        return x * out_expanded
 
 class ResidualBlock(nn.Module):
     """
     Residual Block:
-                x
-             /      \  
-            /        \ 
-           V          V 
-    conv + se-layer    shortcut
-           \          / 
-            \        /  
-             V   +  V
+                  x
+               /    \                  
+              /      \  
+             /        \ 
+            V          \ 
+    conv kxk + Lrelu    \ 
+        |                |
+        v                |  shortcut
+    conv kxk + Lrelu     |
+        |                |
+        v               /
+    SE-BLOCK           /
+            \         / 
+             \  add  /  
+              V     V
                 out
-
+                |   Lrelu
+                v
+                out
     """
-    in_channel: int
-    out_channel: int
+    n_channels: int
     kernel_size: int 
+    strides: int
     padding: int 
     
     @nn.compact
     def __call__(self, x):
-        conv_block = nn.Sequential([
+        conv_blocks = nn.Sequential([
             nn.Conv(
-                features = self.out_channel, 
+                features = self.n_channels, 
                 kernel_size=self.kernel_size, 
-                strides=1, 
+                strides=self.strides, 
                 padding=self.padding, 
                 kernel_init=orthogonal(jnp.sqrt(2)),
             ),
             nn.leaky_relu,
-        ])# conv block
-        se_layer = SELayer(self.out_channel, reduction=16)
-        out = x + se_layer(conv_block(x))
-        out = nn.leaky_relu(out)
+            nn.Conv(
+                features = self.n_channels, 
+                kernel_size=self.kernel_size, 
+                strides=self.strides, 
+                padding=self.padding, 
+                kernel_init=orthogonal(jnp.sqrt(2)),
+            ),
+            nn.leaky_relu,
+        ])
+        se_layer = SEBlock(self.n_channels)
+
+        out = nn.leaky_relu(x + se_layer(conv_blocks(x)))
         return out
 
 class Pix2Pix_AC(nn.Module):
     """
-
-                    Image (B,C,24,24)    
-                        |                
-                        | Transpose      
-                        V              
-                    Image (B,24,24,C)     Vector (B,V)
-                        |                /
-                        | Concat        / FC + Expand  
-                        V              V  
-                    Image (B,24,24,C')                      
-                        |
-                        | 1x1-Conv
-                        V
-                    Image (B,24,24,32)                      
-                        |
-                        | ResBlock 1
-                        V
-                    Image'(B,24,24,32)
-                    /       \  
-        ResBlock2  /         \  Value Head
-                  /           \ 
-                 V             V
-        Image''(B,24,24,32)     Output Value
-                |
-    1x1-Conv    |
-                V
-        Logit Maps(B,24,24,6)
-                |
-    Pos-Masking |
-                V
-            Logits (B,16,6)
+                                        Time OHE (B,55)                 Global game features (B, 18)
+                                            |                                          |
+                                            |    FC                                    |
+                                            v                                          |
+                                        Embedded Time (B,10)                           | expand + 1x1 Conv 
+                                            |                                          | 
+                                            | expand + 1x1 Conv                        |  
+                                            v                                          v
+                                       Expanded (B, 24, 24, 10)      Expanded (B, 24, 24, 18)
+                                                    \                  /
+                                                     \     Concat     /              
+                                                      \              /                        
+                                                       v            v
+                Map features (B,8,24,24)           Vector (B,24,24,28)
+                    |                                  |
+                    |   Transpose                      |  1x1 conv 
+                    |                                  v
+                Map features (B,24,24,8)             Vector (B,24,24,28)
+                    |                                 / 
+                    |   Concat         ______________/ 
+                    |                 /                 
+                    V                V  
+                Image (B,24,24,36)                      
+                    |
+                    |   1x1-Conv
+                    |
+                    V
+                Input (B,24,24,64)                      
+                    |
+                    |   ResBlocks
+                    | 
+                    V
+                Representation (B,24,24,64)
+                    |
+                    |  Spectral Norm
+                    | 
+                    V
+                Representation Normalized (B,24,24,64)
+                /            \  
+1x1-Conv       /              \  AvgPool2D
+              /                \ 
+             V                  V
+    Logit Maps(B,24,24,6)     Avg (B, 64)
+            |                   |
+            |                   |
+            |                   |                                  
+Pos-Masking |                   |  Value Head
+            |                   |
+            V                   V
+        Logits (B,16,6)        Value (B, 1)
     """
-    action_dim: Sequence[int]
+    
+    action_dim: int = 6
+    n_resblocks: int = 5
+    n_channels: int = 32
+    embedding_time: int = 10
 
     @nn.compact
-    def __call__(self, image, vector, position):
-        conv1_1 = nn.Sequential([
-            nn.Conv(64, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.relu,
-        ], name='conv1_1') # conv 1x1 block 
-        conv1_2 = nn.Sequential([
-            nn.Conv(self.action_dim, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.relu,
-        ], name='conv1_2') # conv 1x1 block 
-        fc_vec = nn.Sequential([
-            nn.Dense(16, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
-        ])
-        res_blocks_1 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(4)])
-        res_blocks_2 = nn.Sequential([ResidualBlock(in_channel=64, out_channel=64, kernel_size=3, padding=1) for _ in range(2)])
-        value_head = nn.Sequential([
-            nn.Conv(16, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
-            nn.Conv(1, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
-            Flatten(),
-            nn.leaky_relu,
-            nn.Dense(16, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.leaky_relu,
-            nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-        ], name="value_head")
-
-        # Transpose image for channel-last format
-        image = image.transpose(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
-        B, H, W, C = image.shape
-
-        # Process the vector
-        vector = fc_vec(vector) # (N, V) -> (N, 16)
-        vector = vector.reshape((B, 1, 1, -1))  # (N, 16) -> (N, 1, 1, 16)
-        vector = jnp.tile(vector, (1, H, W, 1))  # (N, 1, 1, 16) -> (N, H, W, 16)
-
-        # Concatenate
-        x = jnp.concatenate((image, vector), axis=-1)  # (N, H, W, C + 16)
+    def __call__(self, image, vector, time, position,  mask_awake):
         
-        # 1x1 Conv
-        x = conv1_1(x)  # (N, H, W, C + 16) -> (N, H, W, 32) 
+        B, C, H, W = image.shape
+        B, V = vector.shape
+        B, T = time.shape
         
-        # Resblock1
-        x = res_blocks_1(x)
+        fc_time = nn.Sequential([nn.Dense(self.embedding_time, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)), nn.leaky_relu], name="fc_time")
         
-        # Compute value using the value head
-        value = jnp.squeeze(value_head(x), axis=-1)
+        conv1x1_time = Conv1x1(channels=T, name="conv1x1_time") # conv 1x1 block 
+        conv1x1_vec = Conv1x1(channels=V, name="conv1x1_vec") # conv 1x1 block
+        conv1x1_time_vec = Conv1x1(channels=T+V, name="conv1x1_time_vec") # conv 1x1 block 
+        conv1x1_image = Conv1x1(channels=self.n_channels, name="conv1x1_image") # conv 1x1 block
+        conv1x1_logits = Conv1x1(channels=self.action_dim, name="conv1x1_logits") # conv 1x1 block  
+        
+        res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
+        
+        value_head = nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
+        
+        ########## PROCESS TIME AND VECTOR ##########
+        time_embedded = fc_time(time) # (B, T) -> (B, embedding_time)
+        time_expanded = jnp.tile(time_embedded.reshape((B, 1, 1, -1)) , (1, H, W, 1))  # (B, embedding_time) -> (B, H, W, embedding_time)
+        time_expanded = conv1x1_time(time_expanded) 
+        
+        vector_expanded = jnp.tile(vector.reshape((B, 1, 1, -1)) , (1, H, W, 1)) # (B, V) -> (B, H, W, V)
+        vector_expanded = conv1x1_vec(vector_expanded)
+        
+        vector = jnp.concatenate((time_expanded, vector_expanded), axis=-1) 
+        vector = conv1x1_time_vec(vector) 
 
-        # Resblock2
-        x = res_blocks_2(x)
+        ################# COMBINE WITH IMAGE ################
+        image = image.transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
+        
+        x = jnp.concatenate((image, vector), axis=-1)  # (B, H, W, C")
+        
+        x = conv1x1_image(x) # (B, H, W, n_channels)
+        
+        x = res_blocks(x) # (B, H, W, n_channels)
+        
+        ################# Compute VALUE  ################
+        average = jnp.mean(x, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
+        value = value_head(average) # (B, n_channels) -> (B, 1)
+        value = jnp.squeeze(value, axis=-1)
 
-        # Compute logit maps: 1x1 Conv
-        logits_maps = conv1_2(x)
+
+        ################# Compute LOGITS  ################
+        logits_maps = conv1x1_logits(x)
 
         # Gather logits based on position
         def gather_logits(logits_map, pos):
@@ -163,5 +204,9 @@ class Pix2Pix_AC(nn.Module):
             # pos: Shape (16, 2)
             return logits_map[pos[:, 0], pos[:, 1], :]  # Shape (16, 6)
         
-        logits_gathered = jax.vmap(gather_logits)(logits_maps, position) # Shape: (N, 16, 6)
-        return logits_gathered, value
+        logits_gathered = jax.vmap(gather_logits)(logits_maps, position) # Shape: (B, 16, 6)
+        
+        mask_awake_expanded = mask_awake[:, :, None]  # Expand dimensions to (1, 16, 1)
+        logits = logits_gathered * mask_awake_expanded 
+        
+        return logits, value, logits_maps
