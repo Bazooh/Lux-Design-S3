@@ -1,7 +1,21 @@
 env_args:
   reward_weights:
-    stat_0: points_gained
-    weight_0: 1.0
+    stat_0: wins
+    weight_0: 20.0
+    stat_1: points_gained
+    weight_1: 1.0
+    stat_2: points_discovered
+    weight_2: 10.0
+    stat_3: relics_discovered
+    weight_3: 10.0
+    stat_4: deaths
+    weight_4: -1.0
+    stat_5: collisions
+    weight_5: -0.02
+    stat_6: units_moved
+    weight_6: 0.01
+    stat_7: energy_gained
+    weight_7: 0.001
   transform_obs: HybridTransformObs
   transform_action: SimplerActionNoSap
   memory: RelicPointMemory
