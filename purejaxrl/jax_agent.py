@@ -4,12 +4,11 @@ from typing import Any
 import jax, chex
 import jax.numpy as jnp
 from functools import partial
-from purejaxrl.utils import sample_action
+from purejaxrl.utils import sample_group_action
 from purejaxrl.parse_config import parse_config
 
 # misc
 from purejaxrl.env.memory import Memory
-from purejaxrl.env.transform_reward import TransformReward
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
 
@@ -25,7 +24,6 @@ class RawJaxAgent:
         model,
         transform_obs: TransformObs,
         transform_action: TransformAction,
-        transform_reward: TransformReward,
         memory: Memory,
     ):
         self.player = player
@@ -40,7 +38,6 @@ class RawJaxAgent:
         self.network_params = network_params
         self.transform_obs = transform_obs
         self.transform_action = transform_action
-        self.transform_reward = transform_reward
         self.memory = memory
         self.memory_state = self.memory.reset()
 
@@ -51,8 +48,8 @@ class RawJaxAgent:
         transformed_obs: Any,
     ):
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
-        logits, value = self.model.apply(self.network_params, **transformed_obs_batched) # logits is (16, 6)
-        action = sample_action(key, logits)[0]
+        logits, _, _ = self.model.apply({"params": self.network_params}, **transformed_obs_batched) # logits is (16, 6)
+        action = sample_group_action(key, logits[0])
         return action 
 
 
@@ -62,8 +59,7 @@ class RawJaxAgent:
         remainingOverageTime: int = 60
     ):
         self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
-        expanded_obs = self.memory.expand(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
-        transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = expanded_obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
+        transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
         action = self.forward(self.key, transformed_obs=transformed_obs)
         transformed_action = self.transform_action.convert(team_id = self.team_id, action = action, obs = transformed_obs, params=EnvParams.from_dict(self.env_params))
         return transformed_action
@@ -82,4 +78,8 @@ class RawJaxAgent:
 class JaxAgent(RawJaxAgent):
     def __init__(self, player: str, env_cfg: str, config_path = "purejaxrl/jax_config.yaml"):
         jax_config = parse_config()
-        super().__init__(player, env_cfg, **jax_config["env_args"], **jax_config["network"] )
+        super().__init__(player, env_cfg, 
+                        transform_action=jax_config["env_args"]["transform_action"],
+                        transform_obs=jax_config["env_args"]["transform_obs"],
+                        memory=jax_config["env_args"]["memory"], 
+                        **jax_config["network"] )

@@ -1,3 +1,4 @@
+from math import e
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 import jax, chex
@@ -52,19 +53,20 @@ def rollout(
         # redo the observation conversion: agent_0 and agent_1 
         agent_0.memory_state = agent_0.memory.update(obs = obs["player_0"], team_id=agent_0.team_id, memory_state=agent_0.memory_state)
         agent_1.memory_state = agent_1.memory.update(obs = obs["player_1"], team_id=agent_1.team_id, memory_state=agent_1.memory_state)
-        expanded_obs_0 = agent_0.memory.expand(obs["player_0"], agent_0.team_id, agent_0.memory_state)
-        expanded_obs_1 = agent_1.memory.expand(obs["player_1"], agent_1.team_id, agent_1.memory_state)
-        transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs = expanded_obs_0, params=env_params, memory_state=agent_0.memory_state)
-        transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs = expanded_obs_1, params=env_params, memory_state=agent_1.memory_state)
+
+        transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs = obs["player_0"], params=env_params, memory_state=agent_0.memory_state)
+        transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs = obs["player_1"], params=env_params, memory_state=agent_1.memory_state)
+
         stack_obs_0.append(transformed_obs_0)
         stack_obs_1.append(transformed_obs_1)
+        
         stack_relic_w.append(env_state.relic_nodes_map_weights)
         action = {
             "player_0": actor_0.act(step = step_idx, obs = EnvObs_to_dict(obs["player_0"])), 
             "player_1": actor_1.act(step = step_idx, obs = EnvObs_to_dict(obs["player_1"])),
         }
         rng, _rng = jax.random.split(rng)
-        obs, env_state, reward, truncated_dict, terminated_dict, info = vanilla_env.step(rng, env_state, action, env_params)
+        obs, env_state, _, _, _ = vanilla_env.step(rng, env_state, action, env_params)
 
     channel_names = list(agent_0.transform_obs.image_features.keys())
     channels_p0 = np.stack([obs["image"] for obs in stack_obs_0])
@@ -72,9 +74,9 @@ def rollout(
     vector_names = list(agent_0.transform_obs.vector_features.keys())
     vector_p0 = np.stack([obs["vector"] for obs in stack_obs_0])
     vector_p1 = np.stack([obs["vector"] for obs in stack_obs_1])
-    print(channels_p0.shape, channels_p1.shape, len(channel_names))
-    print(vector_p0.shape, vector_p1.shape, len(vector_names))
-    stack_relic_w = np.stack(stack_relic_w)
+
+    vanilla_env.close()
+
     return channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names, stack_relic_w
 
 COLUMNS = 15
@@ -160,10 +162,13 @@ if __name__ == "__main__":
     from rule_based.relicbound.agent import RelicboundAgent
     from rule_based.naive.agent import NaiveAgent
     from tqdm import tqdm
+    from purejaxrl.env.make_env import make_env, make_vanilla_env, TrackerWrapper, LogWrapper
+    from purejaxrl.parse_config import parse_config
     # RUN MATCH
+    config = parse_config()
     seed = np.random.randint(0, 100)
     key = jax.random.PRNGKey(seed)
-    vanilla_env = LuxAIS3Env(auto_reset=True)
+    vanilla_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
     env_params = sample_params(key)
     
     channels_p0, channels_p1, channel_names, vector_p0, vector_p1, vector_names, relic_w = rollout(

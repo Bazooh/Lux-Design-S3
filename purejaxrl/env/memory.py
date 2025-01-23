@@ -5,7 +5,7 @@ from flax import struct
 import jax, chex
 from functools import partial
 from typing import Any
-import numpy as np
+from purejaxrl.utils import symmetrize
 class Memory(ABC):
     def __init__(self):
         pass
@@ -13,8 +13,7 @@ class Memory(ABC):
     @abstractmethod
     def update(self, obs: EnvObs, team_id: int, memory_state: Any) -> Any: ...
 
-    @abstractmethod
-    def expand(self, obs: EnvObs, team_id: int, memory_state: Any) -> EnvObs: ...
+
 
     @abstractmethod
     def reset(self)-> Any: ...
@@ -113,13 +112,13 @@ class RelicPointMemory(Memory):
             ),
             new_points_awarding
         )
+        ########## SYMMETRIZE  ##########
+        new_relics_found =  symmetrize(team_id, new_relics_found)
+        new_points_awarding = symmetrize(team_id, new_points_awarding)
 
         return RelicPointMemoryState(
-            relics_found=new_relics_found,
-            points_awarding=new_points_awarding,
+            relics_found=jax.lax.stop_gradient(new_relics_found),
+            points_awarding=jax.lax.stop_gradient(new_points_awarding),
             last_step_team_points=obs.team_points[team_id],
             points_gained=points_gained,
         )
-    
-    def expand(self, obs, team_id, memory_state):
-        return obs
