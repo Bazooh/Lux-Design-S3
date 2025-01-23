@@ -332,12 +332,12 @@ class TransformActionWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         current_obs = self._env.get_obs(env_mem_state.env_state)
-        action = {
+        transform_action = {
             "player_0": self.transform_action.convert(team_id=0, action=action["player_0"], obs = current_obs["player_0"], params = params),
             "player_1": self.transform_action.convert(team_id=1, action=action["player_1"], obs = current_obs["player_1"], params = params),
         }
         obs, env_state, reward, done, info = self._env.step(
-            key, env_mem_state, action, params
+            key, env_mem_state, transform_action, params
         )
         return obs, env_state, reward, done, info 
     
