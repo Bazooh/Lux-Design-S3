@@ -130,7 +130,7 @@ class HybridTransformObs(TransformObs):
         self.vector_std_values = jnp.array(list(self.vector_std.values()))
         self.vector_mean_values = jnp.array(list(self.vector_mean.values()))
         self.observation_space = gymnax.environments.spaces.Dict({
-                            'image': gymnax.environments.spaces.Box(low=0, high=1, shape=(self.image_channels, 24, 24), dtype=jnp.float32), 
+                            'image': gymnax.environments.spaces.Box(low=-1, high=1, shape=(self.image_channels, 24, 24), dtype=jnp.int8), 
                             'vector': gymnax.environments.spaces.Box(low=-1, high=1, shape=(self.vector_size), dtype=jnp.float32),
                             'position': gymnax.environments.spaces.Box(low=0, high=23, shape=(16, 2), dtype=jnp.int8), 
         })

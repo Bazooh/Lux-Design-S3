@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from luxai_s3.params import EnvParams
 from luxai_s3.params import env_params_ranges
-import flax
+
 def sample_params(rng_key, match_count_per_episode = 5):
     randomized_game_params = dict()
     for k, v in env_params_ranges.items():
@@ -19,8 +19,24 @@ def sample_params(rng_key, match_count_per_episode = 5):
     return params
 
 @jax.jit
-def sample_action(key, logits):
-    action = jax.random.categorical(key=key, logits=logits, axis=-1)  # Shape: (N, 16)
+def sample_action(key, logits, noise_std=0.0):
+    """
+    Samples an action with optional noise added to logits for exploration.
+
+    Args:
+        key: PRNG key for sampling.
+        logits: Logits output from the policy network. Shape: (N, 16, action_dim).
+        noise_std: Standard deviation of Gaussian noise to add.
+
+    Returns:
+        action: Sampled action. Shape: (N, 16).
+    """
+    # Add Gaussian noise to logits
+    noise = jax.random.normal(key, shape=logits.shape) * noise_std
+    noisy_logits = logits + noise
+
+    # Sample action from noisy logits
+    action = jax.random.categorical(key=key, logits=noisy_logits, axis=-1)  # Shape: (N, 16)
     return action
 
 @jax.jit
@@ -48,7 +64,6 @@ def get_obs_batch(obs, player_list):
 
 def init_network_params(key, network, init_x):
     init_x = {feat: jnp.expand_dims(value, axis=0) for feat, value in init_x.items()}
-    tabulate_fn = flax.linen.tabulate(network, jax.random.key(0), compute_flops=True, compute_vjp_flops=True)
     network_params = network.init(key, **init_x)
     return network_params
 
