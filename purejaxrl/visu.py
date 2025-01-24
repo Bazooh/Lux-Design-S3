@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Circle, Rectangle
 
 from luxai_s3.env import LuxAIS3Env
 from luxai_s3.state import EnvState
@@ -30,16 +30,17 @@ def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
     """
     Visualize the logits maps.
     Args:
-        logits_maps: The logits maps. Shape: (24, 24, 5)
+        logits_maps: The logits maps. Shape: (24, 24, 6)
     """
 
     action_maps = jnp.argmax(logits_maps, axis=-1)
 
     fig, ax = plt.subplots()
+    fig.set_size_inches(7, 7)
 
     # Color each relic in yellow
     for x, y in env_state.relic_nodes:
-        ax.add_patch(plt.Rectangle((x, y), 1, 1, color="yellow"))
+        ax.add_patch(Rectangle((x, y), 1, 1, color="yellow"))
 
     # Color each points in orange
     for i, relic_config in enumerate(env_state.relic_node_configs):
@@ -48,7 +49,7 @@ def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
                 if relic_config[x, y]:
                     relic_x, relic_y = env_state.relic_nodes[i]
                     ax.add_patch(
-                        plt.Rectangle(
+                        Rectangle(
                             (relic_x + x - 2, relic_y + y - 2),
                             1,
                             1,
@@ -71,6 +72,10 @@ def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
         for j in range(24):
             action = action_maps[i, j]
             if action == 0:
+                continue
+
+            if action == 5:
+                ax.add_patch(Circle((i + 0.5, j + 0.5), 0.2, color="red"))
                 continue
 
             x, y = i + 0.5, j + 0.5
@@ -111,5 +116,5 @@ if __name__ == "__main__":
     _, step_key = jax.random.split(jax.random.PRNGKey(0))
     _, env_state = env.reset(step_key)
 
-    logits_maps = jax.random.uniform(jax.random.PRNGKey(0), (24, 24, 5))
+    logits_maps = jax.random.uniform(jax.random.PRNGKey(0), (24, 24, 6))
     visualize_grid(env_state, logits_maps)
