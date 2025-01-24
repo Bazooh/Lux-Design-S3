@@ -30,7 +30,7 @@ class BotProcess:
         self.live_log = live_log
         self.direct_import_python_bots = direct_import_python_bots
 
-        if self.direct_import_python_bots and self.command == "python3.10":
+        if self.direct_import_python_bots and self.command == "python":
             import importlib.util
             import sys
 
@@ -43,7 +43,7 @@ class BotProcess:
             self.agent_fn = foo.agent_fn
 
     async def start(self):
-        if self.direct_import_python_bots and self.command == "python3.10":
+        if self.direct_import_python_bots and self.command == "python":
             return
         cwd = os.path.dirname(self.file_path)
         if cwd == "":
