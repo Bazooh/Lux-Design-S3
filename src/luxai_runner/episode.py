@@ -96,7 +96,29 @@ class Episode:
             if save_format == "json":
                 json.dump(replay, f)
             else:
-                f.write(json_to_html(replay))
+                f.write(
+                    f"""
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://s3vis.lux-ai.org/eye.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Lux Eye S3</title>
+
+    <script>
+window.episode = {json.dumps(replay)};
+    </script>
+
+    <script type="module" crossorigin src="https://s3vis.lux-ai.org/index.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+                """.strip()
+                )
 
     async def run(self):
         if len(self.players) != 2:

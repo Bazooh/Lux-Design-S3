@@ -1,24 +1,19 @@
-import sys, os
-
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
-
+# TODO (stao): Add lux ai s3 env to gymnax api wrapper, which is the old gym api
 import json
 import os
-from typing import Any, Literal
+from typing import Any, SupportsFloat
 import flax
 import flax.serialization
 import gymnasium as gym
+import gymnax
+import gymnax.environments.spaces
 import jax
 import numpy as np
 import dataclasses
-from luxai_runner.episode import json_to_html
-from luxai_s3.env import LuxAIS3Env, PlayerName, PlayerAction, PlayerReward, Actions
+from luxai_s3.env import LuxAIS3Env
 from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.utils import to_numpy
-
-import agents.obs as agent_obs
-from agents.obs import GodObs, Obs
 
 
 class LuxAIS3GymEnv(gym.Env):
@@ -28,12 +23,23 @@ class LuxAIS3GymEnv(gym.Env):
         self.jax_env = LuxAIS3Env(auto_reset=False)
         self.env_params: EnvParams = EnvParams()
 
+        low = np.zeros((self.env_params.max_units, 3))
+        low[:, 1:] = -self.env_params.unit_sap_range
+        high = np.ones((self.env_params.max_units, 3)) * 6
+        high[:, 1:] = self.env_params.unit_sap_range
+        self.action_space = gym.spaces.Dict(
+            dict(
+                player_0=gym.spaces.Box(low=low, high=high, dtype=np.int16),
+                player_1=gym.spaces.Box(low=low, high=high, dtype=np.int16),
+            )
+        )
+
     def render(self):
         self.jax_env.render(self.state, self.env_params)
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[dict[PlayerName, Obs], dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any]]:
         if seed is not None:
             self.rng_key = jax.random.key(seed)
         self.rng_key, reset_key = jax.random.split(self.rng_key)
@@ -75,15 +81,8 @@ class LuxAIS3GymEnv(gym.Env):
         )
 
     def step(
-        self,
-        action: Actions,
-    ) -> tuple[
-        dict[PlayerName, Obs],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
-        dict[str, Any],
-    ]:
+        self, action: Any
+    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
         self.rng_key, step_key = jax.random.split(self.rng_key)
         obs, self.state, reward, terminated, truncated, info = self.jax_env.step(
             step_key, self.state, action, self.env_params
@@ -104,10 +103,9 @@ class RecordEpisode(gym.Wrapper):
     def __init__(
         self,
         env: LuxAIS3GymEnv,
-        save_dir: str | None = None,
+        save_dir: str = None,
         save_on_close: bool = True,
         save_on_reset: bool = True,
-        save_format: Literal["json", "html"] = "json",
     ):
         super().__init__(env)
         self.episode = dict(states=[], actions=[], metadata=dict())
@@ -116,7 +114,6 @@ class RecordEpisode(gym.Wrapper):
         self.save_on_close = save_on_close
         self.save_on_reset = save_on_reset
         self.episode_steps = 0
-        self.save_format: Literal["json", "html"] = save_format
         if save_dir is not None:
             from pathlib import Path
 
@@ -124,7 +121,7 @@ class RecordEpisode(gym.Wrapper):
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
-    ) -> tuple[GodObs, agent_obs.EnvParams]:
+    ) -> tuple[Any, dict[str, Any]]:
         if self.save_on_reset and self.episode_steps > 0:
             self._save_episode_and_reset()
         obs, info = self.env.reset(seed=seed, options=options)
@@ -136,13 +133,7 @@ class RecordEpisode(gym.Wrapper):
 
     def step(
         self, action: Any
-    ) -> tuple[
-        GodObs,
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.float32]]],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
-        dict[PlayerName, np.ndarray[Literal[1], np.dtype[np.bool_]]],
-        dict[str, Any],
-    ]:
+    ) -> tuple[Any, SupportsFloat, bool, bool, dict[str, Any]]:
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.episode_steps += 1
         self.episode["states"].append(info["final_state"])
@@ -163,16 +154,13 @@ class RecordEpisode(gym.Wrapper):
     def save_episode(self, save_path: str):
         episode = self.serialize_episode_data()
         with open(save_path, "w") as f:
-            if self.save_format == "json":
-                json.dump(episode, f)
-            else:
-                f.write(json_to_html(episode))
+            json.dump(episode, f)
         self.episode = dict(states=[], actions=[], metadata=dict())
 
     def _save_episode_and_reset(self):
         """saves to generated path based on self.save_dir and episoe id and updates relevant counters"""
         self.save_episode(
-            os.path.join(self.save_dir, f"episode_{self.episode_id}.{self.save_format}")
+            os.path.join(self.save_dir, f"episode_{self.episode_id}.json")
         )
         self.episode_id += 1
         self.episode_steps = 0

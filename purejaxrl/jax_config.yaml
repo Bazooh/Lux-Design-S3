@@ -1,27 +1,48 @@
 env_args:
+  reward_weights:
+    stat_0: wins
+    weight_0: 10.0
+    stat_1: points_gained
+    weight_1: 10.0
+    stat_2: points_discovered
+    weight_2: 10.0
+    stat_3: relics_discovered
+    weight_3: 10.0
+    stat_4: cells_discovered
+    weight_4: 0.01
+    stat_5: deaths
+    weight_5: -0.01
+    stat_6: collisions
+    weight_6: -0.05
+    stat_7: units_moved
+    weight_7: 0.001
+    stat_8: energy_gained
+    weight_8: 0.0001
   transform_obs: HybridTransformObs
-  transform_reward: BasicPointReward
   transform_action: SimplerActionNoSap
   memory: RelicPointMemory
 
 network:
-  model: HybridActorCritic
-  checkpoint: None
+  model: Pix2Pix_AC
+  load_from_checkpoint: None
 
 ppo:
-  lr: 1e-5
-  num_envs: 8
-  num_steps: 1000
-  total_timesteps: 5e7
+  lr: 1e-4
+  num_envs: 64
+  num_steps: 101
+  total_timesteps: 1e7
   update_epochs: 4
-  num_minibatches: 8
+  num_minibatches: 16
   gamma: 0.99
-  gae_lambda: 0.9
+  gae_lambda: 0.95
   clip_grad_norm: 0.5
   clip_eps: 0.2
   ent_coef: 0.1
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: True
+  use_wandb: True
+  record_freq: 100
+  match_count_per_episode: 1
+  action_temperature: 1.0
   seed: 0
-  action_noise: 0.1
