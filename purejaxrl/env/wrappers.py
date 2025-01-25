@@ -253,9 +253,9 @@ class TrackerWrapper(GymnaxWrapper):
         )
 
         points_gained = mem_state.points_gained
-        relics_discovered = jax.numpy.sum((mem_state.relics_found == 1) & (last_mem_state.relics_found == 0)) // 2
-        points_discovered = jax.numpy.sum((mem_state.points_awarding == 1) & (last_mem_state.points_awarding == 0)) // 2
-        cells_discovered = jax.numpy.sum((mem_state.relics_found == -1) & (last_mem_state.relics_found == 0)) // 2
+        relics_discovered = jax.numpy.sum((mem_state.relics_found == 1) & (last_mem_state.relics_found == 0))
+        points_discovered = jax.numpy.sum((mem_state.points_awarding == 1) & (last_mem_state.points_awarding == 0))
+        cells_discovered = jax.numpy.sum((mem_state.relics_found == -1) & (last_mem_state.relics_found == 0))
         
         cumulated_energy  = jnp.sum(obs.units.energy[team_id])
         last_cumulated_energy = jnp.sum(last_obs.units.energy[team_id])
@@ -263,7 +263,7 @@ class TrackerWrapper(GymnaxWrapper):
         energy_gained = jax.lax.cond(
             last_obs.steps % (params.max_steps_in_match+1) == 0,
             lambda: 0,
-            lambda: jnp.maximum(0, cumulated_energy - last_cumulated_energy)
+            lambda: cumulated_energy - last_cumulated_energy
         )
         
         current_positions = obs.units.position[team_id]

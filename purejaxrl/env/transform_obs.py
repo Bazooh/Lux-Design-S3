@@ -144,8 +144,8 @@ class HybridTransformObs(TransformObs):
             positions[1- team_id, :, 1],
         ].set(obs.units.energy[1 -team_id] + 1) / 400
 
-        image = image.at[6].set(memory_state.relics_found)
-        image = image.at[7].set(memory_state.points_awarding)    
+        image = image.at[6].set(symmetrize(team_id, memory_state.relics_found))
+        image = image.at[7].set(symmetrize(team_id,memory_state.points_awarding)) 
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)

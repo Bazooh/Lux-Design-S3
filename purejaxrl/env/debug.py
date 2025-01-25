@@ -49,7 +49,7 @@ def rollout(
 
     stack_images = []
     stack_stats = []
-
+    point_weights = env_state.relic_nodes_map_weights
     for step_idx in tqdm(range(steps), desc = "Rollout and store obs+stats"):
         agent_0.memory_state = agent_0.memory.update(obs=obs["player_0"], team_id=agent_0.team_id, memory_state=agent_0.memory_state)
         agent_1.memory_state = agent_1.memory.update(obs=obs["player_1"], team_id=agent_1.team_id, memory_state=agent_1.memory_state)
@@ -77,21 +77,40 @@ def rollout(
     }
     vanilla_env.close()
 
-    return channels_arrays, stats_arrays
+    return channels_arrays, stats_arrays, point_weights
 
 
 # Function to plot tensor features
-def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int):
+def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int, relic_weights):
     for i, (feat_name, feat_array) in enumerate(channels.items()):
         ax = axes_row[i]
         ax.clear()
-        ax.imshow(feat_array[frame_idx].T, cmap = "bwr", aspect = "auto")
+        if feat_name in ["Ally_Units", "Enemy_Units"]: 
+            ax.imshow(feat_array[frame_idx].T, cmap = "bwr", vmin = -2, vmax = 2, aspect = "auto")
+        if feat_name in ["Points", "Relic"]: 
+            ax.imshow(feat_array[frame_idx].T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
+        else:
+            ax.imshow(feat_array[frame_idx].T, cmap = "bwr", aspect = "auto")
         ax.set_title(f"{title_prefix} {feat_name}", fontsize=10)
-        ax.axis("off")
-    for i in range(len(channels.items()), n_columns):
+        ax.grid(True)
+        ax.tick_params(left = False, right = False , labelleft = False , 
+                labelbottom = False, bottom = False) 
+        
+
+    # Plot relic weights
+    ax = axes_row[i+1]
+    ax.clear()
+    ax.imshow(relic_weights.T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
+    ax.set_title(f"(Ground Truth) Points", fontsize=10)
+    ax.grid(True)
+    ax.tick_params(left = False, right = False , labelleft = False , 
+                labelbottom = False, bottom = False) 
+    
+
+    for i in range(len(channels.items())+1, n_columns):
         ax = axes_row[i]
         ax.clear()
-        ax.axis("off")
+        ax.xticks("off")
 
 # Function to plot stat features
 def plot_stat_features(stats_p0: dict, stats_p1: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int):
@@ -121,14 +140,15 @@ def plot_stat_features(stats_p0: dict, stats_p1: dict, axes_row: np.ndarray, tit
 def update(frame_idx: int, 
             channels: dict, 
             stats: dict,
+            point_weights,
             n_columns, 
             progressbar):
     
     fig.suptitle(f"Frame {frame_idx}", fontsize=16)
     # Player 0 Channels (Row 0)
-    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns)
+    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, relic_weights=point_weights)
     # Player 1 Channels (Row 1)
-    plot_channel_features(channels["obs_player_1"], axes[1, :], "P1-", frame_idx, n_columns)
+    plot_channel_features(channels["obs_player_1"], axes[1, :], "P1-", frame_idx, n_columns, relic_weights=point_weights)
     # Player 1 Stats (Row 2)
     plot_stat_features(stats["episode_stats_player_0"], stats["episode_stats_player_1"], axes[2, :], "", frame_idx, n_columns)
     progressbar.update(1)
@@ -137,13 +157,14 @@ if __name__ == "__main__":
 
     config = parse_config()
     seed = np.random.randint(0, 100)
+    print(f"Seed: {seed}")
     key = jax.random.PRNGKey(seed)
     vanilla_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir="test", save_format="html")
     vanilla_env = LogWrapper(vanilla_env, replace_info=True)
     env_params = sample_params(key)
-    steps = 200
+    steps = 100
 
-    channels_arrays, stats_arrays = rollout(
+    channels_arrays, stats_arrays, point_weights = rollout(
         agent_0=JaxAgent("player_0", env_params.__dict__),
         agent_1=JaxAgent("player_1", env_params.__dict__),
         actor_0=NaiveAgent("player_0", env_params.__dict__),
@@ -153,7 +174,7 @@ if __name__ == "__main__":
         env_params=env_params,
         steps=steps
     )
-    n_columns = max(len(channels_arrays["obs_player_0"].keys()), len(stats_arrays["episode_stats_player_0"].keys()))
+    n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, len(stats_arrays["episode_stats_player_0"].keys()))
     fig, axes = plt.subplots(3, n_columns, figsize=(2*n_columns, 6))
 
     progressbar = tqdm(total=steps+1, desc="Generating GIF")
@@ -165,7 +186,8 @@ if __name__ == "__main__":
             channels=channels_arrays, 
             stats=stats_arrays, 
             progressbar=progressbar,
-            n_columns = n_columns
+            n_columns = n_columns,
+            point_weights = point_weights
         ),
         frames=steps,
         interval=250,
