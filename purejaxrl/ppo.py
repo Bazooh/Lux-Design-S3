@@ -108,7 +108,7 @@ def make_train(config, debug=False,):
             def _env_step(runner_state, update_i):
                 # GET OBS BATCHES
                 train_state, network_params_1, env_state_v, last_obs_v, rng, env_params = runner_state
-                last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.players)
+                last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
 
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
@@ -130,12 +130,12 @@ def make_train(config, debug=False,):
                 obs_v, env_state_v, reward_v, done_v, info_v, env_params = jax.vmap(step_and_keep_or_reset)(
                     rng_v, 
                     env_state_v, 
-                    {env.players[0]: action0_v, env.players[1]: action1_v},
+                    {"player_0": action0_v, "player_1": action1_v},
                     env_params
                 )
 
                 # LOG THE TRANSITION
-                reward_batch =  jnp.stack([reward_v[a] for a in env.players])
+                reward_batch =  jnp.stack([reward_v[a] for a in env.agents])
                 reward_batch_player_0 = reward_batch[0]
 
                 transition = Transition(
@@ -158,7 +158,7 @@ def make_train(config, debug=False,):
             
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             train_state, network_params_1, env_state_v, last_obs_v, rng, env_params = runner_state
-            last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.players) # GET OBS BATCHES
+            last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
             _, last_val_v,_ = model.apply({"params": train_state.params}, **last_obs_batch_player_0) # COMPUTE VALUES
 
             def _calculate_gae(traj_batch, last_val):
@@ -319,7 +319,7 @@ def make_train(config, debug=False,):
                     f"Value Loss: {value_loss:<4.2f}"
                 )
 
-                if update_step % config['ppo']["record_freq"] == 0:
+                if (update_step-1) % config['ppo']["record_freq"] == 0:
                     run_episode_and_record(
                         rec_env=rec_env,
                         network=model,

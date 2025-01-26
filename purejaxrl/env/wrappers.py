@@ -16,7 +16,7 @@ from functools import partial
 from typing import Any
 from purejaxrl.env.memory import Memory, RelicPointMemoryState
 # for recording
-from purejaxrl.utils import serialize_metadata
+from purejaxrl.utils import serialize_metadata, diagonal_of_array
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.params import serialize_env_params
 import os, json
@@ -164,7 +164,7 @@ class MemoryWrapper(GymnaxWrapper):
         env_mem_state = Env_Mem_State(
                 env_state=env_state, 
                 memory_state_player_0 = memory_state_player_0, 
-                memory_state_player_1 = memory_state_player_1        
+                memory_state_player_1 = memory_state_player_1,        
         )
         return obs, env_mem_state
 
@@ -176,8 +176,8 @@ class MemoryWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         obs, env_state, reward, done, info = self._env.step(key, env_mem_state.env_state, action, params)
-        memory_state_player_0 = self.memory.update(obs = obs['player_0'], team_id=0, memory_state=env_mem_state.memory_state_player_0)
-        memory_state_player_1 = self.memory.update(obs = obs['player_1'], team_id=1, memory_state=env_mem_state.memory_state_player_1)
+        memory_state_player_0 = self.memory.update(obs = obs['player_0'], team_id=0, memory_state=env_mem_state.memory_state_player_0, params = params)
+        memory_state_player_1 = self.memory.update(obs = obs['player_1'], team_id=1, memory_state=env_mem_state.memory_state_player_1, params = params)
         env_mem_state = Env_Mem_State(
                 env_state=env_state, 
                 memory_state_player_0 = memory_state_player_0, 
@@ -251,11 +251,11 @@ class TrackerWrapper(GymnaxWrapper):
             ),
             lambda: 0 # Return 0 if the game is not done
         )
-
+        
         points_gained = mem_state.points_gained
-        relics_discovered = jax.numpy.sum((mem_state.relics_found == 1) & (last_mem_state.relics_found == 0)) // 2
-        points_discovered = jax.numpy.sum((mem_state.points_awarding == 1) & (last_mem_state.points_awarding == 0)) // 2
-        cells_discovered = jax.numpy.sum((mem_state.relics_found == -1) & (last_mem_state.relics_found == 0)) // 2
+        relics_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.relics_found))) == 1) & (last_mem_state.relics_found == 0))
+        points_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.points_awarding))) == 1) & (last_mem_state.points_awarding == 0))
+        cells_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.relics_found))) == -1) & (last_mem_state.relics_found == 0))
         
         cumulated_energy  = jnp.sum(obs.units.energy[team_id])
         last_cumulated_energy = jnp.sum(last_obs.units.energy[team_id])
@@ -263,7 +263,7 @@ class TrackerWrapper(GymnaxWrapper):
         energy_gained = jax.lax.cond(
             last_obs.steps % (params.max_steps_in_match+1) == 0,
             lambda: 0,
-            lambda: jnp.maximum(0, cumulated_energy - last_cumulated_energy)
+            lambda: cumulated_energy - last_cumulated_energy
         )
         
         current_positions = obs.units.position[team_id]

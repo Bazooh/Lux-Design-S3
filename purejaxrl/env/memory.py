@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from luxai_s3.env import EnvObs
+
+from luxai_s3.env import EnvObs, EnvParams
 import jax.numpy as jnp
 from flax import struct
 import jax, chex
@@ -11,7 +12,7 @@ class Memory(ABC):
         pass
 
     @abstractmethod
-    def update(self, obs: EnvObs, team_id: int, memory_state: Any) -> Any: ...
+    def update(self, obs: EnvObs, team_id: int, memory_state: Any, params: EnvParams) -> Any: ...
 
 
 
@@ -22,6 +23,8 @@ class Memory(ABC):
 class RelicPointMemoryState:
     relics_found: chex.Array
     """ -1 if there is no relic, 0 if unknown, 1 if there is a relic"""
+    last_visits_timestep: chex.Array
+    """ the last time the square was viewed"""
     points_awarding: chex.Array
     """ -1 if the square can give a reward, 0 if unknown, 1 if the square gives a reward"""
     last_step_team_points: int
@@ -37,81 +40,82 @@ class RelicPointMemory(Memory):
                     points_awarding= jnp.zeros((24,24), dtype = jnp.int8),
                     last_step_team_points=0,
                     points_gained=0,
-
+                    last_visits_timestep = jnp.zeros((24,24), dtype = jnp.int32)
         )
     @partial(jax.jit, static_argnums=(0,2))
-    def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState):
+    def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState, params: EnvParams):
         """
         Update rule 1:
-        - Update the relics_found to 1 if a relic is discovered.
+        - Update the relics_found to 1 if a relic is discovered, and the points_awarding around to max(0, points_awarding)
         Update rule 2:
         - If a unit is oob of relic, then set the points_awarding of the units position to -1.
         Update rule 3:
-        - If N is the number of the units in range of a relic, and we have gained N points, then set the points_awarding of all the units positions to 1.
+        - If I sit on exactly N points square (N farming units), and I win exactly N + M points, and M is the number of units that could be farming, 
+        then set the units that could be farming to points_awarding = 1 (only if obs.steps != (max_steps_in_match + 1) )
         Update rule 4:
-        - If I sit on exactly N points square (N farming units), and I win exactly N points, then set the non farming ones to -1
-        """    
+        - If I sit on exactly N points square (N farming units), and I win exactly N points,
+        # then set the units the other units to points_awarding = -1  (only if obs.steps !=  (max_steps_in_match + 1) )
+        """
+        new_last_visits_timestep = memory_state.last_visits_timestep + jnp.ones((24,24), dtype = jnp.int32)
+        new_last_visits_timestep = jnp.where(obs.sensor_mask == 1, 0, new_last_visits_timestep)
+        new_relics_found = memory_state.relics_found
+        new_points_awarding = memory_state.points_awarding
+        points_gained = jnp.maximum(0, obs.team_points[team_id] - memory_state.last_step_team_points)
 
         ########## UPDATE RULE 1  ##########
-        new_relics_found = memory_state.relics_found
-        currently_viewing_relics = jnp.zeros((24,24), dtype = jnp.int8).at[obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)
-        currently_viewing_relics = currently_viewing_relics.at[0, 0].set(0)
-        currently_viewing_relics = currently_viewing_relics.at[23, 23].set(0)
-        new_relics_found = new_relics_found + obs.sensor_mask * (
-            (new_relics_found == 0) * (2 * currently_viewing_relics - 1)
-        )
-        points_gained = jnp.maximum(0, obs.team_points[team_id] - memory_state.last_step_team_points)
-        new_points_awarding = memory_state.points_awarding
+        currently_viewing_relics_image = jnp.zeros((24,24), dtype = jnp.int8).at[obs.relic_nodes[:, 0], obs.relic_nodes[:, 1]].set(1)
+        currently_viewing_relics_image = currently_viewing_relics_image.at[0, 0].set(0)
+        currently_viewing_relics_image = currently_viewing_relics_image.at[23, 23].set(0)
+        
+        discovered_relics_image = (currently_viewing_relics_image == 1) & (new_relics_found <= 0)
+        discovered_relics_image = symmetrize(team_id, discovered_relics_image.astype(jnp.int8)).astype(jnp.bool_)
+        cells_around_discovery = jax.scipy.signal.convolve2d(discovered_relics_image,jnp.ones((5, 5)), mode='same')
+        cells_around_discovery = cells_around_discovery>0
+        cells_around_discovery = symmetrize(team_id, cells_around_discovery.astype(jnp.int8)).astype(jnp.bool_)
+    
+        new_relics_found = jnp.where(discovered_relics_image, 1, new_relics_found) # I set the cells where i discovered a relic to 1
+        new_relics_found = jnp.where(obs.sensor_mask & ~(new_relics_found == 1), -1, new_relics_found) # I set the cells that i see and dont have relics to -1
+        new_relics_found = symmetrize(team_id, new_relics_found)
+        new_points_awarding = jnp.where(cells_around_discovery&~(new_points_awarding == 1), 0, new_points_awarding) # I set the cells near a discovered relic to points_awarding = 0
         
         ########## UPDATE RULE 2  ##########
-        # Cases surrounded by no relics -> no points
         positions = obs.units.position[team_id]
+        alive_units_image = jnp.zeros((24,24), dtype = jnp.int8).at[positions[:, 0], positions[:, 1]].set(1)
+        alive_units_image = (alive_units_image == 1)
+        could_be_relic_image = (new_relics_found >= 0).astype(jnp.int8)
+        cells_in_relic_range_image = jnp.zeros((24,24), dtype = jnp.int8)
+        cells_in_relic_range_image = jax.scipy.signal.convolve2d(could_be_relic_image, jnp.ones((5, 5)), mode='same')
+        cells_in_relic_range_image = cells_in_relic_range_image>0
+        units_out_of_range_image = (~cells_in_relic_range_image) & alive_units_image
 
-        def process_out_of_range_unit(unit_pos):
-            # Extract the neighborhood using dynamic_slice
-            neighborhood = jax.lax.dynamic_slice(
-                new_relics_found, 
-                start_indices=(unit_pos[0]-2, unit_pos[1]-2), 
-                slice_sizes=(5, 5)
-            )
-            no_relics = jnp.all(neighborhood == -1)
-            is_alive = unit_pos.sum() >= 0
-            new_awarding_update = jnp.where(
-                no_relics & is_alive, 
-                -1, 
-                new_points_awarding[unit_pos[0], unit_pos[1]]
-            )
-            return new_awarding_update
-        updates = jax.vmap(process_out_of_range_unit)(positions)
+        new_points_awarding = jnp.where(units_out_of_range_image, -1, new_points_awarding) # I set the units that are out of range to points_awarding = -1
 
-        new_points_awarding = new_points_awarding.at[positions[:, 0], positions[:, 1]].set(updates)
-
-        # RULE 3 AND 4 REFACTORED FOR JIT COMPATIBILITY
-        active_points_awarding_mask = new_points_awarding[
-            positions[:, 0], positions[:, 1]
-        ]
-        expected_gain = jnp.sum(active_points_awarding_mask == 1)
-        unknown_points_mask_is_unknown = (active_points_awarding_mask == 0)
-
-        new_points_awarding = jnp.where(
-            points_gained == expected_gain, # Apply RULE 4:
-            jnp.clip(new_points_awarding.at[positions[:, 0], positions[:, 1]].subtract(
-                unknown_points_mask_is_unknown * obs.units_mask[team_id]),
-                min = -1,
-                max = 1
-            ),            
-            new_points_awarding
+        ########## UPDATE RULE 3 ##########
+        # If I sit on exactly N points square (N farming units), and I win exactly N + M points, and M is the number of units that could be farming, 
+        # then set the units that could be farming to points_awarding = 1
+        farming_units_image = (new_points_awarding == 1) & alive_units_image
+        unknown_farming_units_image = (new_points_awarding == 0) & cells_in_relic_range_image & alive_units_image
+        M = jnp.sum(unknown_farming_units_image.astype(jnp.int8))
+        N = jnp.sum(farming_units_image.astype(jnp.int8))
+        new_points_awarding = jax.lax.cond(
+            (points_gained == (N + M)) & (obs.steps % (params.max_steps_in_match + 1) != 0),
+            lambda:  jnp.where(unknown_farming_units_image > 0, 1, new_points_awarding),
+            lambda: new_points_awarding,
         )
-        
-        new_points_awarding = jnp.where(
-            jnp.sum(unknown_points_mask_is_unknown) == (points_gained - expected_gain), # Apply RULE 3:
-            jnp.clip(new_points_awarding.at[positions[:, 0], positions[:, 1]].add(
-                unknown_points_mask_is_unknown * obs.units_mask[team_id]), 
-                min = -1,
-                max = 1
-            ),
-            new_points_awarding
+
+        ########## UPDATE RULE 4 ##########
+        # If I sit on exactly N points square (N farming units), and I win exactly N points,
+        # then set the units the other units to points_awarding = -1
+        farming_units_image = (new_points_awarding == 1) & alive_units_image
+        new_points_awarding = jax.lax.cond(
+            (points_gained == N) & (obs.steps % (params.max_steps_in_match + 1) != 0),
+            lambda: jnp.where((farming_units_image==0) & (alive_units_image >0), -1, new_points_awarding),
+            lambda: new_points_awarding,
         )
+        # jax.debug.print("Steps = {steps} Team = {team_id} N = {N} points_gained = {points_gained}, M = {M}, T = {T}", 
+        #                 steps=obs.steps, team_id=team_id, N=N, points_gained=points_gained, M=M, T = alive_units_image[1:6,8:13])
+
+     
         ########## SYMMETRIZE  ##########
         new_relics_found =  symmetrize(team_id, new_relics_found)
         new_points_awarding = symmetrize(team_id, new_points_awarding)
@@ -121,4 +125,5 @@ class RelicPointMemory(Memory):
             points_awarding=jax.lax.stop_gradient(new_points_awarding),
             last_step_team_points=obs.team_points[team_id],
             points_gained=points_gained,
+            last_visits_timestep=jax.lax.stop_gradient(new_last_visits_timestep),
         )

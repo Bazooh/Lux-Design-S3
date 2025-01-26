@@ -66,10 +66,12 @@ class HybridTransformObs(TransformObs):
             "Asteroid": 1,
             "Nebula": 1,
             "Energy_Field": 1,
-            "Ally_Units": 1,
+            "Ally_Units_Count": 1,
+            "Ally_Units_Energy": 1,
             "Enemy_Units": 1,
             "Relic": 1,
             "Points": 1,
+            "Last Visit": 1
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # Game Parameters
@@ -124,7 +126,6 @@ class HybridTransformObs(TransformObs):
         )
     
         ############# HANDLES IMAGE ##############
-        mask_unseen = jnp.logical_not(obs.sensor_mask)
         image = image.at[0].set(obs.sensor_mask) # unknown
         image = image.at[1].set(symmetrize(team_id,(obs.map_features.tile_type == Tiles.ASTEROID).astype(jnp.int8))) # asteroid
         image = image.at[2].set(symmetrize(team_id,(obs.map_features.tile_type == Tiles.NEBULA).astype(jnp.int8))) # nebula
@@ -136,16 +137,23 @@ class HybridTransformObs(TransformObs):
             4,
             positions[team_id, :, 0],
             positions[team_id, :, 1],
-        ].set((obs.units.energy[team_id] + 1) / 400)
+        ].add(obs.units_mask[team_id])
 
         image = image.at[
             5,
+            positions[team_id, :, 0],
+            positions[team_id, :, 1],
+        ].add(jnp.maximum(0.0, obs.units.energy[team_id] + 1) / 400)
+
+        image = image.at[
+            6,
             positions[1- team_id, :, 0],
             positions[1- team_id, :, 1],
-        ].set(obs.units.energy[1 -team_id] + 1) / 400
+        ].add(jnp.maximum(0.0, obs.units.energy[1 - team_id] + 1) / 400)
 
-        image = image.at[6].set(memory_state.relics_found)
-        image = image.at[7].set(memory_state.points_awarding)    
+        image = image.at[7].set(symmetrize(team_id, memory_state.relics_found))
+        image = image.at[8].set(symmetrize(team_id,memory_state.points_awarding)) 
+        image = image.at[9].set(memory_state.last_visits_timestep / (obs.steps + 1))
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)

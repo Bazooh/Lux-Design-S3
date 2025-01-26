@@ -49,7 +49,7 @@ def get_logprob(logits, mask_awake, action):
     log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 6)
     log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
     log_prob_a_masked = jnp.where(mask_awake, log_prob_a, 0.0)  # Mask invalid positions
-    log_prob = jnp.mean(log_prob_a_masked, axis=-1)  # Shape: (N,)
+    log_prob = jnp.sum(log_prob_a_masked, axis=-1)  # Shape: (N,)
     return(log_prob)
 
 @jax.jit
@@ -101,6 +101,10 @@ def mirror_grid(array):
     """
     return jnp.flip(jnp.transpose(array))
 
+@jax.jit
+def diagonal_of_array(array):
+    return jnp.fliplr(jnp.diag(jnp.diag(jnp.fliplr(array))))
+
 @partial(jax.jit, static_argnums=(0,))
 def symmetrize(team_id, array):
     my_part = jax.lax.cond(
@@ -109,7 +113,8 @@ def symmetrize(team_id, array):
         lambda: jnp.fliplr(jnp.tril(jnp.fliplr(array))),
     )
     symmetric_my_part = mirror_grid(my_part)
-    return  symmetric_my_part + my_part - jnp.fliplr(jnp.diag(jnp.diag(jnp.fliplr(my_part))))
+    return  symmetric_my_part + my_part - diagonal_of_array(my_part)
+
 
 @jax.jit
 def mirror_position(pos):
@@ -118,6 +123,7 @@ def mirror_position(pos):
     Output: Shape 2: (23-y, 23-x)
     """
     return 23*jnp.ones(2, dtype=int) - jnp.flip(pos)
+
 
 @jax.jit
 def mirror_action(a):

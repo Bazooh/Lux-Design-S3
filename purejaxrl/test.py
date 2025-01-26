@@ -1,8 +1,11 @@
+import dis
 import jax.numpy as jnp
 import jax
+from regex import F
 
-array = jnp.arange(16).reshape(4, 4) 
-from utils import symmetrize, mirror_grid
+positions = jnp.array([[1,2],[1,2],[1,1],[1,2]])
+mask = jnp.array([True, True, True, False])
+array = jnp.zeros((4,4), dtype = jnp.int8).at[positions[:, 0], positions[:, 1]].add(mask.astype(jnp.int8))
+
+
 print(array)
-print(symmetrize(team_id = 0, array = array))
-print(symmetrize(team_id = 1, array = array))
