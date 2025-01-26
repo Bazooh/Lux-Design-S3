@@ -49,13 +49,11 @@ def rollout(
 
     stack_images = []
     stack_stats = []
-    point_weights = env_state.relic_nodes_map_weights
-    for step_idx in tqdm(range(steps), desc = "Rollout and store obs+stats"):
-        agent_0.memory_state = agent_0.memory.update(obs=obs["player_0"], team_id=agent_0.team_id, memory_state=agent_0.memory_state)
-        agent_1.memory_state = agent_1.memory.update(obs=obs["player_1"], team_id=agent_1.team_id, memory_state=agent_1.memory_state)
+    relic_weights = []
 
-        transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs=obs["player_0"], params=env_params, memory_state=agent_0.memory_state)
-        transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs=obs["player_1"], params=env_params, memory_state=agent_1.memory_state)
+    for step_idx in tqdm(range(steps), desc = "Rollout and store obs+stats"):
+        transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs=obs["player_0"], params=env_params, memory_state=env_state.memory_state_player_0)
+        transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs=obs["player_1"], params=env_params, memory_state=env_state.memory_state_player_1)
 
         action = {
             "player_0": actor_0.act(step=step_idx, obs=EnvObs_to_dict(obs["player_0"])), 
@@ -66,6 +64,7 @@ def rollout(
 
         stack_images.append((transformed_obs_0["image"], transformed_obs_1["image"]))
         stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
+        relic_weights.append(env_state.relic_nodes_map_weights)
 
     channels_arrays = {
         "obs_player_0": {feat: np.array([stack_images[i][0][feat_idx] for i in range(len(stack_images))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)},
@@ -77,7 +76,7 @@ def rollout(
     }
     vanilla_env.close()
 
-    return channels_arrays, stats_arrays, point_weights
+    return channels_arrays, stats_arrays, relic_weights
 
 
 # Function to plot tensor features
@@ -91,21 +90,23 @@ def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: st
             ax.imshow(feat_array[frame_idx].T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
         else:
             ax.imshow(feat_array[frame_idx].T, cmap = "bwr", aspect = "auto")
+        ax.set_xticks(np.arange(-0.5, 24, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, 24, 1), minor=True)
+        ax.grid(which="minor", color="gray", linewidth=0.3)
+        ax.tick_params(left=False, right=False, labelleft=False, labelbottom=False, bottom=False)
+
         ax.set_title(f"{title_prefix} {feat_name}", fontsize=10)
-        ax.grid(True)
-        ax.tick_params(left = False, right = False , labelleft = False , 
-                labelbottom = False, bottom = False) 
         
 
     # Plot relic weights
     ax = axes_row[i+1]
     ax.clear()
-    ax.imshow(relic_weights.T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
+    ax.imshow(relic_weights[frame_idx].T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
     ax.set_title(f"(Ground Truth) Points", fontsize=10)
-    ax.grid(True)
-    ax.tick_params(left = False, right = False , labelleft = False , 
-                labelbottom = False, bottom = False) 
-    
+    ax.set_xticks(np.arange(-0.5, 24, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, 24, 1), minor=True)
+    ax.grid(which="minor", color="gray", linewidth=0.3)
+    ax.tick_params(left=False, right=False, labelleft=False, labelbottom=False, bottom=False)
 
     for i in range(len(channels.items())+1, n_columns):
         ax = axes_row[i]
@@ -140,15 +141,15 @@ def plot_stat_features(stats_p0: dict, stats_p1: dict, axes_row: np.ndarray, tit
 def update(frame_idx: int, 
             channels: dict, 
             stats: dict,
-            point_weights,
+            relic_weights,
             n_columns, 
             progressbar):
     
     fig.suptitle(f"Frame {frame_idx}", fontsize=16)
     # Player 0 Channels (Row 0)
-    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, relic_weights=point_weights)
+    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, relic_weights=relic_weights)
     # Player 1 Channels (Row 1)
-    plot_channel_features(channels["obs_player_1"], axes[1, :], "P1-", frame_idx, n_columns, relic_weights=point_weights)
+    plot_channel_features(channels["obs_player_1"], axes[1, :], "P1-", frame_idx, n_columns, relic_weights=relic_weights)
     # Player 1 Stats (Row 2)
     plot_stat_features(stats["episode_stats_player_0"], stats["episode_stats_player_1"], axes[2, :], "", frame_idx, n_columns)
     progressbar.update(1)
@@ -156,15 +157,16 @@ def update(frame_idx: int,
 if __name__ == "__main__":
 
     config = parse_config()
-    seed = np.random.randint(0, 100)
+    #seed = np.random.randint(0, 100)
+    seed = 46
     print(f"Seed: {seed}")
     key = jax.random.PRNGKey(seed)
-    vanilla_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir="test", save_format="html")
+    vanilla_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir=".", save_format="html")
     vanilla_env = LogWrapper(vanilla_env, replace_info=True)
     env_params = sample_params(key)
-    steps = 100
+    steps = 150
 
-    channels_arrays, stats_arrays, point_weights = rollout(
+    channels_arrays, stats_arrays, relic_weights = rollout(
         agent_0=JaxAgent("player_0", env_params.__dict__),
         agent_1=JaxAgent("player_1", env_params.__dict__),
         actor_0=NaiveAgent("player_0", env_params.__dict__),
@@ -175,9 +177,9 @@ if __name__ == "__main__":
         steps=steps
     )
     n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, len(stats_arrays["episode_stats_player_0"].keys()))
-    fig, axes = plt.subplots(3, n_columns, figsize=(2*n_columns, 6))
+    fig, axes = plt.subplots(3, n_columns, figsize=(4*n_columns, 12))
 
-    progressbar = tqdm(total=steps+1, desc="Generating GIF")
+    progressbar = tqdm(total=steps+1, desc="Generating MP4")
 
     anim = FuncAnimation(
         fig,
@@ -187,12 +189,12 @@ if __name__ == "__main__":
             stats=stats_arrays, 
             progressbar=progressbar,
             n_columns = n_columns,
-            point_weights = point_weights
+            relic_weights = relic_weights
         ),
         frames=steps,
         interval=250,
     )
 
-    anim.save("purejarxrl_debug_channels.gif")
+    anim.save("purejarxrl_debug_channels.mp4", writer="ffmpeg", fps=4)
     plt.close(fig)
-    print("GIF saved as 'purejarxrl_debug_channels.gif'")
+    print("GIF saved as 'purejarxrl_debug_channels.mp4'")
