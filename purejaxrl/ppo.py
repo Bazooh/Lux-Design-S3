@@ -119,7 +119,8 @@ def make_train(config, debug=False,):
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits0_v, value0_v, _  = model.apply({"params": train_state.params}, **last_obs_batch_player_0) # probs is (N, 16, 6)
+                logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
+
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
                 action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits0_v, config["ppo"]["action_temperature"]) # action is (N, 16)
                 log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v)
@@ -127,7 +128,7 @@ def make_train(config, debug=False,):
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits1_v, _, _  = model.apply({"params": test_state.params}, **last_obs_batch_player_1) # logits is (N, 16, 6)
+                logits1_v, _, _  = model.apply({"params": test_state.params, "batch_stats": test_state.batch_stats}, **last_obs_batch_player_1) # logits is (N, 16, 6)
                 action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
@@ -163,9 +164,9 @@ def make_train(config, debug=False,):
 
             
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
-            train_state, network_params_1, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, _, env_state_v, last_obs_v, rng, env_params = runner_state
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
-            _, last_val_v,_ = model.apply({"params": train_state.params}, **last_obs_batch_player_0) # COMPUTE VALUES
+            _, last_val_v,_ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
@@ -199,14 +200,17 @@ def make_train(config, debug=False,):
                 def _update_minbatch(train_state, batch_info):
                     traj_batch, advantages, targets = batch_info
 
-                    def _loss_fn(params):
+                    def _loss_fn(params, traj_batch, gae, targets):
                         # Apply the model with batch_stats and mutable updates
-                        (_, value0_v, _), updates = train_state.apply_fn(
+                        (logits0_v, value0_v, _), updates = train_state.apply_fn(
                             {"params": params, "batch_stats": train_state.batch_stats},
                             **traj_batch.obs_v,
                             train=True,
                             mutable=["batch_stats"],
                         )
+                        mask_awake0_v = traj_batch.obs_v["mask_awake"]
+                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v)
+
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value_v + (
                             value0_v - traj_batch.value_v
@@ -246,15 +250,21 @@ def make_train(config, debug=False,):
                             "batch_stats": updates["batch_stats"],
                         }
 
-                # Compute gradients and update train state
-                grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                (total_loss, aux), grads = grad_fn(train_state.params)
+                    # Compute gradients and update train state
+                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+                    (total_loss, aux), grads = grad_fn(train_state.params, traj_batch, advantages, targets)
 
-                # Apply gradients and update batch_stats
-                train_state = train_state.apply_gradients(
-                    grads=grads, batch_stats=aux["batch_stats"]
-                )
+                    # Apply gradients and update batch_stats
+                    train_state = train_state.apply_gradients(
+                        grads=grads, batch_stats=aux["batch_stats"]
+                    )
 
+                    return train_state, (total_loss, {
+                            "value_loss":  aux["value_loss"],
+                            "actor_loss":  aux["actor_loss"],
+                            "entropy": aux["entropy"],
+                        })
+                
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
 

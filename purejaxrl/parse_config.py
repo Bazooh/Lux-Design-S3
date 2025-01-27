@@ -51,7 +51,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     
     return {
         "network":{
-            "model": network,
+            "model": model,
             "state_dict": state_dict,
         },
         "env_args":{

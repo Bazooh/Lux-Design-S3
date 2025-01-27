@@ -10,7 +10,7 @@ import os
 import jax
 import optax
 from flax.training import orbax_utils
-from utils import init_state_dict
+from utils import init_state_dict, CustomTrainState
 
 ####################### INITIALIZE ######################################
 from env.make_env import make_env
@@ -20,32 +20,28 @@ config = parse_config()
 env = make_env(config["env_args"])
 model = config["network"]["model"]
 x = env.observation_space.sample(jax.random.PRNGKey(0))
+expanded_x = {x: jnp.expand_dims(value, axis=0) for x, value in x.items()}
 y = jnp.ones((1,))
 
 
 #######################  TRAINING ######################################
 optimizer = optax.sgd(learning_rate=0.1)
+state_dict = init_state_dict(model = model, key = jax.random.PRNGKey(0), init_x = x)
+
+state = CustomTrainState.create(
+    apply_fn=model.apply,
+    params=state_dict["params"],
+    tx=optimizer,
+    batch_stats=state_dict["batch_stats"],
+)
 
 
-variables = init_state_dict(x)
-
-
-def init_custom_state(state_dict):
-    state = CustomTrainState.create(
-        apply_fn=model.apply,
-        params=state_dict["params"],
-        tx=optimizer,
-        batch_stats=state_dict["batch_stats"],
-    )
-    return state
-
-state = init_custom_state(init_state_dict())
    
 def train_step(state, x, y):
     def loss_fn(params):
         (_, value, _), updates = state.apply_fn(
             {'params': params, 'batch_stats': state.batch_stats},
-            **x,
+            **expanded_x,
             train=True,
             mutable=['batch_stats'],
         )
@@ -59,7 +55,7 @@ def train_step(state, x, y):
     return new_state, loss
 
 # Training loop
-for epoch in range(100):
+for epoch in range(10):
     state, loss = train_step(state, x, y)
 
 ####################### AFTER TRAINING ######################################
@@ -84,7 +80,5 @@ restored_state = orbax_checkpointer.restore('/home/hadriencrs/Code/python/Lux-De
 # print(restored_state["params"])
 # print(restored_state["batch_stats"])
 
-
-state = init_custom_state(restored_state)
-_, value, _ = model.apply(restored_state, **x, train=False)
-print(value)
+_, value, _ = model.apply(restored_state, **expanded_x , train=False)
+print(value, restored_state["batch_stats"])
