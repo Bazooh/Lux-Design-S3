@@ -4,7 +4,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."
 import jax, chex
 from typing import Any
 from purejaxrl.utils import sample_params
-from luxai_s3.env import LuxAIS3Env, EnvObs, EnvParams
+from luxai_s3.env import EnvObs
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation

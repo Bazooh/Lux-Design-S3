@@ -1,11 +1,10 @@
 import sys, os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 import jax
-import numpy as np
-from purejaxrl.utils import sample_params
+from purejaxrl.env.utils import sample_params
 
 # base env and wrappers
-from luxai_s3.env import LuxAIS3Env, EnvObs, PlayerName, EnvParams, EnvState
+from luxai_s3.env import LuxAIS3Env
 from purejaxrl.env.wrappers import *
 
 def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TransformObsWrapper:

@@ -5,7 +5,7 @@ from luxai_s3.env import EnvObs, EnvParams, PlayerAction
 import jax
 from functools import partial
 import gymnax
-from purejaxrl.utils import mirror_action
+from purejaxrl.env.utils import mirror_action
 class TransformAction(ABC):
     """
     Abstract base class for converting simple actions (ie flat 16) to complete actions (16,3).

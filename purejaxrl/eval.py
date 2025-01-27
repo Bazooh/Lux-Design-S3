@@ -3,11 +3,13 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 from typing import Any
 import jax.numpy as jnp
-from utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, sample_params, init_network_params, plot_stats, EnvObs_to_dict
-from parse_config import parse_config
-from purejaxrl.env.make_env import make_env, make_vanilla_env, TrackerWrapper, LogWrapper
 from tqdm import tqdm
 import numpy as np
+
+from purejaxrl.utils import sample_group_action, get_obs_batch, plot_stats, EnvObs_to_dict
+from purejaxrl.env.utils import sample_params
+from purejaxrl.parse_config import parse_config
+from purejaxrl.env.make_env import make_env, make_vanilla_env, TrackerWrapper, LogWrapper
 from purejaxrl.jax_agent import JaxAgent, RawJaxAgent
 from rule_based.random.agent import RandomAgent
 from rule_based.relicbound.agent import RelicboundAgent
@@ -53,8 +55,8 @@ def run_match(
 def run_episode_and_record(
         rec_env: LogWrapper, 
         network: Any,
-        network_params_0: Any, 
-        network_params_1: Any, 
+        state_dict_0: Any, 
+        state_dict_1: Any, 
         key: chex.PRNGKey,
         steps: int,
         plot: bool = True
@@ -80,12 +82,12 @@ def run_episode_and_record(
 
         # SELECT ACTION: PLAYER 0
         rng, _rng = jax.random.split(rng)
-        logits, _, _ = network.apply({"params": network_params_0}, **obs_batch_player_0) # probs is (16, 5)
+        logits, _, _ = network.apply(state_dict_0, **obs_batch_player_0) # probs is (16, 5)
         action_0 = sample_group_action(rng, logits[0]) # (16,)
 
         # SELECT ACTION: PLAYER 1
         rng, _rng = jax.random.split(rng)
-        logits, _, _ = network.apply({"params": network_params_1}, **obs_batch_player_0) # probs is (16, 5)
+        logits, _, _ = network.apply(state_dict_1, **obs_batch_player_0) # probs is (16, 5)
         action_1 = action_0 = sample_group_action(rng, logits[0]) # (16,)
         return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
 
@@ -93,7 +95,7 @@ def run_episode_and_record(
     
     for _ in tqdm(range(steps)):
         rng, _rng = jax.random.split(rng)
-        action = forward(rng, obs, network_params_0, network_params_1)
+        action = forward(rng, obs)
         rng, _rng = jax.random.split(rng)
         obs, env_state, reward, done, info = rec_env.step(rng, env_state, action, env_params)
         stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))

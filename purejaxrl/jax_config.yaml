@@ -41,7 +41,7 @@ ppo:
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: True
-  use_wandb: True
+  use_wandb: False
   record_freq: 100
   match_count_per_episode: 1
   action_temperature: 1.0

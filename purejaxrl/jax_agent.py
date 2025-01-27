@@ -22,7 +22,7 @@ class RawJaxAgent:
         self,
         player: str,
         env_cfg,
-        network_params,
+        state_dict,
         model,
         transform_obs: TransformObs,
         transform_action: TransformAction,
@@ -37,7 +37,7 @@ class RawJaxAgent:
         self.env_params = env_cfg
         self.key = jax.random.PRNGKey(0)
         self.model = model
-        self.network_params = network_params
+        self.state_dict = state_dict
         self.transform_obs = transform_obs
         self.transform_action = transform_action
         self.memory = memory
@@ -50,7 +50,7 @@ class RawJaxAgent:
         transformed_obs: Any,
     ):
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
-        logits, _, _ = self.model.apply({"params": self.network_params}, **transformed_obs_batched) # logits is (16, 6)
+        logits, _, _ = self.model.apply(self.state_dict, **transformed_obs_batched) # logits is (16, 6)
         action = sample_group_action(key, logits[0])
         return action 
 

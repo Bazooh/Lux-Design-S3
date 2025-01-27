@@ -16,7 +16,7 @@ from functools import partial
 from typing import Any
 from purejaxrl.env.memory import Memory, RelicPointMemoryState
 # for recording
-from purejaxrl.utils import serialize_metadata
+from purejaxrl.env.utils import serialize_metadata
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 from luxai_s3.params import serialize_env_params
 import os, json

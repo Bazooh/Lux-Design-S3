@@ -5,7 +5,8 @@ from flax import struct
 import jax, chex
 from functools import partial
 from typing import Any
-from purejaxrl.utils import symmetrize
+from purejaxrl.env.utils import symmetrize
+
 class Memory(ABC):
     def __init__(self):
         pass

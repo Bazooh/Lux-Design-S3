@@ -4,11 +4,11 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import jax, chex
 import jax.numpy as jnp
 import optax
-from flax.training.train_state import TrainState
 from purejaxrl.env.make_env import make_env, LogWrapper
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
-from utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, init_network_params, sample_params
+from purejaxrl.utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, init_state_dict, CustomTrainState
+from purejaxrl.env.utils import sample_params
 from purejaxrl.parse_config import parse_config
 import wandb
 from purejaxrl.eval import run_episode_and_record
@@ -56,21 +56,27 @@ def make_train(config, debug=False,):
         
         # INITIALIZE NETWORKS
         rng, _rng = jax.random.split(key)
-        network_params_0 = init_network_params(_rng, model, init_x=env.observation_space.sample(_rng))
+        variables_0 = init_state_dict(_rng, model, init_x=env.observation_space.sample(_rng))
         rng, _rng = jax.random.split(rng)
-        network_params_1 = init_network_params(_rng, model, init_x=env.observation_space.sample(_rng))
+        variables_1 = init_state_dict(_rng, model, init_x=env.observation_space.sample(_rng))
 
         #create TrainState objects
         transform_lr = optax.chain(
             optax.clip_by_global_norm(config["ppo"]["clip_grad_norm"]),
             optax.adam(learning_rate=linear_schedule, eps=1e-5),
         )
-        train_state = TrainState.create(
-            apply_fn=model.apply,
-            params=network_params_0,
+        train_state = CustomTrainState.create(
+            apply_fn = model.apply,
+            params = variables_0["params"],
+            batch_stats = variables_0["batch_stats"],
             tx=transform_lr,
         )
-
+        test_state = CustomTrainState.create(
+            apply_fn = model.apply,
+            params = variables_1["params"],
+            batch_stats = variables_1["batch_stats"],
+            tx=transform_lr,
+        )
         def step_and_keep_or_reset(rng, env_state, actions, env_params):
             obs, next_env_state, reward, done, info = env.step(rng, env_state, actions, env_params)
             
@@ -121,7 +127,7 @@ def make_train(config, debug=False,):
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits1_v, _, _  = model.apply({"params": train_state.params}, **last_obs_batch_player_1) # logits is (N, 16, 6)
+                logits1_v, _, _  = model.apply({"params": test_state.params}, **last_obs_batch_player_1) # logits is (N, 16, 6)
                 action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
@@ -148,7 +154,7 @@ def make_train(config, debug=False,):
                     info_v = info_v
                 )
 
-                runner_state = (train_state, network_params_1, env_state_v, obs_v, rng, env_params)
+                runner_state = (train_state, test_state, env_state_v, obs_v, rng, env_params)
                 return runner_state, transition
 
             runner_state, traj_batch = jax.lax.scan(
@@ -193,12 +199,14 @@ def make_train(config, debug=False,):
                 def _update_minbatch(train_state, batch_info):
                     traj_batch, advantages, targets = batch_info
 
-                    def _loss_fn(params, traj_batch, gae, targets):
-                        # RERUN NETWORK
-                        logits0_v, value0_v, _ = model.apply({"params": params}, **traj_batch.obs_v)
-                        mask_awake0_v = traj_batch.obs_v['mask_awake']
-                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v)
-
+                    def _loss_fn(params):
+                        # Apply the model with batch_stats and mutable updates
+                        (_, value0_v, _), updates = train_state.apply_fn(
+                            {"params": params, "batch_stats": train_state.batch_stats},
+                            **traj_batch.obs_v,
+                            train=True,
+                            mutable=["batch_stats"],
+                        )
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value_v + (
                             value0_v - traj_batch.value_v
@@ -230,15 +238,22 @@ def make_train(config, debug=False,):
                             + config["ppo"]["vf_coef"] * value_loss
                             - config["ppo"]["ent_coef"] * entropy
                         )
-                        return total_loss, {"value_loss": value_loss, "actor_loss": actor_loss, "entropy": entropy}
 
+                        return total_loss, {
+                            "value_loss": value_loss,
+                            "actor_loss": actor_loss,
+                            "entropy": entropy,
+                            "batch_stats": updates["batch_stats"],
+                        }
 
-                    grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
-                    total_loss, grads = grad_fn(
-                        train_state.params, traj_batch, advantages, targets
-                    )
-                    train_state = train_state.apply_gradients(grads=grads)
-                    return train_state, total_loss
+                # Compute gradients and update train state
+                grad_fn = jax.value_and_grad(_loss_fn, has_aux=True)
+                (total_loss, aux), grads = grad_fn(train_state.params)
+
+                # Apply gradients and update batch_stats
+                train_state = train_state.apply_gradients(
+                    grads=grads, batch_stats=aux["batch_stats"]
+                )
 
                 train_state, traj_batch, advantages, targets, rng = update_state
                 rng, _rng = jax.random.split(rng)
@@ -332,12 +347,12 @@ def make_train(config, debug=False,):
 
             if debug: jax.debug.callback(callback, game_info, loss_dict, update_i, train_state.params)
 
-            runner_state = (train_state, network_params_1, env_state_v, last_obs_v, rng, env_params)
+            runner_state = (train_state, test_state, env_state_v, last_obs_v, rng, env_params)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, network_params_1, env_state_v, obs_v, _rng, env_params)
+        runner_state = (train_state, test_state, env_state_v, obs_v, _rng, env_params)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )

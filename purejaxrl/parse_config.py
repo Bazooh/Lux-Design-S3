@@ -34,13 +34,13 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     ###### Network arguments ######
     if config_dict["network"]["model"] == "Pix2Pix_AC":
         from purejaxrl.network import Pix2Pix_AC
-        network = Pix2Pix_AC(transform_action.action_space.n)
+        model = Pix2Pix_AC(transform_action.action_space.n)
     else:
         raise ValueError(f"Network {config_dict['network']['model']} not supported")
     
     if config_dict["network"]["load_from_checkpoint"] == "None":
-        from purejaxrl.utils import init_network_params
-        network_params = init_network_params(network=network, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)), print_summary = False)
+        from purejaxrl.utils import init_state_dict
+        state_dict = init_state_dict(model=model, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)), print_summary = False)
     else:
         raise ValueError(f"Network {config_dict['network']['name']} not supported")
         # from flax.training import orbax_utils
@@ -52,7 +52,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     return {
         "network":{
             "model": network,
-            "network_params": network_params,
+            "state_dict": state_dict,
         },
         "env_args":{
             "reward_weights": reward_weights, 

@@ -10,7 +10,7 @@ import gymnax
 from typing import Any
 import jax.numpy as jnp
 import numpy as np
-from purejaxrl.utils import mirror_grid, mirror_position, symmetrize
+from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize
 from purejaxrl.env.memory import RelicPointMemoryState
 
 class TransformObs(ABC):

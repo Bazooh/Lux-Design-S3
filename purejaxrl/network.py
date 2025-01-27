@@ -14,7 +14,7 @@ class Conv1x1(nn.Module):
     channels: int
     @nn.compact
     def __call__(self, x):
-        return nn.relu(nn.Conv(self.channels, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(x))
+        return nn.relu(nn.Conv(self.channels, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), use_bias = False)(x))
 
 class SEBlock(nn.Module):
     """
@@ -29,9 +29,9 @@ class SEBlock(nn.Module):
         # Squeeze: Global Average Pooling
         vector = jnp.mean(x, axis=(1, 2), keepdims=False)  # (B, H, W, C) -> (B, C)
         # Excitation: Fully Connected layers with reduction
-        squeezed_vector = nn.Dense(self.n_channels // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(vector) # (B, C) -> (B, C")
+        squeezed_vector = nn.Dense(self.n_channels // self.reduction)(vector) # (B, C) -> (B, C")
         squeezed_vector = nn.relu(squeezed_vector)
-        unsqueezed_vector = nn.Dense(self.n_channels, self.n_channels // self.reduction, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))(squeezed_vector)  # (B, C") -> (B, CX)  
+        unsqueezed_vector = nn.Dense(self.n_channels, self.n_channels // self.reduction)(squeezed_vector)  # (B, C") -> (B, CX)  
         # Go through sigmoid
         out = nn.sigmoid(unsqueezed_vector)  # (B, C)
         out_expanded = jnp.tile(out.reshape((B, 1, 1, -1)), (1, H, W, 1))  # (B, C) -> (B, H, W, C)
@@ -146,25 +146,26 @@ Pos-Masking |                   |  Value Head
     """
     
     action_dim: int = 6
-    n_resblocks: int = 5
+    n_resblocks: int = 1
     n_channels: int = 32
     embedding_time: int = 10
 
     @nn.compact
-    def __call__(self, image, vector, time, position,  mask_awake):
+    def __call__(self, image, vector, time, position,  mask_awake, train = False):
         
         B, C, H, W = image.shape
         B, V = vector.shape
         B, T = time.shape
         
-        fc_time = nn.Sequential([nn.Dense(self.embedding_time, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)), nn.leaky_relu], name="fc_time")
+        fc_time = nn.Sequential([nn.Dense(self.embedding_time, kernel_init=orthogonal(jnp.sqrt(2))), nn.leaky_relu], name="fc_time")
         
         conv1x1_time = Conv1x1(channels=T, name="conv1x1_time") # conv 1x1 block 
         conv1x1_vec = Conv1x1(channels=V, name="conv1x1_vec") # conv 1x1 block
         conv1x1_time_vec = Conv1x1(channels=T+V, name="conv1x1_time_vec") # conv 1x1 block 
-        conv1x1_image = Conv1x1(channels=self.n_channels, name="conv1x1_image") # conv 1x1 block
+        conv1x1_input = Conv1x1(channels=self.n_channels, name="conv1x1_input") # conv 1x1 block
         conv1x1_logits = Conv1x1(channels=self.action_dim, name="conv1x1_logits") # conv 1x1 block  
-        
+        spectral_norm = nn.SpectralNorm(Conv1x1(channels=self.action_dim, name="spectral_norm"))
+
         res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
         
         value_head = nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
@@ -185,10 +186,12 @@ Pos-Masking |                   |  Value Head
         
         x = jnp.concatenate((image, vector), axis=-1)  # (B, H, W, C")
         
-        x = conv1x1_image(x) # (B, H, W, n_channels)
+        x = conv1x1_input(x) # (B, H, W, n_channels)
         
         x = res_blocks(x) # (B, H, W, n_channels)
-        
+
+        x = spectral_norm(x, update_stats = train)
+
         ################# Compute VALUE  ################
         average = jnp.mean(x, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
         value = value_head(average) # (B, n_channels) -> (B, 1)
