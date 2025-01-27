@@ -33,7 +33,7 @@ def get_logprob(logits, mask_awake, action):
     log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 6)
     log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
     log_prob_a_masked = jnp.where(mask_awake, log_prob_a, 0.0)  # Mask invalid positions
-    log_prob = jnp.mean(log_prob_a_masked, axis=-1)  # Shape: (N,)
+    log_prob = jnp.sum(log_prob_a_masked, axis=-1)  # Shape: (N,)
     return(log_prob)
 
 @jax.jit

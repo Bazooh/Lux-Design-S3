@@ -41,7 +41,7 @@ def run_match(
             "player_1": agent_1.act(step = step_idx, obs = EnvObs_to_dict(obs["player_1"])),
         }
         rng, _rng = jax.random.split(rng)
-        obs, env_state, reward, done, info = vanilla_env.step(rng, env_state, action, env_params)
+        obs, env_state, _, _, info = vanilla_env.step(rng, env_state, action, env_params)
         stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
 
     stats_arrays = {
@@ -76,7 +76,7 @@ def run_episode_and_record(
     @jax.jit
     def forward(rng, obs, network_params_0, network_params_1):
         # GET OBS BATCHES
-        obs_batch_player_0, obs_batch_player_1 = get_obs_batch(obs, rec_env.players)
+        obs_batch_player_0, obs_batch_player_1 = get_obs_batch(obs, rec_env.agents)
         obs_batch_player_0 = {feat: jnp.expand_dims(value, axis=0) for feat, value in obs_batch_player_0.items()}
         obs_batch_player_1 = {feat: jnp.expand_dims(value, axis=0) for feat, value in obs_batch_player_1.items()}
 
@@ -89,7 +89,7 @@ def run_episode_and_record(
         rng, _rng = jax.random.split(rng)
         logits, _, _ = network.apply(state_dict_1, **obs_batch_player_0) # probs is (16, 5)
         action_1 = action_0 = sample_group_action(rng, logits[0]) # (16,)
-        return  {rec_env.players[0]: action_0, rec_env.players[1]: action_1}
+        return  {"player_0": action_0, "player_1": action_1}
 
     stack_stats = []
     

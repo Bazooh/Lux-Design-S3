@@ -60,7 +60,7 @@ class RawJaxAgent:
         obs: EnvObs,
         remainingOverageTime: int = 60
     ):
-        self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state)
+        self.memory_state = self.memory.update(obs = obs, team_id=self.team_id, memory_state=self.memory_state, params = EnvParams.from_dict(self.env_params))
         transformed_obs = self.transform_obs.convert(team_id=self.team_id, obs = obs, params=EnvParams.from_dict(self.env_params), memory_state=self.memory_state) 
         action = self.forward(self.key, transformed_obs=transformed_obs)
         transformed_action = self.transform_action.convert(

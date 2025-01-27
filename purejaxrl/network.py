@@ -146,8 +146,8 @@ Pos-Masking |                   |  Value Head
     """
     
     action_dim: int = 6
-    n_resblocks: int = 1
-    n_channels: int = 32
+    n_resblocks: int = 4
+    n_channels: int = 64
     embedding_time: int = 10
 
     @nn.compact

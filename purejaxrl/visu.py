@@ -1,9 +1,10 @@
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle, Rectangle
+import numpy as np
 
 from luxai_s3.env import LuxAIS3Env
-from luxai_s3.state import EnvState
+from luxai_s3.state import EnvObs, EnvState
 
 
 def directional_arrow(action) -> tuple:
@@ -26,7 +27,9 @@ def directional_arrow(action) -> tuple:
         return 0, 0
 
 
-def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
+def visualize_grid(
+    env_state: EnvState, obs: EnvObs, team_id: int, logits_maps: jnp.ndarray
+) -> None:
     """
     Visualize the logits maps.
     Args:
@@ -61,12 +64,53 @@ def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
 
     for x in range(24):
         for y in range(24):
+            if not obs.sensor_mask[x, y]:
+                ax.add_patch(Rectangle((x, y), 1, 1, color="gray", alpha=0.5))
+                continue
+
             tile = env_state.map_features.tile_type[x, y]
 
             if tile == 1:
                 ax.add_patch(Rectangle((x, y), 1, 1, color="purple", alpha=0.5))
             elif tile == 2:
-                ax.add_patch(Rectangle((x, y), 1, 1, color="black", alpha=0.5))
+                ax.add_patch(Rectangle((x, y), 1, 1, color="black", alpha=0.7))
+
+    for team in range(2):
+        unit_pos: dict[tuple[int, int], int] = {}
+        for i in range(16):
+            if not obs.units_mask[team, i]:
+                continue
+
+            pos = (
+                int(obs.units.position[team, i, 0]),
+                int(obs.units.position[team, i, 1]),
+            )
+
+            if pos not in unit_pos:
+                unit_pos[pos] = 0
+
+            unit_pos[pos] += 1
+
+        for (x, y), count in unit_pos.items():
+            ax.add_patch(Circle((x + 0.5, y + 0.5), 0.3, color="black"))
+            ax.add_patch(
+                Circle(
+                    (x + 0.5, y + 0.5),
+                    0.25,
+                    color="#00c6fc" if team == team_id else "red",
+                )
+            )
+
+            ax.text(
+                x + 0.5,
+                y + 0.55,
+                str(count),
+                color="black",
+                ha="center",
+                va="center",
+                fontsize=8,
+                fontweight="bold",
+            )
 
     for i in range(24):
         for j in range(24):
@@ -75,7 +119,7 @@ def visualize_grid(env_state: EnvState, logits_maps: jnp.ndarray) -> None:
                 continue
 
             if action == 5:
-                ax.add_patch(Circle((i + 0.5, j + 0.5), 0.2, color="red"))
+                ax.add_patch(Circle((i + 0.5, j + 0.5), 0.2, color="red", alpha=0.5))
                 continue
 
             x, y = i + 0.5, j + 0.5
@@ -115,6 +159,15 @@ if __name__ == "__main__":
 
     _, step_key = jax.random.split(jax.random.PRNGKey(0))
     _, env_state = env.reset(step_key)
+    for i in range(80):
+        env_obs, env_state, _, _, _, _ = env.step(
+            step_key,
+            env_state,
+            {
+                "player_0": np.random.randint(0, 5, (16, 3), dtype=np.int32),
+                "player_1": np.random.randint(0, 5, (16, 3), dtype=np.int32),
+            },
+        )
 
     logits_maps = jax.random.uniform(jax.random.PRNGKey(0), (24, 24, 6))
-    visualize_grid(env_state, logits_maps)
+    visualize_grid(env_state, env_obs["player_0"], 0, logits_maps)

@@ -1,23 +1,23 @@
 env_args:
   reward_weights:
     stat_0: wins
-    weight_0: 10.0
+    weight_0: 0.0
     stat_1: points_gained
-    weight_1: 10.0
+    weight_1: 0.0
     stat_2: points_discovered
-    weight_2: 10.0
+    weight_2: 0.0
     stat_3: relics_discovered
-    weight_3: 10.0
+    weight_3: 0.0
     stat_4: cells_discovered
-    weight_4: 0.01
+    weight_4: 1.0
     stat_5: deaths
-    weight_5: -0.01
+    weight_5: 0.0
     stat_6: collisions
-    weight_6: -0.05
+    weight_6: 0.0
     stat_7: units_moved
-    weight_7: 0.001
+    weight_7: 0.0
     stat_8: energy_gained
-    weight_8: 0.0001
+    weight_8: 0.0
   transform_obs: HybridTransformObs
   transform_action: SimplerActionNoSap
   memory: RelicPointMemory
@@ -28,11 +28,11 @@ network:
 
 ppo:
   lr: 1e-4
-  num_envs: 64
-  num_steps: 101
+  num_envs: 16
+  num_steps: 256
   total_timesteps: 1e7
   update_epochs: 4
-  num_minibatches: 16
+  num_minibatches: 4
   gamma: 0.99
   gae_lambda: 0.95
   clip_grad_norm: 0.5
