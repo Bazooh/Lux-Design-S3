@@ -3,12 +3,12 @@ import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 import jax, chex
 from typing import Any
-from purejaxrl.utils import sample_params
+from purejaxrl.env.utils import sample_params
 from luxai_s3.env import EnvObs
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from purejaxrl.jax_agent import JaxAgent, RawJaxAgent
+from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent, PureJaxRLAgent
 from tqdm import tqdm
 from purejaxrl.env.make_env import make_vanilla_env, TrackerWrapper, LogWrapper
 from purejaxrl.parse_config import parse_config
@@ -35,8 +35,8 @@ def EnvObs_to_dict(obs: EnvObs) -> dict[str, Any]:
     }
 
 def rollout(
-        agent_0: JaxAgent, 
-        agent_1: JaxAgent, 
+        agent_0: PureJaxRLAgent, 
+        agent_1: PureJaxRLAgent, 
         actor_0: Any,
         actor_1: Any,
         vanilla_env: TrackerWrapper, 
@@ -167,8 +167,8 @@ if __name__ == "__main__":
     steps = 150
 
     channels_arrays, stats_arrays, relic_weights = rollout(
-        agent_0=JaxAgent("player_0", env_params.__dict__),
-        agent_1=JaxAgent("player_1", env_params.__dict__),
+        agent_0=PureJaxRLAgent("player_0", env_params.__dict__),
+        agent_1=PureJaxRLAgent("player_1", env_params.__dict__),
         actor_0=NaiveAgent("player_0", env_params.__dict__),
         actor_1=NaiveAgent("player_1", env_params.__dict__),
         key=key,

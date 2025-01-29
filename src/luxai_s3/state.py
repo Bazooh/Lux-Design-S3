@@ -118,7 +118,29 @@ class EnvObs:
     steps: int = 0
     """steps taken in the environment"""
     match_steps: int = 0
-    """steps taken in the current match"""
+    """steps taken in the current match"""    
+    
+    @staticmethod
+    def from_dict(observation: dict) -> "EnvObs":
+        return EnvObs(
+            units=UnitState(
+                position=observation["units"]["position"],
+                energy=observation["units"]["energy"],
+            ),
+            units_mask=observation["units_mask"],
+            sensor_mask=observation["sensor_mask"],
+            map_features=MapTile(
+                energy=observation["map_features"]["energy"],
+                tile_type=observation["map_features"]["tile_type"],
+            ),
+            relic_nodes=observation["relic_nodes"],
+            relic_nodes_mask=observation["relic_nodes_mask"],
+            team_points=observation["team_points"],
+            team_wins=observation["team_wins"],
+            steps=observation["steps"],
+            match_steps=observation["match_steps"],
+        )
+
     
     
 

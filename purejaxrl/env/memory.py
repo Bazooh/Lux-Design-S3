@@ -20,6 +20,15 @@ class Memory(ABC):
     @abstractmethod
     def reset(self)-> Any: ...
 
+class NoMemory(Memory):
+    
+    def update(self, obs: EnvObs, team_id: int, memory_state: Any, params: EnvParams) -> Any: 
+        pass
+
+    def reset(self):
+        pass
+   
+ 
 @struct.dataclass
 class RelicPointMemoryState:
     relics_found: chex.Array
@@ -84,7 +93,6 @@ class RelicPointMemory(Memory):
         alive_units_image = jnp.zeros((24,24), dtype = jnp.int8).at[positions[:, 0], positions[:, 1]].set(1)
         alive_units_image = (alive_units_image == 1)
         could_be_relic_image = (new_relics_found >= 0).astype(jnp.int8)
-        cells_in_relic_range_image = jnp.zeros((24,24), dtype = jnp.int8)
         cells_in_relic_range_image = jax.scipy.signal.convolve2d(could_be_relic_image, jnp.ones((5, 5)), mode='same')
         cells_in_relic_range_image = cells_in_relic_range_image>0
         units_out_of_range_image = (~cells_in_relic_range_image) & alive_units_image
