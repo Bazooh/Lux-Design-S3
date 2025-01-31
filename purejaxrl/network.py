@@ -14,7 +14,14 @@ class Conv1x1(nn.Module):
     channels: int
     @nn.compact
     def __call__(self, x):
-        return nn.relu(nn.Conv(self.channels, kernel_size=1, strides=1, padding=0, kernel_init=orthogonal(jnp.sqrt(2)), use_bias = False)(x))
+        x = nn.Conv(self.channels, 
+                    kernel_size=1, 
+                    strides=1, 
+                    padding=0, 
+                    kernel_init=orthogonal(jnp.sqrt(2)), 
+                    bias_init=constant(0.0), 
+                    use_bias = True)(x)
+        return nn.relu(x)
 
 class SEBlock(nn.Module):
     """
@@ -29,9 +36,14 @@ class SEBlock(nn.Module):
         # Squeeze: Global Average Pooling
         vector = jnp.mean(x, axis=(1, 2), keepdims=False)  # (B, H, W, C) -> (B, C)
         # Excitation: Fully Connected layers with reduction
-        squeezed_vector = nn.Dense(self.n_channels // self.reduction)(vector) # (B, C) -> (B, C")
+        squeezed_vector = nn.Dense(self.n_channels // self.reduction, 
+                                   kernel_init=orthogonal(jnp.sqrt(2)), 
+                                   bias_init=constant(0.0))(vector) # (B, C) -> (B, C")
         squeezed_vector = nn.relu(squeezed_vector)
-        unsqueezed_vector = nn.Dense(self.n_channels, self.n_channels // self.reduction)(squeezed_vector)  # (B, C") -> (B, CX)  
+        unsqueezed_vector = nn.Dense(self.n_channels, 
+                                    self.n_channels // self.reduction, 
+                                    kernel_init=orthogonal(jnp.sqrt(2)), 
+                                    bias_init=constant(0.0))(squeezed_vector)  # (B, C") -> (B, C)  
         # Go through sigmoid
         out = nn.sigmoid(unsqueezed_vector)  # (B, C)
         out_expanded = jnp.tile(out.reshape((B, 1, 1, -1)), (1, H, W, 1))  # (B, C) -> (B, H, W, C)
@@ -75,6 +87,7 @@ class ResidualBlock(nn.Module):
                 strides=self.strides, 
                 padding=self.padding, 
                 kernel_init=orthogonal(jnp.sqrt(2)),
+                use_bias = True
             ),
             nn.leaky_relu,
             nn.Conv(
@@ -83,6 +96,7 @@ class ResidualBlock(nn.Module):
                 strides=self.strides, 
                 padding=self.padding, 
                 kernel_init=orthogonal(jnp.sqrt(2)),
+                use_bias = True
             ),
             nn.leaky_relu,
         ])
@@ -146,7 +160,7 @@ Pos-Masking |                   |  Value Head
     """
     
     action_dim: int = 6
-    n_resblocks: int = 6
+    n_resblocks: int = 4
     n_channels: int = 64
     embedding_time: int = 10
 
@@ -168,7 +182,10 @@ Pos-Masking |                   |  Value Head
 
         res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
         
-        value_head = nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
+        value_head = nn.Sequential([
+            nn.Dense(16, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
+            nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
+        ], name="value_head")
         
         ########## PROCESS TIME AND VECTOR ##########
         time_embedded = fc_time(time) # (B, T) -> (B, embedding_time)
@@ -190,7 +207,7 @@ Pos-Masking |                   |  Value Head
         
         x = res_blocks(x) # (B, H, W, n_channels)
 
-        x = spectral_norm(x, update_stats = train)
+        x_normalized = spectral_norm(x, update_stats = train)
 
         ################# Compute VALUE  ################
         average = jnp.mean(x, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
