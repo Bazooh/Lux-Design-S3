@@ -49,6 +49,14 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         # # restored = orbax_checkpointer.restore(config_dict["network"]["checkpoint"])
         # # network_params = restored["model"]["params"]
     
+    ######## Arena Agent  #########
+    if config_dict["ppo"]["arena_agent"] == "NaiveAgent_Jax":
+        from rule_based_jax.naive.agent import NaiveAgent_Jax
+        arena_agent = NaiveAgent_Jax(player = "player_1")
+    elif config_dict["ppo"]["arena_agent"] == "RandomAgent_Jax":
+        from rule_based_jax.random.agent import RandomAgent_Jax
+        arena_agent = RandomAgent_Jax(player =  "player_1")
+
     return {
         "network":{
             "model": model,
@@ -62,7 +70,6 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         },
         "ppo": {
             "use_wandb": bool(config_dict["ppo"]["use_wandb"]),
-            "record_freq": int(config_dict["ppo"]["record_freq"]),
             "match_count_per_episode": int(config_dict["ppo"]["match_count_per_episode"]),
             "lr": float(config_dict["ppo"]["lr"]),
             "num_envs": int(config_dict["ppo"]["num_envs"]),
@@ -80,5 +87,8 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "anneal_lr": bool(config_dict["ppo"]["anneal_lr"]),
             "seed": int(config_dict["ppo"]["seed"]),
             "action_temperature": float(config_dict["ppo"]["action_temperature"]),
+            "arena_agent": arena_agent,
+            "record_freq": int(config_dict["ppo"]["record_freq"]),
+            "arena_freq": int(config_dict["ppo"]["arena_freq"]),
         }
     }

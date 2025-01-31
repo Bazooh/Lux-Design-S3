@@ -1,5 +1,6 @@
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+from gym import Env
 import jax, chex
 from typing import Any
 import jax.numpy as jnp
@@ -22,15 +23,15 @@ def run_parallel_episodes(
         vanilla_env: TrackerWrapper, 
         key: chex.PRNGKey,
         number_of_games = 8,
-        steps_per_episode = 505
+        use_tdqm = False
     ):
     # INITIALIZE ENVIRONMENT
     rng, _rng = jax.random.split(key)
     rng_params = jax.random.split(rng, number_of_games)
-    env_params_v = jax.vmap(lambda key: sample_params(key, match_count_per_episode = steps_per_episode//101))(rng_params)
+    env_params_v = jax.vmap(sample_params)(rng_params)
     reset_rng = jax.random.split(rng, number_of_games)
     obs_v, env_state_v = jax.vmap(vanilla_env.reset)(reset_rng, env_params_v)
-    
+    max_steps = (sample_params(rng).max_steps_in_match +1) * sample_params(rng).match_count_per_episode
     @jax.jit
     def get_actions(rng, 
                     obs_player_0: EnvObs,
@@ -44,7 +45,7 @@ def run_parallel_episodes(
         action_1 = agent_1.forward(team_id = 1, key = rng_1, obs = obs_player_1, memory_state = memory_state_player_1, env_params = env_params)
         return  {"player_0": action_0, "player_1": action_1}
     
-    @scan_tqdm(steps_per_episode, print_rate=1, desc = f"Rollout {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}")
+    @scan_tqdm(max_steps, print_rate=1, desc = f"Running Arena Matches {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm)
     def _env_step(runner_state, _):
         env_state_v, last_obs_v, rng, env_params_v = runner_state
         
@@ -70,7 +71,7 @@ def run_parallel_episodes(
         return runner_state, info_v
 
     runner_state, info_v = jax.lax.scan(
-    _env_step, (env_state_v, obs_v, rng, env_params_v), jnp.arange(steps_per_episode),
+    _env_step, (env_state_v, obs_v, rng, env_params_v), jnp.arange(max_steps),
     )
 
     return info_v
@@ -82,18 +83,19 @@ def run_episode_and_record(
         agent_0: JaxAgent, 
         agent_1: JaxAgent, 
         key: chex.PRNGKey,
-        steps_per_episode = 505,
-        plot: bool = True
+        plot: bool = True,
+        use_tdqm = False
     ):
     """
     Evaluate the trained agent against a reference agent using a separate eval environment.
     """
     rng, _rng = jax.random.split(key)
     rng_params, _rng = jax.random.split(rng)
-    env_params = sample_params(rng_params, match_count_per_episode = steps_per_episode//101)
+    env_params = sample_params(rng_params)
     reset_rng, _rng = jax.random.split(rng)
     obs, env_state = rec_env.reset(reset_rng, env_params)
-    
+    max_steps = (env_params.max_steps_in_match +1) * env_params.match_count_per_episode
+
     @jax.jit
     def get_actions(rng, 
                     obs_player_0: EnvObs,
@@ -109,7 +111,7 @@ def run_episode_and_record(
 
     stack_stats = []
     
-    for _ in tqdm(range(steps_per_episode), desc = f"Rollout {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}"):
+    for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
         action_rng, _rng = jax.random.split(rng)
         memory_state_player_0 = env_state.memory_state_player_0
         memory_state_player_1 = env_state.memory_state_player_1
@@ -135,24 +137,17 @@ def test_a():
     seed = np.random.randint(0, 100)
     key = jax.random.PRNGKey(seed)
     rec_env = make_vanilla_env(config["env_args"], record=True, save_on_close=True, save_dir = "test", save_format = "html")
-    env_params = sample_params(key)
     rec_env = LogWrapper(rec_env, replace_info=True)
-    steps = 105
-    
-    run_episode_and_record(
-        rec_env = rec_env,
-        agent_0 = PureJaxRLAgent("player_0", env_params.__dict__),
-        agent_1 = PureJaxRLAgent("player_0", env_params.__dict__),
-        steps_per_episode = steps,
-        key = key, 
-    )
+
+    agent_0 = PureJaxRLAgent("player_0")
+    agent_1 = config["ppo"]["arena_agent"]
 
     run_episode_and_record(
         rec_env = rec_env,
-        agent_0 = NaiveAgent_Jax("player_0", env_params.__dict__),
-        agent_1 = NaiveAgent_Jax("player_0", env_params.__dict__),
-        steps_per_episode = steps,
+        agent_0 = agent_0,
+        agent_1 = agent_1, 
         key = key, 
+        use_tdqm = True
     )
 
 
@@ -161,25 +156,21 @@ def test_b():
     config = parse_config()
     seed = np.random.randint(0, 100)
     key = jax.random.PRNGKey(seed)
-    vanilla_env = make_vanilla_env(config["env_args"])
-    vanilla_env = LogWrapper(vanilla_env)
-    env_params = sample_params(key)
+    arena_env = make_vanilla_env(config["env_args"])
+    arena_env = LogWrapper(arena_env)
     
-    run_parallel_episodes(
-        agent_0 = PureJaxRLAgent("player_0", env_params.__dict__),
-        agent_1 = PureJaxRLAgent("player_1", env_params.__dict__),
-        key = key,
-        vanilla_env = vanilla_env,
-    )
+    agent_0 = PureJaxRLAgent("player_0")
+    agent_1 = config["ppo"]["arena_agent"]
 
     run_parallel_episodes(
-        agent_0 = NaiveAgent_Jax("player_0", env_params.__dict__),
-        agent_1 = NaiveAgent_Jax("player_1", env_params.__dict__),
+        agent_0 = agent_0,
+        agent_1 = agent_1,
         key = key,
-        vanilla_env = vanilla_env,
+        vanilla_env = arena_env,
+        use_tdqm = True
     )
 
 
 if __name__ == "__main__":
-    test_a()
+    #test_a()
     test_b()

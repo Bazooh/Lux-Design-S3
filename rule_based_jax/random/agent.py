@@ -8,7 +8,7 @@ from purejaxrl.env.memory import Memory, NoMemory
 from rule_based_jax.utils import find_nearest, direction_to
 
 class RandomAgent_Jax(JaxAgent):
-    def __init__(self, player: str, env_params):
+    def __init__(self, player: str, env_params = EnvParams().__dict__):
         super().__init__(player, env_params, memory = NoMemory())
 
     

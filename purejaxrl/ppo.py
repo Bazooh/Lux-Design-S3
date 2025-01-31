@@ -1,17 +1,19 @@
+import re
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import jax, chex
 import jax.numpy as jnp
 import optax
-from purejaxrl.env.make_env import make_env, LogWrapper
+from purejaxrl.env.make_env import make_env, make_vanilla_env, LogWrapper
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
 from purejaxrl.utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, init_state_dict, CustomTrainState
 from purejaxrl.env.utils import sample_params
 from purejaxrl.parse_config import parse_config
 import wandb
-from purejaxrl.eval import run_episode_and_record
+from purejaxrl.eval import run_parallel_episodes, run_episode_and_record
+from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent
 """
 Reference:  ppo implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -38,6 +40,7 @@ def make_train(config, debug=False,):
     print("Starting ppo with config:", config["ppo"])
     print('-'*150)
 
+
     def linear_schedule(count):
         frac = (
             1.0
@@ -47,10 +50,17 @@ def make_train(config, debug=False,):
         return config["ppo"]["lr"] * frac
 
     env = make_env(config["env_args"])
-    env = LogWrapper(env, replace_info=True)
+    env = LogWrapper(env, replace_info=True)    
+
     model = config["network"]["model"]
-    rec_env = make_env(config["env_args"], auto_reset = False, record=True, save_on_close=True, save_dir = "purejaxrl/replays/ppo", save_format = "html")
+    arena_agent = config["ppo"]["arena_agent"]
+
+    rec_env = make_vanilla_env(config["env_args"], record=True, save_on_close=True, save_dir = "purejaxrl/replays_ppo", save_format = "html")
     rec_env = LogWrapper(rec_env)
+    
+    arena_env = make_vanilla_env(config["env_args"])
+    arena_env = LogWrapper(arena_env)    
+    
 
     def train(key: chex.PRNGKey,):
         
@@ -305,12 +315,17 @@ def make_train(config, debug=False,):
             
 
             ################# LOG COOL STUFF #################
-            def callback(game_info, loss_dict, update_i, current_params):
+            def callback(game_info, loss_dict, update_i, current_state_dict):
+                update_step = int(update_i)
+                
+                rng_callback = jax.random.PRNGKey(update_step)
+                
                 returned_episodes = game_info["returned_episode"]
                 if jnp.sum(returned_episodes) == 0:
                     return  # Skip if no episodes have ended
 
-                # COMPUTE MAIN METRICS
+
+                ############# COMPUTE GAME METRICS ############ 
                 return_values = jnp.mean(game_info["episode_return"][returned_episodes], axis=0)
                 value_loss = jnp.mean(loss_dict["value_loss"])
                 actor_loss = jnp.mean(loss_dict["actor_loss"])
@@ -322,20 +337,55 @@ def make_train(config, debug=False,):
                     "loss/entropy": entropy,
                 }
 
-                # COMPUTE STAT-RELATED METRICS
-                player_stats = game_info[f"episode_stats_player_0"]
-                for key, value in player_stats.__dict__.items():
-                    metrics[f"reward/episode_{key}"] = jnp.mean(
+                player_stats = game_info["episode_stats_player_0"].__dict__
+                for key, value in player_stats.items():
+                    metrics[f"reward/selfplay_{key}"] = jnp.mean(
                         value[returned_episodes], axis=0
                     )
-                winrate = (metrics["reward/episode_wins"] + 1) / 2
+                winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
+                metrics["reward/selfplay_winrate"] = winrate
 
-                # Convert update_i to a Python integer
-                update_step = int(update_i)
+                ############ RUN ARENA ############
+                if (update_step-1) % config['ppo']["arena_freq"] == 0:
+                    our_agent = RawPureJaxRLAgent(
+                        player="player_0",
+                        model = model,
+                        transform_action=config["env_args"]["transform_action"],
+                        transform_obs=config["env_args"]["transform_obs"],
+                        state_dict=current_state_dict,
+                        memory=config["env_args"]["memory"],
+                    )
 
-                if config["ppo"]["use_wandb"]:
-                    wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
-
+                    arena_info = run_parallel_episodes(
+                        agent_0=our_agent,
+                        agent_1=arena_agent,
+                        vanilla_env=arena_env,
+                        key = rng_callback,
+                        number_of_games = 16,
+                    )
+                    arena_stats = arena_info["episode_stats_player_0"].__dict__
+                    arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
+                    metrics["reward/arena_winrate"] = arena_winrate
+                ############ RUN A RECORING ############
+                if (update_step-1) % config['ppo']["record_freq"] == 0:
+                    our_agent = RawPureJaxRLAgent(
+                        player="player_0",
+                        model = model,
+                        transform_action=env.transform_action,
+                        transform_obs=env.transform_obs,
+                        state_dict=current_state_dict,
+                        memory=env.memory,
+                    )
+                    run_episode_and_record(
+                        rec_env=rec_env,                        
+                        agent_0=our_agent,
+                        agent_1=arena_agent,
+                        key=rng_callback,
+                        plot=False
+                    )
+                
+                if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
+                    
                 print(
                     f"Return Values: {return_values[0]:<10.2f} | "
                     f"Win Rate: {100 * winrate:<6.2f} % | "
@@ -344,18 +394,8 @@ def make_train(config, debug=False,):
                     f"Value Loss: {value_loss:<4.2f}"
                 )
 
-                if (update_step-1) % config['ppo']["record_freq"] == 0:
-                    run_episode_and_record(
-                        rec_env=rec_env,
-                        network=model,
-                        network_params_0=current_params,
-                        network_params_1=current_params,
-                        key=jax.random.PRNGKey(update_step),
-                        steps=100,
-                        plot=False
-                    )
-
-            if debug: jax.debug.callback(callback, game_info, loss_dict, update_i, train_state.params)
+            if debug: 
+                jax.debug.callback(callback, game_info, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
             runner_state = (train_state, test_state, env_state_v, last_obs_v, rng, env_params)
             

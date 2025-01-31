@@ -1,23 +1,13 @@
 env_args:
   reward_weights:
-    stat_0: wins
+    stat_0: points_gained
     weight_0: 0.0
-    stat_1: points_gained
-    weight_1: 0.0
-    stat_2: points_discovered
-    weight_2: 0.0
-    stat_3: relics_discovered
-    weight_3: 0.0
-    stat_4: cells_discovered
-    weight_4: 1.0
-    stat_5: deaths
-    weight_5: 0.0
-    stat_6: collisions
-    weight_6: 0.0
-    stat_7: units_moved
-    weight_7: 0.0
-    stat_8: energy_gained
-    weight_8: 0.0
+    stat_1: points_discovered
+    weight_1: 1.0
+    stat_2: relics_discovered
+    weight_2: 1.0
+    stat_3: cells_discovered
+    weight_3: 0.01
   transform_obs: HybridTransformObs
   transform_action: SimplerActionNoSap
   memory: RelicPointMemory
@@ -27,7 +17,7 @@ network:
   load_from_checkpoint: None
 
 ppo:
-  lr: 1e-4
+  lr: 5e-4
   num_envs: 16
   num_steps: 256
   total_timesteps: 1e7
@@ -41,8 +31,10 @@ ppo:
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: True
-  use_wandb: False
-  record_freq: 100
+  use_wandb: True
   match_count_per_episode: 1
   action_temperature: 1.0
   seed: 0
+  arena_agent: NaiveAgent_Jax
+  arena_freq: 10
+  record_freq: 100
