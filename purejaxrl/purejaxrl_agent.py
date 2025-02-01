@@ -41,12 +41,17 @@ class RawPureJaxRLAgent(JaxAgent):
         env_params: EnvParams
     ):
         
-        transformed_obs = self.transform_obs.convert(team_id=team_id, obs = obs, params=env_params, memory_state=memory_state) 
+        transformed_obs = self.transform_obs.convert(
+            team_id=team_id,
+            obs=obs,
+            memory_state=memory_state,
+            params=env_params,
+        ) 
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
         logits, _, _ = self.model.apply(self.state_dict, **transformed_obs_batched, train = False) # logits is (16, 6)
-        action = sample_group_action(key, logits[0])[0]
+        action = sample_group_action(key, logits[0])
         transformed_action = self.transform_action.convert(
-            team_id=self.team_id,
+            team_id=team_id,
             action=action,
             obs=obs,
             params=env_params,

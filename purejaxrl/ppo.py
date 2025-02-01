@@ -383,7 +383,6 @@ def make_train(config, debug=False,):
                         agent_1=arena_agent,
                         key=rng_callback,
                         match_count_per_episode = config["ppo"]["match_count_per_episode_arena"],
-                        plot=False
                     )
                 
                 if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
