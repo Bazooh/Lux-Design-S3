@@ -32,7 +32,7 @@ def run_parallel_episodes(
     env_params_v = jax.vmap(lambda key: sample_params(key, match_count_per_episode = match_count_per_episode))(rng_params)
     reset_rng = jax.random.split(rng, number_of_games)
     obs_v, env_state_v = jax.vmap(vanilla_env.reset)(reset_rng, env_params_v)
-    max_steps = (sample_params(rng).max_steps_in_match +1) * sample_params(rng).match_count_per_episode
+    max_steps = (env_params_v.max_steps_in_match[0] +1) * env_params_v.max_steps_in_match[0].match_count_per_episode
     @jax.jit
     def get_actions(rng, 
                     obs_player_0: EnvObs,
