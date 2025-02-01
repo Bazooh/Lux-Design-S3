@@ -92,7 +92,7 @@ def make_train(config, debug=False,):
             
             def reset():
                 reset_rng, param_rng = jax.random.split(rng)
-                new_params = sample_params(param_rng, match_count_per_episode=1)
+                new_params = sample_params(param_rng, match_count_per_episode=config["ppo"]["match_count_per_episode"])
                 new_obs, new_state = env.reset(reset_rng, new_params)
                 return new_obs, new_state, new_params
             
@@ -361,7 +361,8 @@ def make_train(config, debug=False,):
                         agent_1=arena_agent,
                         vanilla_env=arena_env,
                         key = rng_callback,
-                        number_of_games = 16,
+                        number_of_games = 8,
+                        match_count_per_episode = config["ppo"]["match_count_per_episode_arena"],
                     )
                     arena_stats = arena_info["episode_stats_player_0"].__dict__
                     arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
@@ -381,6 +382,7 @@ def make_train(config, debug=False,):
                         agent_0=our_agent,
                         agent_1=arena_agent,
                         key=rng_callback,
+                        match_count_per_episode = config["ppo"]["match_count_per_episode_arena"],
                         plot=False
                     )
                 

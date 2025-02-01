@@ -12,72 +12,8 @@ from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent, PureJaxRLAgent
 from tqdm import tqdm
 from purejaxrl.env.make_env import make_vanilla_env, TrackerWrapper, LogWrapper
 from purejaxrl.parse_config import parse_config
-from rule_based.naive.agent import NaiveAgent
-
-def EnvObs_to_dict(obs: EnvObs) -> dict[str, Any]:
-    return {
-        "units": {
-            "position": obs.units.position,
-            "energy": obs.units.energy,
-        },
-        "units_mask": obs.units_mask,
-        "sensor_mask": obs.sensor_mask,
-        "map_features": {
-            "energy": obs.map_features.energy,
-            "tile_type": obs.map_features.tile_type,
-        },
-        "relic_nodes": obs.relic_nodes,
-        "relic_nodes_mask": obs.relic_nodes_mask,
-        "team_points": obs.team_points,
-        "team_wins": obs.team_wins,
-        "steps": obs.steps,
-        "match_steps": obs.match_steps
-    }
-
-def rollout(
-        agent_0: PureJaxRLAgent, 
-        agent_1: PureJaxRLAgent, 
-        actor_0: Any,
-        actor_1: Any,
-        vanilla_env: TrackerWrapper, 
-        env_params,
-        key: chex.PRNGKey,
-        steps = 50
-    ):
-    rng, _rng = jax.random.split(key)
-    obs, env_state = vanilla_env.reset(rng, env_params)
-
-    stack_images = []
-    stack_stats = []
-    relic_weights = []
-
-    for step_idx in tqdm(range(steps), desc = "Rollout and store obs+stats"):
-        transformed_obs_0 = agent_0.transform_obs.convert(team_id=agent_0.team_id, obs=obs["player_0"], params=env_params, memory_state=env_state.memory_state_player_0)
-        transformed_obs_1 = agent_1.transform_obs.convert(team_id=agent_1.team_id, obs=obs["player_1"], params=env_params, memory_state=env_state.memory_state_player_1)
-
-        action = {
-            "player_0": actor_0.act(step=step_idx, obs=EnvObs_to_dict(obs["player_0"])), 
-            "player_1": actor_1.act(step=step_idx, obs=EnvObs_to_dict(obs["player_1"])),
-        }
-        rng, _rng = jax.random.split(rng)
-        obs, env_state, _, _, info = vanilla_env.step(rng, env_state, action, env_params)
-
-        stack_images.append((transformed_obs_0["image"], transformed_obs_1["image"]))
-        stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
-        relic_weights.append(env_state.relic_nodes_map_weights)
-
-    channels_arrays = {
-        "obs_player_0": {feat: np.array([stack_images[i][0][feat_idx] for i in range(len(stack_images))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)},
-        "obs_player_1": {feat: np.array([stack_images[i][1][feat_idx] for i in range(len(stack_images))], dtype=np.float32) for feat_idx,feat in enumerate(agent_1.transform_obs.image_features)}
-    }
-    stats_arrays = {
-        "episode_stats_player_0": {stat: np.array([getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names},
-        "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names}
-    }
-    vanilla_env.close()
-
-    return channels_arrays, stats_arrays, relic_weights
-
+from rule_based_jax.naive.agent import NaiveAgent_Jax
+from purejaxrl.eval import run_episode_and_record
 
 # Function to plot tensor features
 def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int, relic_weights):
@@ -157,25 +93,27 @@ def update(frame_idx: int,
 if __name__ == "__main__":
 
     config = parse_config()
-    #seed = np.random.randint(0, 100)
-    seed = 46
+    seed = np.random.randint(0, 100)
     print(f"Seed: {seed}")
     key = jax.random.PRNGKey(seed)
-    vanilla_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir=".", save_format="html")
-    vanilla_env = LogWrapper(vanilla_env, replace_info=True)
-    env_params = sample_params(key)
-    steps = 150
-
-    channels_arrays, stats_arrays, relic_weights = rollout(
-        agent_0=PureJaxRLAgent("player_0", env_params.__dict__),
-        agent_1=PureJaxRLAgent("player_1", env_params.__dict__),
-        actor_0=NaiveAgent("player_0", env_params.__dict__),
-        actor_1=NaiveAgent("player_1", env_params.__dict__),
-        key=key,
-        vanilla_env=vanilla_env,
-        env_params=env_params,
-        steps=steps
+    rec_env = make_vanilla_env(env_args=config["env_args"], record=True, save_on_close=True, save_dir=".", save_format="html")
+    rec_env = LogWrapper(rec_env, replace_info=True)
+    
+    agent_0=PureJaxRLAgent("player_0")
+    agent_1=NaiveAgent_Jax("player_1")
+    
+    channels_arrays, stats_arrays, relic_weights = run_episode_and_record(
+        rec_env = rec_env,
+        agent_0 = agent_0,
+        agent_1 = agent_1, 
+        key = key, 
+        match_count_per_episode = 1,
+        use_tdqm = True,
+        return_states = True,
+        plot_stats_curves = False        
     )
+    
+    steps = len(relic_weights)
     n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, len(stats_arrays["episode_stats_player_0"].keys()))
     fig, axes = plt.subplots(3, n_columns, figsize=(4*n_columns, 12))
 

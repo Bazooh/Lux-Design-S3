@@ -61,6 +61,7 @@ class HybridTransformObs(TransformObs):
     
     def __init__(self):
         super().__init__()
+        params = EnvParams()
         self.image_features = { # Key: Name of the feature, Value: Number of channels required representing the feature
             "Unknown": 1,
             "Asteroid": 1,
@@ -97,7 +98,7 @@ class HybridTransformObs(TransformObs):
         self.vector_mean = { key : np.mean(env_params_ranges[key]) if key in env_params_ranges else 0 for key in self.vector_features.keys()}
         self.vector_std = { key : np.std(env_params_ranges[key]) if key in env_params_ranges else 1 for key in self.vector_features.keys()}
         self.time_discretization = 2
-        self.time_size = 100//self.time_discretization + 5
+        self.time_size = (params.max_steps_in_match + 1)//self.time_discretization + (params.match_count_per_episode + 1)
         self.vector_std_values = jnp.array(list(self.vector_std.values()))
         self.vector_mean_values = jnp.array(list(self.vector_mean.values()))
         self.observation_space = gymnax.environments.spaces.Dict({
@@ -173,11 +174,11 @@ class HybridTransformObs(TransformObs):
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
         
         ############# HANDLES TIME WITH OHE ##############
-        current_step = obs.steps// params.match_count_per_episode
-        current_match = obs.steps % params.match_count_per_episode
+        current_step = obs.steps // (params.max_steps_in_match + 1)
+        current_match = obs.steps % (params.max_steps_in_match + 1)
 
         time_vector = jnp.zeros((self.time_size), dtype=jnp.float32)
-        time_vector = time_vector.at[current_step//2].set(1)
+        time_vector = time_vector.at[5 + current_step//self.time_discretization].set(1)
         time_vector = time_vector.at[current_match].set(1)
 
         ############# HANDLES mask_awake ##############

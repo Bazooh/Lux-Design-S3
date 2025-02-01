@@ -1,7 +1,7 @@
 env_args:
   reward_weights:
     stat_0: points_gained
-    weight_0: 0.0
+    weight_0: 0.25
     stat_1: points_discovered
     weight_1: 1.0
     stat_2: relics_discovered
@@ -17,7 +17,8 @@ network:
   load_from_checkpoint: None
 
 ppo:
-  lr: 5e-4
+  # Learning Args
+  lr: 1e-4
   num_envs: 16
   num_steps: 256
   total_timesteps: 1e7
@@ -31,10 +32,13 @@ ppo:
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: True
-  use_wandb: True
-  match_count_per_episode: 1
   action_temperature: 1.0
+  match_count_per_episode: 1
   seed: 0
-  arena_agent: NaiveAgent_Jax
+
+  # Log Args
+  use_wandb: True
   arena_freq: 10
   record_freq: 100
+  arena_agent: NaiveAgent_Jax
+  match_count_per_episode_arena: 1

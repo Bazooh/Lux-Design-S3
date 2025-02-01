@@ -23,12 +23,13 @@ def run_parallel_episodes(
         vanilla_env: TrackerWrapper, 
         key: chex.PRNGKey,
         number_of_games = 8,
+        match_count_per_episode = 5,
         use_tdqm = False
     ):
     # INITIALIZE ENVIRONMENT
     rng, _rng = jax.random.split(key)
     rng_params = jax.random.split(rng, number_of_games)
-    env_params_v = jax.vmap(sample_params)(rng_params)
+    env_params_v = jax.vmap(lambda key: sample_params(key, match_count_per_episode = match_count_per_episode))(rng_params)
     reset_rng = jax.random.split(rng, number_of_games)
     obs_v, env_state_v = jax.vmap(vanilla_env.reset)(reset_rng, env_params_v)
     max_steps = (sample_params(rng).max_steps_in_match +1) * sample_params(rng).match_count_per_episode
@@ -83,7 +84,9 @@ def run_episode_and_record(
         agent_0: JaxAgent, 
         agent_1: JaxAgent, 
         key: chex.PRNGKey,
-        plot: bool = True,
+        match_count_per_episode = 5,
+        plot_stats: bool = True,
+        return_states: bool = False,
         use_tdqm = False
     ):
     """
@@ -91,7 +94,7 @@ def run_episode_and_record(
     """
     rng, _rng = jax.random.split(key)
     rng_params, _rng = jax.random.split(rng)
-    env_params = sample_params(rng_params)
+    env_params = sample_params(rng_params, match_count_per_episode = match_count_per_episode)
     reset_rng, _rng = jax.random.split(rng)
     obs, env_state = rec_env.reset(reset_rng, env_params)
     max_steps = (env_params.max_steps_in_match +1) * env_params.match_count_per_episode
@@ -110,6 +113,8 @@ def run_episode_and_record(
         return  {"player_0": action_0, "player_1": action_1}
 
     stack_stats = []
+    stack_states = []
+    relic_weights = []
     
     for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
         action_rng, _rng = jax.random.split(rng)
@@ -121,6 +126,8 @@ def run_episode_and_record(
         obs, env_state, _, _, info = rec_env.step(rng_step, env_state, action, env_params)
         
         stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
+        stack_states.append((transformed_obs_0["image"], transformed_obs_1["image"]))
+        relic_weights.append(env_state.relic_nodes_map_weights)
     
     rec_env.close()
 
@@ -129,8 +136,100 @@ def run_episode_and_record(
         "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names}
     }
     
-    if plot: plot_stats(stats_arrays)
+    if plot_stats: 
+        plot_stats(stats_arrays)
+        
+    if return_states: 
+        channels_arrays = {
+        "obs_player_0": {feat: np.array([stack_states[i][0][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)},
+        "obs_player_1": {feat: np.array([stack_states[i][1][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_1.transform_obs.image_features)}
+        }
+        stats_arrays = {
+            "episode_stats_player_0": {stat: np.array([getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names},
+            "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in vanilla_env.stats_names}
+        }
+        return channels_arrays, stats_arrays, relic_weights
 
+def run_episode_and_record(
+        rec_env: TrackerWrapper, 
+        agent_0: JaxAgent, 
+        agent_1: JaxAgent, 
+        key: chex.PRNGKey,
+        match_count_per_episode = 5,
+        plot_stats_curves: bool = False,
+        return_states: bool = False,
+        use_tdqm = False
+    ):
+    """
+    Evaluate the trained agent against a reference agent using a separate eval environment.
+    """
+    rng, _rng = jax.random.split(key)
+    rng_params, _rng = jax.random.split(rng)
+    env_params = sample_params(rng_params, match_count_per_episode = match_count_per_episode)
+    reset_rng, _rng = jax.random.split(rng)
+    obs, env_state = rec_env.reset(reset_rng, env_params)
+    max_steps = (env_params.max_steps_in_match +1) * env_params.match_count_per_episode
+
+    @jax.jit
+    def get_actions(rng, 
+                    obs_player_0: EnvObs,
+                    obs_player_1: EnvObs,
+                    memory_state_player_0: Any, 
+                    memory_state_player_1: Any, 
+                    env_params: EnvParams,             
+        ):
+        rng_0, rng_1 = jax.random.split(rng)
+        action_0 = agent_0.forward(team_id = 0, key = rng_0, obs = obs_player_0, memory_state = memory_state_player_0, env_params = env_params)
+        action_1 = agent_1.forward(team_id = 1, key = rng_1, obs = obs_player_1, memory_state = memory_state_player_1, env_params = env_params)
+        return  {"player_0": action_0, "player_1": action_1}
+
+    stack_stats = []
+    stack_states = []
+    relic_weights = []
+    
+    for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
+        action_rng, _rng = jax.random.split(rng)
+        memory_state_player_0 = env_state.memory_state_player_0
+        memory_state_player_1 = env_state.memory_state_player_1
+        action = get_actions(action_rng, obs["player_0"], obs["player_1"], memory_state_player_0, memory_state_player_1, env_params)
+        
+        rng_step, _rng = jax.random.split(rng)
+        obs, env_state, _, _, info = rec_env.step(rng_step, env_state, action, env_params)
+        
+        if return_states:
+            transformed_obs_0 = agent_0.transform_obs.convert(
+                team_id = 0, 
+                obs = obs["player_0"], 
+                memory_state = env_state.memory_state_player_0,
+                params = env_params
+            )
+            transformed_obs_1 = agent_0.transform_obs.convert(
+                team_id = 1, 
+                obs = obs["player_1"], 
+                memory_state = env_state.memory_state_player_1,
+                params = env_params
+            )
+            stack_states.append((transformed_obs_0["image"], transformed_obs_1["image"]))
+            stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
+            relic_weights.append(env_state.relic_nodes_map_weights)
+    
+    rec_env.close()
+
+    stats_arrays = {
+        "episode_stats_player_0": {stat: np.array([getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names},
+        "episode_stats_player_1": {stat: np.array([getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]) for stat in rec_env.stats_names}
+    }
+    channels_arrays = {
+        "obs_player_0": {feat: np.array([stack_states[i][0][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)},
+        "obs_player_1": {feat: np.array([stack_states[i][1][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)}
+        }
+    
+    if plot_stats_curves: 
+        plot_stats(stats_arrays)
+        
+    if return_states:
+        return channels_arrays, stats_arrays, relic_weights
+    
 def test_a():
 
     config = parse_config()

@@ -69,7 +69,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "transform_obs": transform_obs,
         },
         "ppo": {
-            "use_wandb": bool(config_dict["ppo"]["use_wandb"]),
+            # Learning args
             "match_count_per_episode": int(config_dict["ppo"]["match_count_per_episode"]),
             "lr": float(config_dict["ppo"]["lr"]),
             "num_envs": int(config_dict["ppo"]["num_envs"]),
@@ -87,8 +87,11 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "anneal_lr": bool(config_dict["ppo"]["anneal_lr"]),
             "seed": int(config_dict["ppo"]["seed"]),
             "action_temperature": float(config_dict["ppo"]["action_temperature"]),
+            # Log args
+            "use_wandb": bool(config_dict["ppo"]["use_wandb"]),
             "arena_agent": arena_agent,
             "record_freq": int(config_dict["ppo"]["record_freq"]),
             "arena_freq": int(config_dict["ppo"]["arena_freq"]),
+            "match_count_per_episode_arena": int(config_dict["ppo"]["match_count_per_episode_arena"]),
         }
     }
