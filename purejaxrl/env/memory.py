@@ -31,27 +31,22 @@ class NoMemory(Memory):
  
 @struct.dataclass
 class RelicPointMemoryState:
-    relics_found: chex.Array
+    relics_found: chex.Array = jnp.zeros((24,24), dtype = jnp.int8)
     """ -1 if there is no relic, 0 if unknown, 1 if there is a relic"""
-    last_visits_timestep: chex.Array
+    last_visits_timestep: chex.Array = jnp.zeros((24,24), dtype = jnp.int32)
     """ the last time the square was viewed"""
-    points_awarding: chex.Array
+    points_awarding: chex.Array = jnp.zeros((24,24), dtype = jnp.int8)
     """ -1 if the square can give a reward, 0 if unknown, 1 if the square gives a reward"""
-    last_step_team_points: int
-    points_gained: int
+    last_step_team_points: int = 0
+    points_gained: int = 0
+    relics_found_previous_matches: int = 0
 
 class RelicPointMemory(Memory):
     def __init__(self):
         pass
 
     def reset(self) -> RelicPointMemoryState:
-        return RelicPointMemoryState(
-                    relics_found=jnp.zeros((24,24), dtype = jnp.int8),
-                    points_awarding= jnp.zeros((24,24), dtype = jnp.int8),
-                    last_step_team_points=0,
-                    points_gained=0,
-                    last_visits_timestep = jnp.zeros((24,24), dtype = jnp.int32)
-        )
+        return RelicPointMemoryState()
     @partial(jax.jit, static_argnums=(0,2))
     def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState, params: EnvParams):
         """
@@ -129,10 +124,16 @@ class RelicPointMemory(Memory):
         new_relics_found =  symmetrize(team_id, new_relics_found)
         new_points_awarding = symmetrize(team_id, new_points_awarding)
 
+        relics_found_previous_matches = jax.lax.select(
+            obs.steps % (params.max_steps_in_match + 1) == 0,
+            memory_state.relics_found_previous_matches,
+            jnp.sum(new_relics_found)
+        )
         return RelicPointMemoryState(
             relics_found=jax.lax.stop_gradient(new_relics_found),
             points_awarding=jax.lax.stop_gradient(new_points_awarding),
             last_step_team_points=obs.team_points[team_id],
             points_gained=points_gained,
             last_visits_timestep=jax.lax.stop_gradient(new_last_visits_timestep),
+            relics_found_previous_matches = relics_found_previous_matches,
         )

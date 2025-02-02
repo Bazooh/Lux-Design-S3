@@ -189,39 +189,23 @@ class MemoryWrapper(GymnaxWrapper):
 ################################## TRACKER WRAPPER ##################################
 @struct.dataclass
 class PlayerStats:
-    wins: chex.Array = jnp.array(0, dtype=jnp.int32)
-    points_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
-    points_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
-    relics_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
-    cells_discovered: chex.Array = jnp.array(0, dtype=jnp.int32)
-    deaths: chex.Array = jnp.array(0, dtype=jnp.int32)
-    collisions: chex.Array = jnp.array(0, dtype=jnp.int32)
-    units_moved: chex.Array = jnp.array(0, dtype=jnp.int32)
-    energy_gained: chex.Array = jnp.array(0, dtype=jnp.int32)
+    wins: int = 0
+    points_gained: int = 0
+    points_discovered: int = 0
+    relics_discovered: int = 0
+    cells_discovered: int = 0
+    deaths: int = 0
+    collisions: int = 0
+    units_moved: int = 0
+    energy_gained: int = 0
 
     def __add__(self, other: "PlayerStats"):
         return PlayerStats(
-            points_gained=self.points_gained + other.points_gained,
-            wins=self.wins + other.wins,
-            energy_gained=self.energy_gained + other.energy_gained,
-            relics_discovered=self.relics_discovered + other.relics_discovered,
-            points_discovered=self.points_discovered + other.points_discovered,
-            cells_discovered=self.cells_discovered + other.cells_discovered,
-            units_moved=self.units_moved + other.units_moved,
-            collisions=self.collisions + other.collisions,
-            deaths=self.deaths + other.deaths
+            **{key: value + other.__dict__[key] for key, value in self.__dict__.items()}
         )
     def __mul__(self, x: chex.Array):
-        return PlayerStats(
-            points_gained=self.points_gained * x,
-            wins=self.wins * x,
-            energy_gained=self.energy_gained * x,
-            relics_discovered=self.relics_discovered * x,
-            points_discovered=self.points_discovered * x,
-            cells_discovered=self.cells_discovered * x,
-            units_moved=self.units_moved * x,
-            collisions=self.collisions * x,
-            deaths=self.deaths * x
+        return PlayerStats(**
+            {key: value * x for key, value in self.__dict__.items()}
         )
     
 class TrackerWrapper(GymnaxWrapper):
@@ -242,28 +226,32 @@ class TrackerWrapper(GymnaxWrapper):
     ) -> PlayerStats:
         
         wins_both_players = obs.team_wins - last_obs.team_wins
-        wins = jax.lax.cond(
+        wins = jax.lax.select(
             obs.steps % (params.max_steps_in_match + 1) == 0,  # Check if the game is done
-            lambda: jax.lax.cond(
+            jax.lax.select(
                 jnp.sum(wins_both_players) == 0,  # Check if it's a tie
-                lambda: 0,  # Return 0 for a tie
-                lambda: 2*wins_both_players[team_id] - 1,  # Return result otherwise 
+                0,  # Return 0 for a tie
+                2*wins_both_players[team_id] - 1,  # Return result otherwise 
             ),
-            lambda: 0 # Return 0 if the game is not done
+            0 # Return 0 if the match is not done
         )
         
         points_gained = mem_state.points_gained
-        relics_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.relics_found))) == 1) & (last_mem_state.relics_found == 0))
-        points_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.points_awarding))) == 1) & (last_mem_state.points_awarding == 0))
-        cells_discovered = jax.numpy.sum((jnp.fliplr(jnp.triu(jnp.fliplr(mem_state.relics_found))) == -1) & (last_mem_state.relics_found == 0))
+        
+        relics_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found == 1) & (last_mem_state.relics_found != 1))))
+        relics_discovered = jax.numpy.sum(relics_discovered_image.astype(jnp.int32))
+        points_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.points_awarding == 1) & (last_mem_state.points_awarding != 1))))
+        points_discovered = jax.numpy.sum(points_discovered_image.astype(jnp.int32))
+        cells_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found != 0) & (last_mem_state.relics_found == 0))))
+        cells_discovered = jax.numpy.sum(cells_discovered_image.astype(jnp.int32))
         
         cumulated_energy  = jnp.sum(obs.units.energy[team_id])
         last_cumulated_energy = jnp.sum(last_obs.units.energy[team_id])
 
-        energy_gained = jax.lax.cond(
+        energy_gained = jax.lax.select(
             last_obs.steps % (params.max_steps_in_match+1) == 0,
-            lambda: 0,
-            lambda: cumulated_energy - last_cumulated_energy
+            0,
+            jnp.maximum(0, cumulated_energy - last_cumulated_energy)
         )
         
         current_positions = obs.units.position[team_id]
@@ -275,22 +263,22 @@ class TrackerWrapper(GymnaxWrapper):
         moved_units_mask = jax.numpy.any(current_positions != last_positions, axis=-1)
         no_actions_units_mask = jnp.where((action[:,0] == 0) | (action[:,0] == 5), 1, 0) 
         
-        units_moved = jax.lax.cond(
+        units_moved = jax.lax.select(
             obs.steps % (params.max_steps_in_match + 1) == 0,
-            lambda: 0,
-            lambda: jnp.sum(moved_units_mask & alive_units_mask),
+            0,
+            jnp.sum(moved_units_mask & alive_units_mask),
         )
 
-        collisions = jax.lax.cond(
+        collisions = jax.lax.select(
             last_obs.steps % (params.max_steps_in_match + 1) == 0,
-            lambda: 0,
-            lambda: jnp.sum(~no_actions_units_mask & ~moved_units_mask & alive_units_mask) # units that should move but collided to the env
+            0,
+            jnp.sum(~no_actions_units_mask & ~moved_units_mask & alive_units_mask) # units that should move but collided to the env
         )
         
-        deaths = jax.lax.cond(
+        deaths = jax.lax.select(
             last_obs.steps % (params.max_steps_in_match + 1) == 0,
-            lambda: 0,
-            lambda: jnp.sum(~alive_units_mask & last_alive_units_mask) # units that were alive but are anymore
+            0,
+            jnp.sum(~alive_units_mask & last_alive_units_mask) # units that were alive but are anymore
         )
 
         return PlayerStats(

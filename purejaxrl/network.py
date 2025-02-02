@@ -182,10 +182,7 @@ Pos-Masking |                   |  Value Head
 
         res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
         
-        value_head = nn.Sequential([
-            nn.Dense(16, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0)),
-            nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
-        ], name="value_head")
+        value_head = nn.Dense(1, kernel_init=orthogonal(jnp.sqrt(2)), bias_init=constant(0.0))
         
         ########## PROCESS TIME AND VECTOR ##########
         time_embedded = fc_time(time) # (B, T) -> (B, embedding_time)
@@ -210,13 +207,13 @@ Pos-Masking |                   |  Value Head
         x_normalized = spectral_norm(x, update_stats = train)
 
         ################# Compute VALUE  ################
-        average = jnp.mean(x, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
+        average = jnp.mean(x_normalized, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
         value = value_head(average) # (B, n_channels) -> (B, 1)
         value = jnp.squeeze(value, axis=-1)
 
 
         ################# Compute LOGITS  ################
-        logits_maps = conv1x1_logits(x)
+        logits_maps = conv1x1_logits(x_normalized)
 
         # Gather logits based on position
         def gather_logits(logits_map, pos):

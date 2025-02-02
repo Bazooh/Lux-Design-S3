@@ -34,7 +34,12 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     ###### Network arguments ######
     if config_dict["network"]["model"] == "Pix2Pix_AC":
         from purejaxrl.network import Pix2Pix_AC
-        model = Pix2Pix_AC(transform_action.action_space.n)
+        model = Pix2Pix_AC(
+            action_dim = transform_action.action_space.n, 
+            n_channels = int(config_dict["network"]["n_channels"]), 
+            n_resblocks = int(config_dict["network"]["n_resblocks"]), 
+            embedding_time = int(config_dict["network"]["embedding_time"])
+        )
     else:
         raise ValueError(f"Network {config_dict['network']['model']} not supported")
     

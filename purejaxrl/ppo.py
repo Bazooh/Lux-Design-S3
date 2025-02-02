@@ -37,6 +37,9 @@ def make_train(config, debug=False,):
     config["ppo"]["num_updates"] =  (config["ppo"]["total_timesteps"]// (config["ppo"]["num_steps"] * config["ppo"]["num_envs"]))
     config["ppo"]["minibatch_size"] = (config["ppo"]["num_envs"] * config["ppo"]["num_steps"] // config["ppo"]["num_minibatches"])
     print('-'*150)
+    print("Env has reward weights:", config["env_args"]["reward_weights"])
+    print('-'*150)
+    print('-'*150)
     print("Starting ppo with config:", config["ppo"])
     print('-'*150)
 
@@ -231,6 +234,12 @@ def make_train(config, debug=False,):
                             0.5 * jnp.maximum(value_losses, value_losses_clipped).mean()
                         )
                         
+                        explained_var = jax.lax.select(
+                            jnp.var(targets) > 0,
+                            1.0 - jnp.var(value0_v - targets) / jnp.var(targets),
+                            0.0
+                        )
+                        
                         # CALCULATE ACTOR LOSS
                         ratio = jnp.exp(log_prob0_v - traj_batch.log_prob_v)
                         gae = (gae - gae.mean()) / (gae.std() + 1e-8)
@@ -243,6 +252,9 @@ def make_train(config, debug=False,):
                             )
                             * gae
                         )
+                        
+                        clip_frac = (actor_loss1 > actor_loss2).mean()
+                        
                         actor_loss = -jnp.minimum(actor_loss1, actor_loss2)
                         actor_loss = actor_loss.mean()
                         entropy = jax.vmap(get_entropy)(logits0_v, mask_awake0_v).mean()
@@ -257,7 +269,9 @@ def make_train(config, debug=False,):
                             "value_loss": value_loss,
                             "actor_loss": actor_loss,
                             "entropy": entropy,
+                            "clip_frac": clip_frac,
                             "batch_stats": updates["batch_stats"],
+                            "explained_var": explained_var
                         }
 
                     # Compute gradients and update train state
@@ -273,6 +287,8 @@ def make_train(config, debug=False,):
                             "value_loss":  aux["value_loss"],
                             "actor_loss":  aux["actor_loss"],
                             "entropy": aux["entropy"],
+                            "clip_frac": aux["clip_frac"],   
+                            "explained_var": aux["explained_var"]                         
                         })
                 
                 train_state, traj_batch, advantages, targets, rng = update_state
@@ -315,7 +331,7 @@ def make_train(config, debug=False,):
             
 
             ################# LOG COOL STUFF #################
-            def callback(game_info, loss_dict, update_i, current_state_dict):
+            def callback(game_info, loss, loss_dict, update_i, current_state_dict):
                 update_step = int(update_i)
                 
                 rng_callback = jax.random.PRNGKey(update_step)
@@ -326,15 +342,21 @@ def make_train(config, debug=False,):
 
 
                 ############# COMPUTE GAME METRICS ############ 
-                return_values = jnp.mean(game_info["episode_return"][returned_episodes], axis=0)
+                return_values = jnp.mean(game_info["episode_return"][returned_episodes][0], axis=0)
+                total_loss = jnp.mean(loss)
                 value_loss = jnp.mean(loss_dict["value_loss"])
                 actor_loss = jnp.mean(loss_dict["actor_loss"])
                 entropy = jnp.mean(loss_dict["entropy"]) 
+                clip_frac = jnp.mean(loss_dict["clip_frac"])
+                explained_var = jnp.mean(loss_dict["explained_var"])
                 metrics = {
-                    "reward/return_values": return_values[0],
+                    "reward/return_values": return_values,
+                    "loss/total_loss": total_loss,
                     "loss/value_loss": value_loss,
                     "loss/actor_loss": actor_loss,
                     "loss/entropy": entropy,
+                    "loss/clip_frac": clip_frac,
+                    "loss/explained_var": explained_var                    
                 }
 
                 player_stats = game_info["episode_stats_player_0"].__dict__
@@ -346,7 +368,7 @@ def make_train(config, debug=False,):
                 metrics["reward/selfplay_winrate"] = winrate
 
                 ############ RUN ARENA ############
-                if (update_step-1) % config['ppo']["arena_freq"] == 0:
+                if (update_step+1) % config['ppo']["arena_freq"] == 0:
                     our_agent = RawPureJaxRLAgent(
                         player="player_0",
                         model = model,
@@ -361,14 +383,14 @@ def make_train(config, debug=False,):
                         agent_1=arena_agent,
                         vanilla_env=arena_env,
                         key = rng_callback,
-                        number_of_games = 8,
+                        number_of_games = 20,
                         match_count_per_episode = config["ppo"]["match_count_per_episode_arena"],
                     )
                     arena_stats = arena_info["episode_stats_player_0"].__dict__
                     arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
                     metrics["reward/arena_winrate"] = arena_winrate
                 ############ RUN A RECORING ############
-                if (update_step-1) % config['ppo']["record_freq"] == 0:
+                if (update_step+1) % config['ppo']["record_freq"] == 0:
                     our_agent = RawPureJaxRLAgent(
                         player="player_0",
                         model = model,
@@ -388,15 +410,17 @@ def make_train(config, debug=False,):
                 if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
                     
                 print(
-                    f"Return Values: {return_values[0]:<10.2f} | "
+                    f"Return Values: {return_values:<4.2f} | "
                     f"Win Rate: {100 * winrate:<6.2f} % | "
                     f"Entropy: {entropy:<4.1f} | "
                     f"Actor Loss: {actor_loss:<6.4f} | "
-                    f"Value Loss: {value_loss:<4.2f}"
+                    f"Value Loss: {value_loss:<4.2f} | "
+                    f"Clip Frac: {clip_frac:<4.2f} | "
+                    f"Update Step: {update_step:<6d} | "
                 )
 
             if debug: 
-                jax.debug.callback(callback, game_info, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
+                jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
             runner_state = (train_state, test_state, env_state_v, last_obs_v, rng, env_params)
             
