@@ -38,7 +38,9 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             action_dim = transform_action.action_space.n, 
             n_channels = int(config_dict["network"]["n_channels"]), 
             n_resblocks = int(config_dict["network"]["n_resblocks"]), 
-            embedding_time = int(config_dict["network"]["embedding_time"])
+            embedding_time = int(config_dict["network"]["embedding_time"]),
+            normalize_logits = bool(config_dict["network"]["normalize_logits"]),
+            normalize_value = bool(config_dict["network"]["normalize_value"])
         )
     else:
         raise ValueError(f"Network {config_dict['network']['model']} not supported")
@@ -66,6 +68,13 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         "network":{
             "model": model,
             "state_dict": state_dict,
+            "load_from_checkpoint": config_dict["network"]["load_from_checkpoint"],
+            "action_dim": int(transform_action.action_space.n),
+            "n_resblocks": int(config_dict["network"]["n_resblocks"]),
+            "n_channels": int(config_dict["network"]["n_channels"]),
+            "embedding_time": int(config_dict["network"]["embedding_time"]),
+            "normalize_logits": bool(config_dict["network"]["normalize_logits"]),
+            "normalize_value": bool(config_dict["network"]["normalize_value"]),
         },
         "env_args":{
             "reward_weights": reward_weights, 

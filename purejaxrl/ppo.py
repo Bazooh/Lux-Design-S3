@@ -36,9 +36,11 @@ def make_train(config, debug=False,):
         
     config["ppo"]["num_updates"] =  (config["ppo"]["total_timesteps"]// (config["ppo"]["num_steps"] * config["ppo"]["num_envs"]))
     config["ppo"]["minibatch_size"] = (config["ppo"]["num_envs"] * config["ppo"]["num_steps"] // config["ppo"]["num_minibatches"])
+    
+    print('-'*150)
+    print("Network has args: ", config["network"])
     print('-'*150)
     print("Env has reward weights:", config["env_args"]["reward_weights"])
-    print('-'*150)
     print('-'*150)
     print("Starting ppo with config:", config["ppo"])
     print('-'*150)

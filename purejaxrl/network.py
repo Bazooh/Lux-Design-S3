@@ -77,6 +77,8 @@ class ResidualBlock(nn.Module):
     kernel_size: int 
     strides: int
     padding: int 
+    normalize_logits: bool
+    normalize_value: bool
     
     @nn.compact
     def __call__(self, x):
@@ -207,13 +209,22 @@ Pos-Masking |                   |  Value Head
         x_normalized = spectral_norm(x, update_stats = train)
 
         ################# Compute VALUE  ################
-        average = jnp.mean(x_normalized, axis=(1, 2))  # (B, H, W, n_channels) -> (B, n_channels)
+        
+        average = jax.lax.select(
+            self.normalize_value,
+            jnp.mean(x_normalized, axis=(1, 2)),
+            jnp.mean(x, axis=(1, 2))
+        )  # (B, H, W, n_channels) -> (B, n_channels)
         value = value_head(average) # (B, n_channels) -> (B, 1)
         value = jnp.squeeze(value, axis=-1)
 
 
         ################# Compute LOGITS  ################
-        logits_maps = conv1x1_logits(x_normalized)
+        logits_maps = jax.lax.select(
+            self.normalize_logits,
+            conv1x1_logits(x_normalized),
+            conv1x1_logits(x)
+        )
 
         # Gather logits based on position
         def gather_logits(logits_map, pos):

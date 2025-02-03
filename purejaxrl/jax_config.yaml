@@ -15,15 +15,17 @@ env_args:
 network:
   model: Pix2Pix_AC
   load_from_checkpoint: None
-  n_resblocks: 6
-  n_channels: 64
+  n_resblocks: 4
+  n_channels: 128
   embedding_time: 10
+  normalize_logits: True
+  normalize_value: True
 
 ppo:
   # Learning Args
-  lr: 5e-4
-  num_envs: 16
-  num_steps: 256
+  lr: 1e-4
+  num_envs: 32
+  num_steps: 202
   total_timesteps: 1e7
   update_epochs: 4
   num_minibatches: 32
