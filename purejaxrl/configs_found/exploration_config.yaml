@@ -18,7 +18,7 @@ network:
   n_resblocks: 4
   n_channels: 128
   embedding_time: 10
-  normalize_logits: True
+  normalize_logits: False
   normalize_value: True
 
 ppo:

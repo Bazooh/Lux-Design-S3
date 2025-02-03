@@ -77,8 +77,6 @@ class ResidualBlock(nn.Module):
     kernel_size: int 
     strides: int
     padding: int 
-    normalize_logits: bool
-    normalize_value: bool
     
     @nn.compact
     def __call__(self, x):
@@ -165,6 +163,8 @@ Pos-Masking |                   |  Value Head
     n_resblocks: int = 6
     n_channels: int = 64
     embedding_time: int = 10
+    normalize_logits: bool = True
+    normalize_value: bool = True
 
     @nn.compact
     def __call__(self, image, vector, time, position,  mask_awake, train = False):
@@ -180,7 +180,7 @@ Pos-Masking |                   |  Value Head
         conv1x1_time_vec = Conv1x1(channels=T+V, name="conv1x1_time_vec") # conv 1x1 block 
         conv1x1_input = Conv1x1(channels=self.n_channels, name="conv1x1_input") # conv 1x1 block
         conv1x1_logits = Conv1x1(channels=self.action_dim, name="conv1x1_logits") # conv 1x1 block  
-        spectral_norm = nn.SpectralNorm(Conv1x1(channels=self.action_dim, name="spectral_norm"))
+        spectral_norm = nn.SpectralNorm(Conv1x1(channels=self.n_channels, name="spectral_norm"))
 
         res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
         
