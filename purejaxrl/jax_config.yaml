@@ -3,7 +3,7 @@ env_args:
     stat_0: points_gained
     weight_0: 0.1
     stat_1: points_discovered
-    weight_1: 5.0
+    weight_1: 2.0
     stat_2: relics_discovered
     weight_2: 2.0
     stat_3: cells_discovered
@@ -25,7 +25,7 @@ ppo:
   # Learning Args
   lr: 1e-4
   num_envs: 32
-  num_steps: 202
+  num_steps: 128
   total_timesteps: 2e7
   update_epochs: 4
   num_minibatches: 16
@@ -47,3 +47,6 @@ ppo:
   record_freq: 100
   arena_agent: NaiveAgent_Jax
   match_count_per_episode_arena: 5
+
+  # Save Args
+  save_checkpoint_path: save_exploration

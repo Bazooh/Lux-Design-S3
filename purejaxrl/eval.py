@@ -171,7 +171,7 @@ def run_episode_and_record(
     
     for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
         rng, _ = jax.random.split(rng)
-        rng, _rng = jax.random.split(rng)
+        
         memory_state_player_0 = env_state.memory_state_player_0
         memory_state_player_1 = env_state.memory_state_player_1
         action = get_actions(
@@ -239,7 +239,7 @@ def run_episode_and_record(
                 for feat_idx, feat in enumerate(agent_0.transform_obs.vector_features)
             },
         }
-        
+
         channels_arrays = {
             "obs_player_0": {
                 feat: np.array(

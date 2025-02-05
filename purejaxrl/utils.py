@@ -2,8 +2,10 @@ import jax, chex
 import jax.numpy as jnp
 import numpy as np
 import termplotlib as tpl
-import flax
+import flax, orbax
+from flax.training import orbax_utils
 from typing import Any
+import os
 
 @jax.jit
 def sample_group_action(key, logits_group, action_temperature: float = 1.0):
@@ -121,3 +123,13 @@ def EnvObs_to_dict(obs: EnvObs) ->  dict[str, Any]:
         "steps": obs.steps,
         "match_steps": obs.match_steps
     }
+
+def save_state_dict(state_dict: dict[str, Any], path: str):
+    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    save_args = orbax_utils.save_args_from_target(state_dict)
+    orbax_checkpointer.save(path, state_dict, save_args=save_args)
+    print("Saved state dict to", path)
+
+def restore_state_dict(path: str) -> dict[str, Any]:
+    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+    return orbax_checkpointer.restore(path)

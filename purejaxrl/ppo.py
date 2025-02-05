@@ -1,5 +1,7 @@
 import re
 import sys, os
+from datetime import datetime
+from numpy import save
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import jax, chex
@@ -8,7 +10,7 @@ import optax
 from purejaxrl.env.make_env import make_env, make_vanilla_env, LogWrapper
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
-from purejaxrl.utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, init_state_dict, CustomTrainState
+from purejaxrl.utils import sample_group_action, get_logprob, get_entropy, get_obs_batch, init_state_dict, save_state_dict, CustomTrainState
 from purejaxrl.env.utils import sample_params
 from purejaxrl.parse_config import parse_config
 import wandb
@@ -433,9 +435,9 @@ def make_train(config, debug=False,):
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )
-        return {"runner_state": runner_state, "metrics": game_info}
+        output = {"params": train_state.params, "batch_stats": train_state.batch_stats}
+        return output
     
-
     return train
 
 
@@ -452,7 +454,8 @@ if __name__ == "__main__":
     
     train_jit = jax.jit(make_train(config, debug=True))
     rng = jax.random.PRNGKey(seed = config["ppo"]["seed"])
-    out = train_jit(rng)
-
+    output = train_jit(rng)
+    save_state_dict(output, config["ppo"]["save_checkpoint_path"]+"_"+datetime.now().strftime("%Y_%m_%d"))
+    
     if config["ppo"]["use_wandb"]: wandb.finish()
     

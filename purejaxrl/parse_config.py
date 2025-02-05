@@ -1,7 +1,6 @@
 import yaml
 import jax
-import flax
-
+import orbax, os
 def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     with open(config_path, 'r') as file:
         config_dict = yaml.safe_load(file)
@@ -52,12 +51,9 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         from purejaxrl.utils import init_state_dict
         state_dict = init_state_dict(model=model, key=jax.random.PRNGKey(0), init_x=transform_obs.observation_space.sample(jax.random.PRNGKey(0)), print_summary = False)
     else:
-        raise ValueError(f"Network {config_dict['network']['name']} not supported")
-        # from flax.training import orbax_utils
-        # import orbax
-        # orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        # # restored = orbax_checkpointer.restore(config_dict["network"]["checkpoint"])
-        # # network_params = restored["model"]["params"]
+        from purejaxrl.utils import restore_state_dict
+        checkpoint_path = os.path.dirname(os.path.abspath(__file__)) + "/checkpoints/" + config_dict["network"]["load_from_checkpoint"]
+        state_dict = restore_state_dict(checkpoint_path)
     
     ######## Arena Agent  #########
     if config_dict["ppo"]["arena_agent"] == "NaiveAgent_Jax":
@@ -112,5 +108,7 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
             "record_freq": int(config_dict["ppo"]["record_freq"]),
             "arena_freq": int(config_dict["ppo"]["arena_freq"]),
             "match_count_per_episode_arena": int(config_dict["ppo"]["match_count_per_episode_arena"]),
+            # Save Args
+            "save_checkpoint_path": os.path.dirname(os.path.abspath(__file__)) + "/checkpoints/" + config_dict["ppo"]["save_checkpoint_path"],
         }
     }
