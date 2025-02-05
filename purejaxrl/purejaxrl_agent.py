@@ -11,6 +11,7 @@ from purejaxrl.base_agent import JaxAgent
 from purejaxrl.env.memory import Memory
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
+from purejaxrl.env.utils import mirror_action
 
 
 class RawPureJaxRLAgent(JaxAgent):
@@ -40,7 +41,6 @@ class RawPureJaxRLAgent(JaxAgent):
         memory_state: Any,
         env_params: EnvParams
     ):
-        
         transformed_obs = self.transform_obs.convert(
             team_id=team_id,
             obs=obs,
@@ -49,7 +49,13 @@ class RawPureJaxRLAgent(JaxAgent):
         ) 
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
         logits, _, _ = self.model.apply(self.state_dict, **transformed_obs_batched, train = False) # logits is (16, 6)
-        action = sample_group_action(key, logits[0])
+        action = sample_group_action(key, logits)[0]
+
+        actions = jnp.array([2, 3, 5])
+        key, new_key = jax.random.split(key)
+        action = jax.random.choice(new_key, actions, shape=(16,), p=jnp.array([1/3, 1/3, 1/3])) 
+        action = jnp.array([0, 3, 1, 4, 2, 5])[action] if team_id == 1 else action
+
         transformed_action = self.transform_action.convert(
             team_id=team_id,
             action=action,

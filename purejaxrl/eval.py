@@ -173,11 +173,11 @@ def run_episode_and_record(
         desc=f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}",
         disable=not use_tdqm,
     ):
-        action_rng, _rng = jax.random.split(rng)
+        rng, _rng = jax.random.split(rng)
         memory_state_player_0 = env_state.memory_state_player_0
         memory_state_player_1 = env_state.memory_state_player_1
         action = get_actions(
-            action_rng,
+            rng,
             obs["player_0"],
             obs["player_1"],
             memory_state_player_0,
@@ -264,8 +264,8 @@ def test_a():
     )
     rec_env = LogWrapper(rec_env, replace_info=True)
 
-    agent_0 = config["ppo"]["arena_agent"]
-    agent_1 = config["ppo"]["arena_agent"]
+    agent_0 = PureJaxRLAgent("player_0")
+    agent_1 = PureJaxRLAgent("player_1")
 
     run_episode_and_record(
         rec_env=rec_env, agent_0=agent_0, agent_1=agent_1, key=key, use_tdqm=True

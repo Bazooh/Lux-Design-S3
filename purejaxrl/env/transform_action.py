@@ -54,7 +54,7 @@ class SimplerActionNoSap(TransformAction):
 
 
 class SimplerActionWithSap(TransformAction):
-    def __init__(self, do_mirror = True):
+    def __init__(self, do_mirror = False):
         super().__init__()
         self.action_space = gymnax.environments.spaces.Discrete(6)
         self.do_mirror = do_mirror
@@ -79,7 +79,6 @@ class SimplerActionWithSap(TransformAction):
         ally_actions = new_action[:,0]
 
         new_action = jax.vmap(get_full_sap_action, in_axes = (0,0,0,None,None))(ally_actions, ally_positions[:,0],ally_positions[:,1],enemy_positions,sap_range)
-        jax.debug.print("new_actions : {p}", p = new_action)
 
 
         if self.do_mirror:

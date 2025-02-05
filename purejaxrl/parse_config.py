@@ -21,6 +21,9 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
     if config_dict["env_args"]["transform_action"] == "SimplerActionNoSap":
         from purejaxrl.env.transform_action import SimplerActionNoSap
         transform_action = SimplerActionNoSap()
+    elif config_dict["env_args"]["transform_action"] == "SimplerActionWithSap":
+        from purejaxrl.env.transform_action import SimplerActionWithSap
+        transform_action = SimplerActionWithSap()
     else:
         raise ValueError(f"Transform action {config_dict['env_args']['transform_action']} not supported")
     
