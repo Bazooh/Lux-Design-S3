@@ -32,29 +32,59 @@ def mirror_position(pos):
 
 @jax.jit
 def mirror_action(a):
-    # a is (3,)
+    # a is an int
     # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left, 5 is sap
-    flip_map = jnp.array([0, 3, 1, 4, 2]) 
-    @jax.jit
-    def flip_move_action(a):
-        # a is (3,)
-        # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left
-        a = a.at[0].set(flip_map[a[0]])  # Map the first element using flip_map
-        return a
+    flip_map = jnp.array([0, 3, 1, 4, 2, 5]) 
+    return flip_map[a]
 
-    @jax.jit
-    def flip_sap_action(a):
-        # a = (5, x, y), (x,y) should be replaced by (-y, -x)
-        a = a.at[1:].set(jnp.array([-1*a[2], -1*a[1]]))
-        return a
-    
-    a = jax.lax.cond(
-        a[0] < 5,
-        flip_move_action,
-        flip_sap_action,
-        a,
+@jax.jit
+def is_enemy_in_range(x_ally, y_ally, x_enemy, y_enemy, sap_range):
+    """
+    If enemy is out of range or unseen (-1, -1), returns False
+    """
+
+    return jnp.logical_and(
+        jnp.logical_and(jnp.abs(x_ally - x_enemy) <= sap_range, 
+                        jnp.abs(y_ally - y_enemy) <= sap_range),
+        jnp.logical_and(x_enemy > -1, y_enemy > -1)
     )
-    return a
+
+@jax.jit
+def find_delta(x,y,enemies, sap_range) :
+    """
+    returns a delta position of an enemy in range. if none, returns -1, -1
+    """
+    mask_enemy_in_range = jax.vmap(is_enemy_in_range, in_axes=(None, None, 0, 0, None))(x,y,enemies[:,0],enemies[:,1],sap_range)
+
+    valid_indices = jnp.where(mask_enemy_in_range, size=mask_enemy_in_range.shape[0])[0]
+
+    abs_pos_to_sap = jax.lax.select(
+        mask_enemy_in_range.sum() > 0,
+        jnp.take(enemies, valid_indices[0], axis=0),
+        jnp.array([x-1,y-1], dtype=jnp.int16),
+    )
+
+    delta = jnp.array([abs_pos_to_sap[0]-x, abs_pos_to_sap[1]-y], dtype=jnp.int16)
+    return delta
+
+@jax.jit
+def get_full_sap_action(ally_action,x,y,enemies,sap_range) :
+    """
+    returns a triplet(act,dx,dy), act is 0 if no enemies in range, 5 otherwwise
+    """
+    delta = find_delta(x, y, enemies, sap_range)
+    #jax.debug.print("delta : {p}", p = delta)
+    if_5_action =  jax.lax.select(
+        jnp.logical_and(delta[0] == -1, delta[1] == -1),
+        jnp.array([0, -1, -1], dtype=jnp.int16),
+        jnp.array([5, delta[0], delta[1]], dtype=jnp.int16),
+    )
+
+    return jax.lax.select(
+        ally_action == 5,
+        if_5_action,
+        jnp.array([ally_action, -1, -1], dtype=jnp.int16),
+    )
 
 def mirror_relic_positions_arrays(relic_positions):
     """

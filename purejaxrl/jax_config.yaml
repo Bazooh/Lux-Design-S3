@@ -9,7 +9,7 @@ env_args:
     stat_3: cells_discovered
     weight_3: 0.01
   transform_obs: HybridTransformObs
-  transform_action: SimplerActionNoSap
+  transform_action: SimplerActionWithSap
   memory: RelicPointMemory
 
 network:
