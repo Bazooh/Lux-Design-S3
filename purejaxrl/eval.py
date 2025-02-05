@@ -86,7 +86,7 @@ def run_parallel_episodes(
     )
     def _env_step(runner_state, _):
         env_state_v, last_obs_v, rng, env_params_v = runner_state
-
+        rng, _rng = jax.random.split(rng)
         action_rng = jax.random.split(rng, number_of_games)
         memory_state_player_0_v = env_state_v.memory_state_player_0
         memory_state_player_1_v = env_state_v.memory_state_player_1
@@ -213,41 +213,40 @@ def run_episode_and_record(
 
     rec_env.close()
 
-    stats_arrays = {
-        "episode_stats_player_0": {
-            stat: np.array(
-                [getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]
-            )
-            for stat in rec_env.stats_names
-        },
-        "episode_stats_player_1": {
-            stat: np.array(
-                [getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]
-            )
-            for stat in rec_env.stats_names
-        },
-    }
-    channels_arrays = {
-        "obs_player_0": {
-            feat: np.array(
-                [stack_states[i][0][feat_idx] for i in range(len(stack_states))],
-                dtype=np.float32,
-            )
-            for feat_idx, feat in enumerate(agent_0.transform_obs.image_features)
-        },
-        "obs_player_1": {
-            feat: np.array(
-                [stack_states[i][1][feat_idx] for i in range(len(stack_states))],
-                dtype=np.float32,
-            )
-            for feat_idx, feat in enumerate(agent_0.transform_obs.image_features)
-        },
-    }
-
-    if plot_stats_curves:
-        plot_stats(stats_arrays)
-
     if return_states:
+        stats_arrays = {
+            "episode_stats_player_0": {
+                stat: np.array(
+                    [getattr(stack_stats[i][0], stat) for i in range(len(stack_stats))]
+                )
+                for stat in rec_env.stats_names
+            },
+            "episode_stats_player_1": {
+                stat: np.array(
+                    [getattr(stack_stats[i][1], stat) for i in range(len(stack_stats))]
+                )
+                for stat in rec_env.stats_names
+            },
+        }
+        channels_arrays = {
+            "obs_player_0": {
+                feat: np.array(
+                    [stack_states[i][0][feat_idx] for i in range(len(stack_states))],
+                    dtype=np.float32,
+                )
+                for feat_idx, feat in enumerate(agent_0.transform_obs.image_features)
+            },
+            "obs_player_1": {
+                feat: np.array(
+                    [stack_states[i][1][feat_idx] for i in range(len(stack_states))],
+                    dtype=np.float32,
+                )
+                for feat_idx, feat in enumerate(agent_0.transform_obs.image_features)
+            },
+        }
+        if plot_stats_curves:
+            plot_stats(stats_arrays)
+
         return channels_arrays, stats_arrays, relic_weights
 
 
@@ -264,7 +263,7 @@ def test_a():
     )
     rec_env = LogWrapper(rec_env, replace_info=True)
 
-    agent_0 = PureJaxRLAgent("player_0")
+    agent_0 = NaiveAgent_Jax("player_0")
     agent_1 = PureJaxRLAgent("player_1")
 
     run_episode_and_record(

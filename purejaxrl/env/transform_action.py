@@ -30,10 +30,10 @@ class TransformAction(ABC):
         pass
         
 class SimplerActionNoSap(TransformAction):
-    def __init__(self, do_mirror = True):
+    def __init__(self, do_mirror_input = True):
         super().__init__()
         self.action_space = gymnax.environments.spaces.Discrete(6)
-        self.do_mirror = do_mirror
+        self.do_mirror_input = do_mirror_input # whether to mirror the input (from [0, 1, 2, 3, 4, 5] to [0, 3, 1, 4, 2, 5])
     
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
@@ -43,21 +43,19 @@ class SimplerActionNoSap(TransformAction):
         obs: EnvObs,
         params: EnvParams,
     ):
+        if self.do_mirror_input:
+            action = jax.vmap(mirror_action)(action) if team_id == 1 else action
+    
         new_action = jax.numpy.zeros((16,3), dtype=jax.numpy.int32)
         new_action = new_action.at[:,0].set(action)
 
-        if self.do_mirror:
-            return jax.vmap(mirror_action)(new_action) if team_id == 1 else new_action
-        else :
-            return new_action
-    
-
+        return new_action
 
 class SimplerActionWithSap(TransformAction):
-    def __init__(self, do_mirror = False):
+    def __init__(self, do_mirror_input = True):
         super().__init__()
         self.action_space = gymnax.environments.spaces.Discrete(6)
-        self.do_mirror = do_mirror
+        self.do_mirror_input = do_mirror_input # whether to mirror the input (from [0, 1, 2, 3, 4, 5] to [0, 3, 1, 4, 2, 5])
     
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
@@ -67,6 +65,9 @@ class SimplerActionWithSap(TransformAction):
         obs: EnvObs,
         params: EnvParams,
     ):
+        if self.do_mirror_input:
+            action = jax.vmap(mirror_action)(action) if team_id == 1 else action
+        
         sap_deltas = jnp.zeros((16,2), dtype=jnp.int32)
         sap_deltas = sap_deltas.at[:,0].set(-1) #add 1 to the x position
 
@@ -79,13 +80,8 @@ class SimplerActionWithSap(TransformAction):
         ally_actions = new_action[:,0]
 
         new_action = jax.vmap(get_full_sap_action, in_axes = (0,0,0,None,None))(ally_actions, ally_positions[:,0],ally_positions[:,1],enemy_positions,sap_range)
-
-
-        if self.do_mirror:
-            return jax.vmap(mirror_action)(new_action) if team_id == 1 else new_action
-        else :
-            return new_action
-
+        
+        return new_action
         
     
     

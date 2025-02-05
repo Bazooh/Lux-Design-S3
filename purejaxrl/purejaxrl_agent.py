@@ -54,8 +54,6 @@ class RawPureJaxRLAgent(JaxAgent):
         actions = jnp.array([2, 3, 5])
         key, new_key = jax.random.split(key)
         action = jax.random.choice(new_key, actions, shape=(16,), p=jnp.array([1/3, 1/3, 1/3])) 
-        action = jnp.array([0, 3, 1, 4, 2, 5])[action] if team_id == 1 else action
-
         transformed_action = self.transform_action.convert(
             team_id=team_id,
             action=action,

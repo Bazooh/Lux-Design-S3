@@ -32,29 +32,10 @@ def mirror_position(pos):
 
 @jax.jit
 def mirror_action(a):
-    # a is (3,)
+    # a is an int
     # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left, 5 is sap
-    flip_map = jnp.array([0, 3, 1, 4, 2]) 
-    @jax.jit
-    def flip_move_action(a):
-        # a is (3,)
-        # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left
-        a = a.at[0].set(flip_map[a[0]])  # Map the first element using flip_map
-        return a
-
-    @jax.jit
-    def flip_sap_action(a):
-        # a = (5, x, y), (x,y) should be replaced by (-y, -x)
-        a = a.at[1:].set(jnp.array([-1*a[2], -1*a[1]]))
-        return a
-    
-    a = jax.lax.cond(
-        a[0] < 5,
-        flip_move_action,
-        flip_sap_action,
-        a,
-    )
-    return a
+    flip_map = jnp.array([0, 3, 1, 4, 2, 5]) 
+    return flip_map[a]
 
 @jax.jit
 def is_enemy_in_range(x_ally, y_ally, x_enemy, y_enemy, sap_range):
