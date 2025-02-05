@@ -47,8 +47,17 @@ def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: st
     for i in range(len(channels.items())+1, n_columns):
         ax = axes_row[i]
         ax.clear()
-        ax.xticks("off")
 
+# Function to plot tensor features
+def plot_vector_features(vectors: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int):
+    for i, (feat_name, feat_array) in enumerate(vectors.items()):
+        ax = axes_row[i]
+        ax.clear()
+        ax.imshow([[feat_array[frame_idx]]], cmap="bwr", vmin=-2, vmax=2, aspect="auto")
+        ax.text(0, 0, f"{feat_array[frame_idx]:.2f}", fontsize=14)
+        ax.set_title(f"{title_prefix} {feat_name}", fontsize=10)
+    
+    
 # Function to plot stat features
 def plot_stat_features(stats_p0: dict, stats_p1: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int):
     for i,stat_name in enumerate(stats_p0.keys()):
@@ -76,18 +85,21 @@ def plot_stat_features(stats_p0: dict, stats_p1: dict, axes_row: np.ndarray, tit
 # Update function for animation
 def update(frame_idx: int, 
             channels: dict, 
+            vectors: dict,
             stats: dict,
             relic_weights,
             n_columns, 
             progressbar):
-    
-    fig.suptitle(f"Frame {frame_idx}", fontsize=16)
     # Player 0 Channels (Row 0)
     plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, relic_weights=relic_weights)
     # Player 1 Channels (Row 1)
-    plot_channel_features(channels["obs_player_1"], axes[1, :], "P1-", frame_idx, n_columns, relic_weights=relic_weights)
-    # Player 1 Stats (Row 2)
-    plot_stat_features(stats["episode_stats_player_0"], stats["episode_stats_player_1"], axes[2, :], "", frame_idx, n_columns)
+    plot_vector_features(vectors["obs_player_0"], axes[1, :], "P0-", frame_idx)
+    # Player 1 Channels (Row 2)
+    plot_channel_features(channels["obs_player_1"], axes[2, :], "P1-", frame_idx, n_columns, relic_weights=relic_weights)
+    # Player 2 Channels (Row 3)
+    plot_vector_features(vectors["obs_player_1"], axes[3, :], "P1-", frame_idx)
+    # Player 1 Stats (Row 4)
+    plot_stat_features(stats["episode_stats_player_0"], stats["episode_stats_player_1"], axes[4, :], "", frame_idx, n_columns)
     progressbar.update(1)
 
 if __name__ == "__main__":
@@ -102,20 +114,20 @@ if __name__ == "__main__":
     agent_0=PureJaxRLAgent("player_0")
     agent_1=NaiveAgent_Jax("player_1")
     
-    channels_arrays, stats_arrays, relic_weights = run_episode_and_record(
+    channels_arrays, vec_arrays, stats_arrays, relic_weights = run_episode_and_record(
         rec_env = rec_env,
         agent_0 = agent_0,
         agent_1 = agent_1, 
         key = key, 
-        match_count_per_episode = 1,
+        match_count_per_episode = 3,
         use_tdqm = True,
         return_states = True,
         plot_stats_curves = False        
     )
     
     steps = len(relic_weights)
-    n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, len(stats_arrays["episode_stats_player_0"].keys()))
-    fig, axes = plt.subplots(3, n_columns, figsize=(4*n_columns, 12))
+    n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, max(len(stats_arrays["episode_stats_player_0"].keys()), len(vec_arrays["obs_player_0"].keys())))
+    fig, axes = plt.subplots(5, n_columns, figsize=(3*n_columns, 20))
 
     progressbar = tqdm(total=steps+1, desc="Generating MP4")
 
@@ -124,6 +136,7 @@ if __name__ == "__main__":
         lambda frame_idx: update(
             frame_idx, 
             channels=channels_arrays, 
+            vectors=vec_arrays,
             stats=stats_arrays, 
             progressbar=progressbar,
             n_columns = n_columns,

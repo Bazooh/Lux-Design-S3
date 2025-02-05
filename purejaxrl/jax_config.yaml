@@ -1,11 +1,11 @@
 env_args:
   reward_weights:
     stat_0: points_gained
-    weight_0: 0.2
+    weight_0: 0.1
     stat_1: points_discovered
-    weight_1: 1.0
+    weight_1: 5.0
     stat_2: relics_discovered
-    weight_2: 1.0
+    weight_2: 2.0
     stat_3: cells_discovered
     weight_3: 0.01
   transform_obs: HybridTransformObs
@@ -17,18 +17,18 @@ network:
   load_from_checkpoint: None
   n_resblocks: 4
   n_channels: 128
-  embedding_time: 10
-  normalize_logits: False
-  normalize_value: False
+  embedding_time: 6
+  normalize_logits: True
+  normalize_value: True
 
 ppo:
   # Learning Args
   lr: 1e-4
   num_envs: 32
   num_steps: 202
-  total_timesteps: 1e7
+  total_timesteps: 2e7
   update_epochs: 4
-  num_minibatches: 32
+  num_minibatches: 16
   gamma: 0.99
   gae_lambda: 0.95
   clip_grad_norm: 0.5
@@ -38,7 +38,7 @@ ppo:
   max_grad_norm: 0.5
   anneal_lr: True
   action_temperature: 1.0
-  match_count_per_episode: 1
+  match_count_per_episode: 5
   seed: 0
 
   # Log Args
@@ -46,4 +46,4 @@ ppo:
   arena_freq: 50
   record_freq: 100
   arena_agent: NaiveAgent_Jax
-  match_count_per_episode_arena: 1
+  match_count_per_episode_arena: 5

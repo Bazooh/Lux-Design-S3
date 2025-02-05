@@ -49,7 +49,7 @@ def run_parallel_episodes(
     @scan_tqdm(max_steps, print_rate=1, desc = f"Running Arena Matches {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm)
     def _env_step(runner_state, _):
         env_state_v, last_obs_v, rng, env_params_v = runner_state
-        
+        rng, _ = jax.random.split(rng)
         action_rng = jax.random.split(rng, number_of_games)
         memory_state_player_0_v = env_state_v.memory_state_player_0
         memory_state_player_1_v = env_state_v.memory_state_player_1
@@ -112,16 +112,16 @@ def run_episode_and_record(
 
     stack_stats = []
     stack_states = []
+    stack_vec = []
     relic_weights = []
     
     for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
+        rng, _ = jax.random.split(rng)
         action_rng, _rng = jax.random.split(rng)
         memory_state_player_0 = env_state.memory_state_player_0
         memory_state_player_1 = env_state.memory_state_player_1
-        action = get_actions(action_rng, obs["player_0"], obs["player_1"], memory_state_player_0, memory_state_player_1, env_params)
-        
-        rng_step, _rng = jax.random.split(rng)
-        obs, env_state, _, _, info = rec_env.step(rng_step, env_state, action, env_params)
+        action = get_actions(rng, obs["player_0"], obs["player_1"], memory_state_player_0, memory_state_player_1, env_params)
+        obs, env_state, _, _, info = rec_env.step(rng, env_state, action, env_params)
         
         if return_states:
             transformed_obs_0 = agent_0.transform_obs.convert(
@@ -137,6 +137,7 @@ def run_episode_and_record(
                 params = env_params
             )
             stack_states.append((transformed_obs_0["image"], transformed_obs_1["image"]))
+            stack_vec.append((transformed_obs_0["vector"], transformed_obs_1["vector"]))
             stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
             relic_weights.append(env_state.relic_nodes_map_weights)
     
@@ -150,12 +151,15 @@ def run_episode_and_record(
         "obs_player_0": {feat: np.array([stack_states[i][0][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)},
         "obs_player_1": {feat: np.array([stack_states[i][1][feat_idx] for i in range(len(stack_states))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.image_features)}
         }
-    
+    vec_arrays = {
+        "obs_player_0": {feat: np.array([stack_vec[i][0][feat_idx] for i in range(len(stack_vec))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.vector_features)},
+        "obs_player_1": {feat: np.array([stack_vec[i][1][feat_idx] for i in range(len(stack_vec))], dtype=np.float32) for feat_idx,feat in enumerate(agent_0.transform_obs.vector_features)}
+    }
     if plot_stats_curves: 
         plot_stats(stats_arrays)
         
     if return_states:
-        return channels_arrays, stats_arrays, relic_weights
+        return channels_arrays, vec_arrays, stats_arrays, relic_weights
     
 def test_a():
 

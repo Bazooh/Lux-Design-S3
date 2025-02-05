@@ -68,6 +68,8 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
         "network":{
             "model": model,
             "state_dict": state_dict,
+        },
+        "network_args": {
             "load_from_checkpoint": config_dict["network"]["load_from_checkpoint"],
             "action_dim": int(transform_action.action_space.n),
             "n_resblocks": int(config_dict["network"]["n_resblocks"]),

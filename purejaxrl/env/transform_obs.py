@@ -10,7 +10,7 @@ import gymnax
 from typing import Any
 import jax.numpy as jnp
 import numpy as np
-from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize
+from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize, manhattan_distance_to_nearest_point
 from purejaxrl.env.memory import RelicPointMemoryState
 
 class TransformObs(ABC):
@@ -63,19 +63,25 @@ class HybridTransformObs(TransformObs):
         super().__init__()
         params = EnvParams()
         self.image_features = { # Key: Name of the feature, Value: Number of channels required representing the feature
+            # Units Related
             "Unknown": 1,
             "Asteroid": 1,
             "Nebula": 1,
             "Energy_Field": 1,
+            # Units Related
             "Ally_Units_Count": 1,
             "Ally_Units_Energy": 1,
-            "Enemy_Units": 1,
+            "Enemy_Units_Count": 1,
+            "Enemy_Units_Energy": 1,
+            # Memory Related
             "Relic": 1,
+            "Distance_to_relic": 1,
+            "Relic_Circle": 1,
             "Points": 1,
             "Last Visit": 1
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
-            # Game Parameters
+            # 11 Game Parameters
             "unit_move_cost":  1, # 1 float
             "unit_sensor_range": 1, # 1 float
             "nebula_tile_vision_reduction": 1, # 1 float
@@ -87,17 +93,20 @@ class HybridTransformObs(TransformObs):
             "nebula_tile_drift_speed": 1, # 1 float
             "energy_node_drift_speed": 1, # 1 float
             "energy_node_drift_magnitude": 1, # 1 float
+            # 6 Game State
             "team_points": 1, # 1 float
             "opponent_points": 1, # 1 float
             "points_gained": 1, # 1 float
-            "steps": 1, # 1 float
+            "relic_found_1": 1, # 1 bool
+            "relic_found_2": 1, # 1 bool
+            "relic_found_3": 1, # 1 bool
         }
         self.vector_size = sum(self.vector_features.values())
         self.image_channels = sum(self.image_features.values())
 
         self.vector_mean = { key : np.mean(env_params_ranges[key]) if key in env_params_ranges else 0 for key in self.vector_features.keys()}
         self.vector_std = { key : np.std(env_params_ranges[key]) if key in env_params_ranges else 1 for key in self.vector_features.keys()}
-        self.time_discretization = 2
+        self.time_discretization = 5
         self.time_size = (params.max_steps_in_match + 1)//self.time_discretization + (params.match_count_per_episode + 1)
         self.vector_std_values = jnp.array(list(self.vector_std.values()))
         self.vector_mean_values = jnp.array(list(self.vector_mean.values()))
@@ -144,17 +153,27 @@ class HybridTransformObs(TransformObs):
             5,
             positions[team_id, :, 0],
             positions[team_id, :, 1],
-        ].add(jnp.maximum(0.0, obs.units.energy[team_id] + 1) / 400)
-
+        ].add(jnp.maximum(1.0, obs.units.energy[team_id] + 1) / 400)
+        
         image = image.at[
             6,
+            positions[1-team_id, :, 0],
+            positions[1-team_id, :, 1],
+        ].add(obs.units_mask[1-team_id])
+
+        image = image.at[
+            7,
             positions[1- team_id, :, 0],
             positions[1- team_id, :, 1],
-        ].add(jnp.maximum(0.0, obs.units.energy[1 - team_id] + 1) / 400)
+        ].add(jnp.maximum(1.0, obs.units.energy[1 - team_id] + 1) / 400)
 
-        image = image.at[7].set(symmetrize(team_id, memory_state.relics_found))
-        image = image.at[8].set(symmetrize(team_id,memory_state.points_awarding)) 
-        image = image.at[9].set(memory_state.last_visits_timestep / (obs.steps + 1))
+        image = image.at[8].set(memory_state.relics_found_image)
+        distance_matrix = symmetrize(team_id, manhattan_distance_to_nearest_point(source_pos=memory_state.relics_found_positions, n=24))
+        image = image.at[9].set(distance_matrix / 24)
+        relic_circle = jnp.clip(jax.scipy.signal.convolve2d(memory_state.relics_found_image == 1, jnp.ones((5, 5)), mode='same'), min=0, max=1)
+        image = image.at[10].set(relic_circle)
+        image = image.at[11].set(memory_state.points_found_image)
+        image = image.at[12].set(memory_state.last_visits_timestep / (obs.steps + 1))
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)
@@ -168,9 +187,11 @@ class HybridTransformObs(TransformObs):
         vector = vector.at[8].set(params.nebula_tile_drift_speed)
         vector = vector.at[9].set(params.energy_node_drift_speed)
         vector = vector.at[10].set(params.energy_node_drift_magnitude)
+
         vector = vector.at[11].set(obs.team_points[team_id])
         vector = vector.at[12].set(obs.team_points[1-team_id])
         vector = vector.at[13].set(memory_state.points_gained)
+        vector = vector.at[14:17].set(memory_state.relics_found_mask[0:3])
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
         
         ############# HANDLES TIME WITH OHE ##############

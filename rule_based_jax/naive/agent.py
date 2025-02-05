@@ -5,7 +5,7 @@ import chex
 import jax.numpy as jnp
 from functools import partial
 from purejaxrl.base_agent import JaxAgent
-from purejaxrl.env.memory import Memory, RelicPointMemory
+from purejaxrl.env.memory import Memory, RelicPointMemory, RelicPointMemoryState
 from rule_based_jax.utils import find_nearest, direction_to
 import jax.scipy.signal
 
@@ -23,12 +23,12 @@ class NaiveAgent_Jax(JaxAgent):
         team_id: int,
         key: chex.PRNGKey,
         obs: EnvObs,
-        memory_state: Any,
+        memory_state: RelicPointMemoryState,
         env_params: EnvParams,
     ):
         # Extract information from memory and observations
-        relics_found = memory_state.relics_found
-        points_found = memory_state.points_awarding
+        relics_found = memory_state.relics_found_image
+        points_found = memory_state.points_found_image
         positions = obs.units.position[team_id]
         
         alive_units_image = jnp.zeros((24, 24), dtype=jnp.int8)

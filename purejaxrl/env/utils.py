@@ -56,6 +56,20 @@ def mirror_action(a):
     )
     return a
 
+def mirror_relic_positions_arrays(relic_positions):
+    """
+    Input: (6, 2) of obs.relic_positions (or memory.relics_found_positions)
+    Output: (6, 2) of obs.relic_positions  (or memory.relics_found_positions)
+    """
+    relic_pos = relic_positions.reshape((2, 3, 2))
+    mirrored_relic_pos = jax.vmap(jax.vmap(mirror_position))(relic_pos)
+    empty = -100 * jnp.ones((3,2), dtype = jnp.int32)
+    relic_positions = jnp.stack([
+        jnp.where(relic_pos[0] > 0, relic_pos[0], jnp.where(relic_pos[1] > 0, mirrored_relic_pos[1], empty)), 
+        jnp.where(relic_pos[1] > 0, relic_pos[1], jnp.where(relic_pos[0] > 0, mirrored_relic_pos[0], empty))
+    ]
+    )
+    return relic_positions.reshape((6, 2))
 
 def serialize_metadata(metadata: dict) -> dict:
     serialized = {}
@@ -85,3 +99,20 @@ def sample_params(rng_key, match_count_per_episode = 5):
             )
     params = EnvParams(match_count_per_episode = match_count_per_episode, **randomized_game_params)
     return params
+
+def manhattan_distance_to_nearest_point(source_pos, n):
+    """    
+    Args:
+        source_pos (k, 2): position of the source points
+        n: grid size
+    Returns:
+        distances (n,n): Matrix of Manhattan distances to nearest source
+    """
+    @jax.jit
+    def compute_min_distance(r, c):
+        return jnp.min(jnp.abs(source_pos[:, 0] - r) + jnp.abs(source_pos[:, 1] - c)) # Compute minimum distance to any point with value 1
+    
+    row_indices, col_indices = jnp.indices((n,n))
+    distances = jax.vmap(jax.vmap(compute_min_distance))(row_indices, col_indices)
+    
+    return jnp.clip(distances, 0, n//2)

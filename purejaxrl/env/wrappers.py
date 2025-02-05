@@ -238,11 +238,11 @@ class TrackerWrapper(GymnaxWrapper):
         
         points_gained = mem_state.points_gained
         
-        relics_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found == 1) & (last_mem_state.relics_found != 1))))
+        relics_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found_image == 1) & (last_mem_state.relics_found_image != 1))))
         relics_discovered = jax.numpy.sum(relics_discovered_image.astype(jnp.int32))
-        points_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.points_awarding == 1) & (last_mem_state.points_awarding != 1))))
+        points_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.points_found_image == 1) & (last_mem_state.points_found_image != 1))))
         points_discovered = jax.numpy.sum(points_discovered_image.astype(jnp.int32))
-        cells_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found != 0) & (last_mem_state.relics_found == 0))))
+        cells_discovered_image = jnp.fliplr(jnp.triu(jnp.fliplr((mem_state.relics_found_image != 0) & (last_mem_state.relics_found_image == 0))))
         cells_discovered = jax.numpy.sum(cells_discovered_image.astype(jnp.int32))
         
         cumulated_energy  = jnp.sum(obs.units.energy[team_id])
