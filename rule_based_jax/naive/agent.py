@@ -20,7 +20,7 @@ RING_RELIC = 11
 class NaiveAgent_Jax(JaxAgent):
     def __init__(self, player: str, env_params=EnvParams().__dict__):
         super().__init__(player, env_params, memory=RelicPointMemory())
-        self.transform_action = SimplerActionWithSap(do_mirror=False)
+        self.transform_action = SimplerActionWithSap(do_mirror_input=False)
 
     @partial(jax.jit, static_argnums=(0, 1))
     def forward(
