@@ -341,35 +341,45 @@ def make_train(config, debug=False,):
                 rng_callback = jax.random.PRNGKey(update_step)
                 
                 returned_episodes = game_info["returned_episode"]
-                if jnp.sum(returned_episodes) == 0:
-                    return  # Skip if no episodes have ended
+                metrics = {}
 
+                if jnp.sum(returned_episodes) > 0:
 
-                ############# COMPUTE GAME METRICS ############ 
-                return_values = jnp.mean(game_info["episode_return"][returned_episodes][0], axis=0)
-                total_loss = jnp.mean(loss)
-                value_loss = jnp.mean(loss_dict["value_loss"])
-                actor_loss = jnp.mean(loss_dict["actor_loss"])
-                entropy = jnp.mean(loss_dict["entropy"]) 
-                clip_frac = jnp.mean(loss_dict["clip_frac"])
-                explained_var = jnp.mean(loss_dict["explained_var"])
-                metrics = {
-                    "reward/return_values": return_values,
-                    "loss/total_loss": total_loss,
-                    "loss/value_loss": value_loss,
-                    "loss/actor_loss": actor_loss,
-                    "loss/entropy": entropy,
-                    "loss/clip_frac": clip_frac,
-                    "loss/explained_var": explained_var                    
-                }
+                    ############# COMPUTE GAME METRICS ############ 
+                    return_values = jnp.mean(game_info["episode_return"][returned_episodes][0], axis=0)
+                    total_loss = jnp.mean(loss)
+                    value_loss = jnp.mean(loss_dict["value_loss"])
+                    actor_loss = jnp.mean(loss_dict["actor_loss"])
+                    entropy = jnp.mean(loss_dict["entropy"]) 
+                    clip_frac = jnp.mean(loss_dict["clip_frac"])
+                    explained_var = jnp.mean(loss_dict["explained_var"])
+                    metrics = {
+                        "reward/return_values": return_values,
+                        "loss/total_loss": total_loss,
+                        "loss/value_loss": value_loss,
+                        "loss/actor_loss": actor_loss,
+                        "loss/entropy": entropy,
+                        "loss/clip_frac": clip_frac,
+                        "loss/explained_var": explained_var                    
+                    }
 
-                player_stats = game_info["episode_stats_player_0"].__dict__
-                for key, value in player_stats.items():
-                    metrics[f"reward/selfplay_{key}"] = jnp.mean(
-                        value[returned_episodes], axis=0
+                    player_stats = game_info["episode_stats_player_0"].__dict__
+                    for key, value in player_stats.items():
+                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
+                            value[returned_episodes], axis=0
+                        )
+                    winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
+                    metrics["reward/selfplay_winrate"] = winrate
+
+                    print(
+                        f"Return Values: {return_values:<6.2f} | "
+                        f"Win Rate: {100 * winrate:<6.2f} % | "
+                        f"Entropy: {entropy:<4.1f} | "
+                        f"Actor Loss: {actor_loss:<6.4f} | "
+                        f"Value Loss: {value_loss:<4.2f} | "
+                        f"Clip Frac: {clip_frac:<4.2f} | "
+                        f"Update Step: {update_step:<5d}  "
                     )
-                winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
-                metrics["reward/selfplay_winrate"] = winrate
 
                 ############ RUN ARENA ############
                 if (update_step+1) % config['ppo']["arena_freq"] == 0:
@@ -413,15 +423,6 @@ def make_train(config, debug=False,):
                 
                 if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
                     
-                print(
-                    f"Return Values: {return_values:<4.2f} | "
-                    f"Win Rate: {100 * winrate:<6.2f} % | "
-                    f"Entropy: {entropy:<4.1f} | "
-                    f"Actor Loss: {actor_loss:<6.4f} | "
-                    f"Value Loss: {value_loss:<4.2f} | "
-                    f"Clip Frac: {clip_frac:<4.2f} | "
-                    f"Update Step: {update_step:<6d} | "
-                )
 
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})

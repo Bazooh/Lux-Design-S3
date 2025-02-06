@@ -14,7 +14,7 @@ import os
 
 RING_EXPLO = 3
 RING_POINT = 7
-RING_RELIC = 11
+RING_RELIC = 13
 
 
 class NaiveAgent_Jax(JaxAgent):
@@ -90,9 +90,7 @@ class NaiveAgent_Jax(JaxAgent):
         random_direction = lambda pos, key: direction_to(
             src=pos, target=jax.random.randint(key, shape=(2), minval=0, maxval=23)
         )
-        random_action = lambda pos, key: jax.random.randint(
-            key, shape=(), minval=0, maxval=6
-        )
+
         random_exploration = lambda pos, key, idx: jax.random.choice(
             key,
             a=jnp.arange(5),
@@ -109,23 +107,24 @@ class NaiveAgent_Jax(JaxAgent):
             action = jax.lax.select(
                 obs.steps
                 < 30
-                | ~alive_units_image[pos[0], pos[1]]
                 | ~((relics_found == 1).any()),
                 random_exploration(pos, key, idx),
                 jax.lax.select(
                     points_near_image[pos[0], pos[1]],
                     go_to_point(pos, key),
                     jax.lax.select(
-                        relic_near_image[pos[0], pos[1]],
+                        relic_near_image_large_ring[pos[0], pos[1]] & ~relic_near_image[pos[0], pos[1]],
                         go_to_relic(pos, key),
                         jax.lax.select(
-                            relic_near_image_large_ring[pos[0], pos[1]],
+                            relic_near_image[pos[0], pos[1]],
                             go_to_relic(pos, key),
                             random_direction(pos, key),
                         ),
                     ),
                 ),
             )
+            # jax.debug.print("action : {a}, points = {bp}, relics large = {blr}, relics = {br}", 
+            #                 a = action, bp = points_near_image[pos[0], pos[1]], br = relic_near_image_large_ring[pos[0], pos[1]], blr = relic_near_image[pos[0], pos[1]])
             return action #int
 
         # Vectorize the action computation
