@@ -1,13 +1,32 @@
 env_args:
   reward_weights:
-    stat_0: points_gained
-    weight_0: 0.1
-    stat_1: points_discovered
-    weight_1: 2.0
-    stat_2: relics_discovered
-    weight_2: 2.0
-    stat_3: cells_discovered
-    weight_3: 0.01
+    0:
+      stat_0: points_gained
+      weight_0: 0.1
+      stat_1: points_discovered
+      weight_1: 2.0
+      stat_2: relics_discovered
+      weight_2: 2.0
+      stat_3: cells_discovered
+      weight_3: 0.01
+    1:
+      stat_0: points_gained
+      weight_0: 0.1
+      stat_1: points_discovered
+      weight_1: 2.0
+      stat_2: relics_discovered
+      weight_2: 2.0
+      stat_3: cells_discovered
+      weight_3: 0.01
+    2:
+      stat_0: points_gained
+      weight_0: 0.1
+      stat_1: points_discovered
+      weight_1: 2.0
+      stat_2: relics_discovered
+      weight_2: 2.0
+      stat_3: cells_discovered
+      weight_3: 0.01
   transform_obs: HybridTransformObs
   transform_action: SimplerActionWithSap
   memory: RelicPointMemory

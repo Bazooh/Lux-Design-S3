@@ -7,9 +7,11 @@ def parse_config(config_path = "purejaxrl/jax_config.yaml"):
 
     ###### Environment arguments ######    
     num_stats = len(config_dict["env_args"]["reward_weights"])//2
-    reward_weights = {
-        config_dict["env_args"]["reward_weights"]["stat_" + str(i)]: config_dict["env_args"]["reward_weights"]["weight_" + str(i)] for i in range(num_stats)
-    }
+    
+    reward_weights = [
+        {weights["stat_" + str(i)]: weights["weight_" + str(i)] for i in range(num_stats)}
+        for weights in config_dict["env_args"]["reward_weights"].values()
+    ]
 
     if config_dict["env_args"]["memory"] == "RelicPointMemory":
         from purejaxrl.env.memory import RelicPointMemory

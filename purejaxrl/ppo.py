@@ -172,7 +172,8 @@ def make_train(config, debug=False,):
                 )
 
                 # LOG THE TRANSITION
-                reward_batch =  jnp.stack([compute_reward(update_i / config["ppo"]["num_update"], reward_v[a]) for a in env.agents])
+                print(update_i)
+                reward_batch =  jnp.stack([compute_reward(0 / config["ppo"]["num_updates"], reward_v[a]) for a in env.agents])
                 reward_batch_player_0 = reward_batch[0]
 
                 transition = Transition(

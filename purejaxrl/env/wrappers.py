@@ -457,7 +457,7 @@ class LogWrapper(GymnaxWrapper):
         )
 
         # Update episode returns
-        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"], reward["player_1"]])
+        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"][0], reward["player_1"][0]])
 
         # Update cumulative statistics for each player
         new_episode_stats_player_0 = log_env_state.episode_stats_player_0 + info["stats"]["player_0"]
