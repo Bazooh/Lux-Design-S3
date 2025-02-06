@@ -327,7 +327,7 @@ class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment
     """
-    def __init__(self, env: TrackerWrapper, reward_weights: dict):
+    def __init__(self, env: TrackerWrapper, reward_weights: list[dict[str, float]]):
         super().__init__(env)
         self.reward_weights = reward_weights
 
@@ -340,8 +340,14 @@ class TransformRewardWrapper(GymnaxWrapper):
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         obs, state, _, done, info = self._env.step(key, env_mem_state, action, params)
         transformed_reward = {
-            "player_0": sum([getattr(info["stats"]["player_0"], stat) * weight for stat, weight in self.reward_weights.items()]),
-            "player_1": sum([getattr(info["stats"]["player_1"], stat) * weight for stat, weight in self.reward_weights.items()]),
+            "player_0": [
+                sum([getattr(info["stats"]["player_0"], stat) * weight for stat, weight in weights.items()])
+                for weights in self.reward_weights
+            ],
+            "player_1": [
+                sum([getattr(info["stats"]["player_1"], stat) * weight for stat, weight in weights.items()])
+                for weights in self.reward_weights
+            ],
         }
         return obs, state, transformed_reward, done, info
     
