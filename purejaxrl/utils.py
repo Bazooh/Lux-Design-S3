@@ -2,7 +2,8 @@ import jax, chex
 import jax.numpy as jnp
 import numpy as np
 import termplotlib as tpl
-import flax, orbax
+import flax
+import orbax.checkpoint
 from flax.training import orbax_utils
 from typing import Any
 import os
@@ -124,12 +125,37 @@ def EnvObs_to_dict(obs: EnvObs) ->  dict[str, Any]:
         "match_steps": obs.match_steps
     }
 
-def save_state_dict(state_dict: dict[str, Any], path: str):
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    save_args = orbax_utils.save_args_from_target(state_dict)
-    orbax_checkpointer.save(path, state_dict, save_args=save_args)
-    print("Saved state dict to", path)
+def create_checkpoint_manager(path):
+    return orbax.checkpoint.CheckpointManager(
+        directory = path,
+        checkpointers = orbax.checkpoint.PyTreeCheckpointer(), 
+        options = orbax.checkpoint.CheckpointManagerOptions(create=True)
+    )
 
-def restore_state_dict(path: str) -> dict[str, Any]:
-    orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-    return orbax_checkpointer.restore(path)
+def save_state_dict(state_dict, checkpoint_manager, step=0):
+    """Saves the model state using Orbax."""
+    save_args = orbax_utils.save_args_from_target(state_dict)
+    checkpoint_manager.save(step, state_dict, save_kwargs={'save_args': save_args})
+
+def restore_state_dict(path, step=0):
+    """Restores the model state using Orbax."""
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(path, orbax.checkpoint.PyTreeCheckpointer())
+    restored_state_dict = checkpoint_manager.restore(step)
+    return restored_state_dict
+
+def restore_state_dict_cpu(path, step=None):
+    """Restores the model state using Orbax but forces CPU-compatible sharding."""
+    checkpoint_manager = orbax.checkpoint.CheckpointManager(path, orbax.checkpoint.PyTreeCheckpointer())
+    if step is None:
+        step = checkpoint_manager.latest_step()
+    structure = checkpoint_manager.item_metadata(step)
+    
+    restored_state_dict = checkpoint_manager.restore(
+        step,
+        restore_kwargs={
+            "restore_args": jax.tree_map(
+                lambda _: orbax.checkpoint.RestoreArgs(restore_type=np.ndarray), structure
+            )
+        },
+    )
+    return restored_state_dict

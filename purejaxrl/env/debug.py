@@ -13,7 +13,7 @@ from tqdm import tqdm
 from purejaxrl.env.make_env import make_vanilla_env, TrackerWrapper, LogWrapper
 from purejaxrl.parse_config import parse_config
 from rule_based_jax.naive.agent import NaiveAgent_Jax
-from purejaxrl.eval import run_episode_and_record
+from purejaxrl.eval_jax import run_episode_and_record
 
 # Function to plot tensor features
 def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int, relic_weights):

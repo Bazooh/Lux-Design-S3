@@ -60,7 +60,7 @@ def find_delta(x,y,enemies, sap_range) :
 
     abs_pos_to_sap = jax.lax.select(
         mask_enemy_in_range.sum() > 0,
-        jnp.take(enemies, valid_indices[0], axis=0),
+        jnp.take(enemies, valid_indices[0], axis=0).astype(jnp.int16),
         jnp.array([x-1,y-1], dtype=jnp.int16),
     )
 

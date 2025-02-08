@@ -69,21 +69,21 @@ class Node:
         return self._explored_for_reward
 
     def update_relic_status(self, status: bool):
-        if self._explored_for_relic and self._relic != status:
-            raise ValueError(
-                f"Can't change the relic status {self._relic}->{status} for {self}"
-                ", the tile has already been explored"
-            )
+        # if self._explored_for_relic and self._relic != status:
+        #     raise ValueError(
+        #         f"Can't change the relic status {self._relic}->{status} for {self}"
+        #         ", the tile has already been explored"
+        #     )
 
         self._relic = status
         self._explored_for_relic = True
 
     def update_reward_status(self, status: bool):
-        if self._explored_for_reward and self._reward != status:
-            raise ValueError(
-                f"Can't change the reward status {self._reward}->{status} for {self}"
-                ", the tile has already been explored"
-            )
+        # if self._explored_for_reward and self._reward != status:
+        #     raise ValueError(
+        #         f"Can't change the reward status {self._reward}->{status} for {self}"
+        #         ", the tile has already been explored"
+        #     )
 
         self._reward = status
         self._explored_for_reward = True
@@ -470,9 +470,8 @@ class Fleet:
                 ship.clean()
 
 
-class RelicboundAgent(Agent):
+class RelicboundAgent:
     def __init__(self, player: str, env_cfg) -> None:
-        super().__init__(player, env_cfg)
         self.player = player
         self.opp_player = "player_1" if self.player == "player_0" else "player_0"
         self.team_id = 0 if self.player == "player_0" else 1

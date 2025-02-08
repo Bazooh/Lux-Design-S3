@@ -1,49 +1,62 @@
 env_args:
+  transform_obs: HybridTransformObs
+  transform_action: SimplerActionWithSap
+  memory: RelicPointMemory
   reward_weights:
     stat_0: points_gained
-    weight_0: 0.2
+    weight_0: 0.1
     stat_1: points_discovered
-    weight_1: 1.0
+    weight_1: 3.0
     stat_2: relics_discovered
     weight_2: 1.0
     stat_3: cells_discovered
     weight_3: 0.01
-  transform_obs: HybridTransformObs
-  transform_action: SimplerActionNoSap
-  memory: RelicPointMemory
-
 network:
   model: Pix2Pix_AC
   load_from_checkpoint: None
+  restore_to_cpu: False
   n_resblocks: 4
   n_channels: 128
-  embedding_time: 10
-  normalize_logits: False
+  embedding_time: 8
+  normalize_logits: True
   normalize_value: True
 
 ppo:
   # Learning Args
   lr: 1e-4
-  num_envs: 32
-  num_steps: 202
-  total_timesteps: 1e7
+  num_envs: 64
+  num_steps: 64
+  total_timesteps: 3e7
   update_epochs: 4
   num_minibatches: 32
-  gamma: 0.99
-  gae_lambda: 0.95
+  gamma: 0.95
+  gae_lambda: 0.9
   clip_grad_norm: 0.5
   clip_eps: 0.2
-  ent_coef: 0.05
+  ent_coef: 0.025
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: True
   action_temperature: 1.0
-  match_count_per_episode: 1
+  match_count_per_episode: 5
   seed: 0
 
   # Log Args
+  verbose: 0
   use_wandb: True
-  arena_freq: 50
+  run_name: purejaxrl_ppo
+
+  # Save Args
+  save_checkpoint_path: save_exploration
+  save_checkpoint_freq: 500
+
+arena_jax:
+  agent: NaiveAgent_Jax
+  num_matches: 100
+  arena_freq: 100
   record_freq: 100
-  arena_agent: NaiveAgent_Jax
-  match_count_per_episode_arena: 1
+# arena_std:
+#   agent: RelicBoundAgent
+#   num_matches: 10
+#   arena_freq: 500
+#   record_freq: 100
