@@ -78,9 +78,9 @@ class HybridTransformObs(TransformObs):
             "Relic_Circle": 1,
             "Points": 1,
             "Last Visit": 1,
-            # # Other
-            # "Distance to frontier": 1,
-            # "Distance to main diagonal": 1
+            # Other
+            "Distance to frontier": 1,
+            "Distance to main diagonal": 1
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # 11 Game Parameters
@@ -177,9 +177,9 @@ class HybridTransformObs(TransformObs):
         image = image.at[11].set(memory_state.points_found_image)
         image = image.at[12].set(memory_state.last_visits_timestep / (obs.steps + 1))
         
-        # d1, d2 = diagonal_distances(24)
-        # image = image.at[13].set(d1 / 24)
-        # image = image.at[14].set(d2 / 24)
+        d1, d2 = diagonal_distances(24)
+        image = image.at[13].set(d1 / 24)
+        image = image.at[14].set(d2 / 24)
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)

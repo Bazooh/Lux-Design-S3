@@ -4,6 +4,7 @@ from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import EnvState, EnvObs, UnitState, MapTile
 import jax.numpy as jnp
 from enum import IntEnum
+import json
 
 class Direction(IntEnum):
     CENTER = 0
@@ -130,6 +131,22 @@ def serialize_metadata(metadata: dict) -> dict:
     return serialized
 
 
+def serialize_env_params(env_params: EnvParams) -> dict:
+    serialized = {}
+    for field_name, field_value in env_params.__dict__.items():
+        if isinstance(
+            field_value, (int, float, str, bool)
+        ):  # Directly serializable types
+            serialized[field_name] = field_value
+        elif isinstance(field_value, list) or isinstance(
+            field_value, tuple
+        ):  # Serialize lists/tuples
+            serialized[field_name] = list(field_value)
+        elif isinstance(field_value, jnp.ndarray):  # Convert JAX arrays to lists
+            serialized[field_name] = jax.device_get(field_value).tolist()
+    return serialized
+
+
 def sample_params(rng_key, match_count_per_episode = 5):
     randomized_game_params = dict()
     for k, v in env_params_ranges.items():
@@ -192,3 +209,26 @@ def EnvObs_from_dict(observation: dict) -> EnvObs:
         steps=observation["steps"],
         match_steps=observation["match_steps"],
     )
+
+def json_to_html(json_data: dict) -> str:
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://s3vis.lux-ai.org/eye.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Lux Eye S3</title>
+
+    <script>
+window.episode = {json.dumps(json_data)};
+    </script>
+
+    <script type="module" crossorigin src="https://s3vis.lux-ai.org/index.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
+    """.strip()

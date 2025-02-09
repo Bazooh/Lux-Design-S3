@@ -132,7 +132,7 @@ def run_episode_and_record(
     reset_rng, _rng = jax.random.split(rng)
     obs, env_state = rec_env.reset(reset_rng, env_params)
     max_steps = (env_params.max_steps_in_match + 1) * env_params.match_count_per_episode
-    print(agent_0.state_dict["params"]["Dense_0"]["bias"][0:5], agent_0.state_dict["batch_stats"]["SpectralNorm_0"]["spectral_norm/Conv_0/kernel/u"][0][0:5])    
+
     @jax.jit
     def get_actions(
         rng,
@@ -202,7 +202,7 @@ def run_episode_and_record(
             relic_weights.append(env_state.relic_nodes_map_weights)
 
     rec_env.close()
-    print("post", agent_0.state_dict["params"]["Dense_0"]["bias"][0:5], agent_0.state_dict["batch_stats"]["SpectralNorm_0"]["spectral_norm/Conv_0/kernel/u"][0][0:5])   
+
     if return_states:
         stats_arrays = {
             "episode_stats_player_0": {

@@ -5,7 +5,7 @@ from flax import struct
 from typing import Optional, Tuple, Union, Any, Literal
 import jax.numpy as jnp
 import gymnax
-from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams, PlayerAction
+from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
 from luxai_s3.env import EnvObs
@@ -16,13 +16,10 @@ from functools import partial
 from typing import Any
 from purejaxrl.env.memory import Memory, RelicPointMemoryState
 # for recording
-from purejaxrl.env.utils import serialize_metadata
+from purejaxrl.env.utils import serialize_metadata, serialize_env_params, json_to_html
 from luxai_s3.state import serialize_env_actions, serialize_env_states
-from luxai_s3.params import serialize_env_params
 import os, json
-from luxai_runner.episode import json_to_html
-from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams, PlayerAction
-
+PlayerAction = Any
 class GymnaxWrapper(object):
     """Base class for Gymnax wrappers."""
 

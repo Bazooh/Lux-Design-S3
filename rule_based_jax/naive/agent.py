@@ -110,17 +110,9 @@ class NaiveAgent_Jax(JaxAgent):
                 | ~((relics_found == 1).any()),
                 random_exploration(pos, key, idx),
                 jax.lax.select(
-                    points_near_image[pos[0], pos[1]],
-                    go_to_point(pos, key),
-                    jax.lax.select(
-                        relic_near_image_large_ring[pos[0], pos[1]] & ~relic_near_image[pos[0], pos[1]],
-                        go_to_relic(pos, key),
-                        jax.lax.select(
-                            relic_near_image[pos[0], pos[1]],
-                            go_to_relic(pos, key),
-                            random_direction(pos, key),
-                        ),
-                    ),
+                    relic_near_image_large_ring[pos[0], pos[1]] & ~relic_near_image[pos[0], pos[1]],
+                    go_to_relic(pos, key),
+                    random_direction(pos, key),
                 ),
             )
             # jax.debug.print("action : {a}, points = {bp}, relics large = {blr}, relics = {br}", 
