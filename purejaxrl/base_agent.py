@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from functools import partial
 from abc import ABC, abstractmethod
 from purejaxrl.env.memory import Memory
+from purejaxrl.env.utils import EnvObs_from_dict
 
 class JaxAgent(ABC):
     def __init__(
@@ -18,7 +19,7 @@ class JaxAgent(ABC):
         self.opp_player = "player_1" if self.player == "player_0" else "player_0"
         self.team_id = 0 if self.player == "player_0" else 1
         self.opp_team_id = 1 if self.team_id == 0 else 0
-        self.env_params = EnvParams.from_dict(env_params)
+        self.env_params = EnvParams(**env_params)
         self.key = jax.random.PRNGKey(0)
         
         self.memory = memory        
@@ -48,4 +49,4 @@ class JaxAgent(ABC):
         return action
 
     def act(self, step: int, obs: dict[str, Any], remainingOverageTime: int = 60):
-        return self.actions(EnvObs.from_dict(obs))
+        return self.actions(EnvObs_from_dict(obs))

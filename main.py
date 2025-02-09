@@ -3,11 +3,37 @@ from argparse import Namespace
 import sys
 import os
 import numpy as np
-
+from ROOT_DIR import ROOT_DIR
 from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent, PureJaxRLAgent
 
-# from lux.config import EnvConfig
-from agents.lux.kit import from_json
+def to_json(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, list) or isinstance(obj, tuple):
+        return [to_json(s) for s in obj]
+    elif isinstance(obj, dict):
+        out = {}
+        for k in obj:
+            out[k] = to_json(obj[k])
+        return out
+    else:
+        return obj
+
+def from_json(state):
+    if isinstance(state, list):
+        return np.array(state)
+    elif isinstance(state, dict):
+        out = {}
+        for k in state:
+            out[k] = from_json(state[k])
+        return out
+    else:
+        return state
+
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 agent_dict = dict() # store potentially multiple dictionaries as kaggle imports code directly
 agent_prev_obs = dict()
@@ -23,7 +49,7 @@ def agent_fn(observation, configurations):
     player = observation.player
     remainingOverageTime = observation.remainingOverageTime
     if step == 0:
-        agent_dict[player] = PureJaxRLAgent(player, configurations["env_cfg"], "purejaxrl/jax_config_submission.yaml")
+        agent_dict[player] = PureJaxRLAgent(player, configurations["env_cfg"], ROOT_DIR + "purejaxrl/jax_config_submission.yaml")
     agent = agent_dict[player]
     actions = agent.act(step, from_json(obs), remainingOverageTime)
     return dict(action=actions.tolist())

@@ -1,8 +1,23 @@
 import jax
 from functools import partial
-from luxai_s3.params import EnvParams
-from luxai_s3.params import env_params_ranges
+from luxai_s3.params import EnvParams, env_params_ranges
+from luxai_s3.state import EnvState, EnvObs, UnitState, MapTile
 import jax.numpy as jnp
+from enum import IntEnum
+
+class Direction(IntEnum):
+    CENTER = 0
+    UP = 1
+    RIGHT = 2
+    DOWN = 3
+    LEFT = 4
+
+
+class Tiles(IntEnum):
+    UNKNOWN = -1
+    EMPTY = 0
+    NEBULA = 1
+    ASTEROID = 2
 
 @jax.jit
 def mirror_grid(array):
@@ -146,3 +161,34 @@ def manhattan_distance_to_nearest_point(source_pos, n):
     distances = jax.vmap(jax.vmap(compute_min_distance))(row_indices, col_indices)
     
     return jnp.clip(distances, 0, n//2)
+
+def diagonal_distances(N):
+    # Create a grid of indices
+    x = jnp.arange(N)
+    i, j = jnp.meshgrid(x, x, indexing='ij')
+
+    # Compute distances
+    main_diag_dist = jnp.abs(i - j)
+    anti_diag_dist = jnp.abs((N - 1 - i) - j)
+
+    return main_diag_dist, anti_diag_dist
+
+def EnvObs_from_dict(observation: dict) -> EnvObs:
+    return EnvObs(
+        units=UnitState(
+            position=observation["units"]["position"],
+            energy=observation["units"]["energy"],
+        ),
+        units_mask=observation["units_mask"],
+        sensor_mask=observation["sensor_mask"],
+        map_features=MapTile(
+            energy=observation["map_features"]["energy"],
+            tile_type=observation["map_features"]["tile_type"],
+        ),
+        relic_nodes=observation["relic_nodes"],
+        relic_nodes_mask=observation["relic_nodes_mask"],
+        team_points=observation["team_points"],
+        team_wins=observation["team_wins"],
+        steps=observation["steps"],
+        match_steps=observation["match_steps"],
+    )

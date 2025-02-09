@@ -26,7 +26,7 @@ ppo:
   lr: 1e-4
   num_envs: 64
   num_steps: 64
-  total_timesteps: 3e7
+  total_timesteps: 1e4
   update_epochs: 4
   num_minibatches: 32
   gamma: 0.95
@@ -43,18 +43,18 @@ ppo:
 
   # Log Args
   verbose: 0
-  use_wandb: True
+  use_wandb: False
   run_name: purejaxrl_ppo
 
   # Save Args
   save_checkpoint_path: save_exploration
-  save_checkpoint_freq: 500
+  save_checkpoint_freq: 1
 
 arena_jax:
   agent: NaiveAgent_Jax
-  num_matches: 100
-  arena_freq: 100
-  record_freq: 100
+  num_matches: 5
+  arena_freq: 1
+  record_freq: 1
 # arena_std:
 #   agent: RelicBoundAgent
 #   num_matches: 10

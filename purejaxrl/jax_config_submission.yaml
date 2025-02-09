@@ -5,10 +5,10 @@ env_args:
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: save_exploration_2025_02_08
+  load_from_checkpoint: checkpoints/save_exploration_2025_02_08
   restore_to_cpu: True
   n_resblocks: 4
   n_channels: 128
-  embedding_time: 6
+  embedding_time: 8
   normalize_logits: True
   normalize_value: True

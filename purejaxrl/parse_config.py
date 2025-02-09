@@ -2,8 +2,7 @@ import yaml
 import jax
 import orbax, os
 from datetime import datetime
-
-from agents.reward_shapers import reward
+from ROOT_DIR import ROOT_DIR
 def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
     config = {}
 
@@ -67,7 +66,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
         state_dict = init_state
     else:
         from purejaxrl.utils import restore_state_dict
-        checkpoint_path = os.path.dirname(os.path.abspath(__file__)) + "/../checkpoints/" + yaml_dict["network"]["load_from_checkpoint"]
+        checkpoint_path = ROOT_DIR + yaml_dict["network"]["load_from_checkpoint"]
         if not os.path.exists(checkpoint_path): raise ValueError(f"Checkpoint {checkpoint_path} not found") 
         state_dict = restore_state_dict(checkpoint_path)
 
@@ -103,7 +102,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "use_wandb": bool(yaml_dict["ppo"]["use_wandb"]),
             "run_name": yaml_dict["ppo"]["run_name"],
             # Save Args
-            "save_checkpoint_path": os.path.dirname(os.path.abspath(__file__)) + "/../checkpoints/" + yaml_dict["ppo"]["save_checkpoint_path"]+"_"+datetime.now().strftime("%Y_%m_%d"),
+            "save_checkpoint_path": ROOT_DIR + "/checkpoints/" + yaml_dict["ppo"]["save_checkpoint_path"]+"_"+datetime.now().strftime("%Y_%m_%d"),
             "save_checkpoint_freq": int(yaml_dict["ppo"]["save_checkpoint_freq"]),
         }
 

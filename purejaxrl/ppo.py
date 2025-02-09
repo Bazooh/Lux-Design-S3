@@ -357,15 +357,13 @@ def make_train(config, debug=False,):
                 if update_step % config['ppo']["save_checkpoint_freq"] == 0: 
                     
                     save_state_dict(current_state_dict, checkpoint_manager, step=update_step//config['ppo']['save_checkpoint_freq'])
-
+                    print(f"save{update_step}", current_state_dict["params"]["Dense_0"]["bias"][0:5], current_state_dict["batch_stats"]["SpectralNorm_0"]["spectral_norm/Conv_0/kernel/u"][0][0:5])   
                 
                 ############# COMPUTE GAME METRICS ############ 
                 returned_episodes = game_info["returned_episode"]
                 metrics = {}
 
-                if jnp.sum(returned_episodes) > 0:
-
-                    
+                if jnp.sum(returned_episodes) > 0:                  
                     return_values = jnp.mean(game_info["episode_return"][returned_episodes][0], axis=0)
                     total_loss = jnp.mean(loss)
                     value_loss = jnp.mean(loss_dict["value_loss"])

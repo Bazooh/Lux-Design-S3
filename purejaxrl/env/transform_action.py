@@ -1,12 +1,13 @@
 from abc import ABC, abstractmethod
 
 import gymnax.environments.spaces
-from luxai_s3.env import EnvObs, EnvParams, PlayerAction
+from luxai_s3.env import EnvObs, EnvParams
 import jax
 import jax.numpy as jnp
 from functools import partial
 import gymnax
 from purejaxrl.env.utils import mirror_action, get_full_sap_action
+PlayerAction = jax.numpy.ndarray
 class TransformAction(ABC):
     """
     Abstract base class for converting simple actions (ie flat 16) to complete actions (16,3).

@@ -1,7 +1,6 @@
 import jax, chex
 import jax.numpy as jnp
 import numpy as np
-import termplotlib as tpl
 import flax
 import orbax.checkpoint
 from flax.training import orbax_utils
@@ -82,6 +81,7 @@ def plot_stats(stats_arrays):
         Each of these keys contains a numpy array of length 120, containing the respective stat at each of the 120 episodes.
     -------
     """
+    import termplotlib as tpl
     stat_names = list(stats_arrays["episode_stats_player_0"].keys())
     stat_names.reverse()
     for stat in stat_names:
@@ -137,9 +137,11 @@ def save_state_dict(state_dict, checkpoint_manager, step=0):
     save_args = orbax_utils.save_args_from_target(state_dict)
     checkpoint_manager.save(step, state_dict, save_kwargs={'save_args': save_args})
 
-def restore_state_dict(path, step=0):
+def restore_state_dict(path, step=None):
     """Restores the model state using Orbax."""
     checkpoint_manager = orbax.checkpoint.CheckpointManager(path, orbax.checkpoint.PyTreeCheckpointer())
+    if step is None:
+        step = checkpoint_manager.latest_step()
     restored_state_dict = checkpoint_manager.restore(step)
     return restored_state_dict
 

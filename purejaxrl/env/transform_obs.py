@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 import gymnax.environments.spaces
-from agents.lux.utils import Tiles
 from src.luxai_s3.state import EnvObs
 import jax
 from functools import partial
@@ -10,7 +9,7 @@ import gymnax
 from typing import Any
 import jax.numpy as jnp
 import numpy as np
-from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize, manhattan_distance_to_nearest_point
+from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize, manhattan_distance_to_nearest_point, diagonal_distances, Tiles
 from purejaxrl.env.memory import RelicPointMemoryState
 
 class TransformObs(ABC):
@@ -78,7 +77,10 @@ class HybridTransformObs(TransformObs):
             "Distance_to_relic": 1,
             "Relic_Circle": 1,
             "Points": 1,
-            "Last Visit": 1
+            "Last Visit": 1,
+            # # Other
+            # "Distance to frontier": 1,
+            # "Distance to main diagonal": 1
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # 11 Game Parameters
@@ -174,6 +176,10 @@ class HybridTransformObs(TransformObs):
         image = image.at[10].set(relic_circle)
         image = image.at[11].set(memory_state.points_found_image)
         image = image.at[12].set(memory_state.last_visits_timestep / (obs.steps + 1))
+        
+        # d1, d2 = diagonal_distances(24)
+        # image = image.at[13].set(d1 / 24)
+        # image = image.at[14].set(d2 / 24)
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)
