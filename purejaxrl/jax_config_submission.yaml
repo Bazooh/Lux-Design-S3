@@ -5,7 +5,7 @@ env_args:
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: checkpoints/save_exploration_2025_02_08
+  load_from_checkpoint: checkpoints/single_phase_2025_02_09
   restore_to_cpu: True
   n_resblocks: 4
   n_channels: 128
