@@ -3,6 +3,7 @@ import jax
 import chex
 from flax import struct
 from typing import Optional, Tuple, Union, Any, Literal
+from enum import Enum
 import jax.numpy as jnp
 import gymnax
 from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams
@@ -365,13 +366,55 @@ class TrackerWrapper(GymnaxWrapper):
 
 
 ################################## REWARD WRAPPER ##################################
+class RewardType(Enum):
+    DENSE = "dense"
+    SPARSE = "sparse"
+    SPARSE_DELTA = "sparse_delta"
+
+class RewardObject:
+    def __init__(self, reward_type: RewardType, reward_weights: dict[str, float]):
+        if not isinstance(reward_type, RewardType):
+            raise ValueError("reward_type must be an instance of RewardType Enum")
+        self.reward_type = reward_type
+        self.reward_weights = reward_weights
+    
+    def __repr__(self):
+        return f"RewardObject(type={self.reward_type.value}, weights={self.reward_weights})"
+    def compute_reward(
+        self, 
+        done: bool,
+        match_end: bool,
+        dense_stats_player_0: PlayerStats, 
+        dense_stats_player_1: PlayerStats,
+        episode_stats_player_0: PlayerStats,
+        episode_stats_player_1: PlayerStats,
+    ) -> dict[str, float]:
+        if self.reward_type == RewardType.DENSE: 
+            return {
+                "player_0": sum([getattr(dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                "player_1": sum([getattr(dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+            }
+        elif self.reward_type == RewardType.SPARSE:
+            return {
+                "player_0": sum([getattr(episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
+                "player_1": sum([getattr(episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
+            }
+        elif self.reward_type == RewardType.SPARSE_DELTA:
+            reward =  {
+                "player_0": sum([getattr(episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
+                "player_1": sum([getattr(episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
+            }
+            return {
+                "player_0": jnp.sqrt(reward["player_0"] - reward["player_1"]),
+                "player_1": jnp.sqrt(reward["player_0"] - reward["player_1"]),
+            }
 class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment
     """
-    def __init__(self, env: TrackerWrapper, reward_weights: dict):
+    def __init__(self, env: TrackerWrapper, reward_phases: list[RewardObject]):
         super().__init__(env)
-        self.reward_weights = reward_weights
+        self.reward_phases = reward_phases
 
     def step(
         self,
@@ -381,9 +424,20 @@ class TransformRewardWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         obs, state, _, done, info = self._env.step(key, env_mem_state, action, params)
+        match_end = state.steps % (params.max_steps_in_match + 1) == 0
+        transformed_reward = [
+            self.reward_phases[i].compute_reward(
+                done = done,
+                match_end = match_end,
+                dense_stats_player_0 = state.dense_stats_player_0,
+                dense_stats_player_1 = state.dense_stats_player_1,
+                episode_stats_player_0 = state.episode_stats_player_0,
+                episode_stats_player_1 = state.episode_stats_player_1,
+            ) for i in range(len(self.reward_phases))
+        ]
         transformed_reward = {
-            "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
-            "player_1": sum([getattr(state.dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+            "player_0": jnp.array([reward["player_0"] for reward in transformed_reward]),
+            "player_1": jnp.array([reward["player_1"] for reward in transformed_reward]),
         }
         return obs, state, transformed_reward, done, info
     
@@ -493,7 +547,7 @@ class LogWrapper(GymnaxWrapper):
         )
 
         # Update episode returns
-        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"], reward["player_1"]])
+        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"][0], reward["player_1"][0]])
 
         # Prepare info dictionary
         if self.replace_info:

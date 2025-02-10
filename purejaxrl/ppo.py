@@ -46,6 +46,19 @@ class Transition(NamedTuple):
     info_v: jnp.ndarray
 
 
+def compute_reward(step: float, rewards: list[float], smooth: bool = True) -> float:
+    phase = int(step * len(rewards))
+
+    if phase == len(rewards):
+        return rewards[-1]
+
+    if smooth:
+        weight = (step * len(rewards)) - phase
+        return rewards[phase] * (1 - weight) + rewards[phase + 1] * weight
+
+    return rewards[phase]
+
+
 def make_train(config, debug=False,):
     if os.path.exists(config["ppo"]["save_checkpoint_path"]):
         config["ppo"]["save_checkpoint_path"] += datetime.now().strftime("_%H_%M")
@@ -170,7 +183,8 @@ def make_train(config, debug=False,):
                 )
 
                 # LOG THE TRANSITION
-                reward_batch =  jnp.stack([reward_v[a] for a in env.agents])
+                print(update_i)
+                reward_batch =  jnp.stack([compute_reward(0 / config["ppo"]["num_updates"], reward_v[a]) for a in env.agents])
                 reward_batch_player_0 = reward_batch[0]
 
                 transition = Transition(

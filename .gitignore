@@ -17,6 +17,7 @@ config.py
 
 __pycache__/
 episodes/
+test/
 report.log
 wandb/
 test/

@@ -14,7 +14,7 @@ def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> Tra
     env = SimplifyTruncationWrapper(env)
     env = MemoryWrapper(env, env_args["memory"])
     env = TrackerWrapper(env)
-    env = TransformRewardWrapper(env, env_args["reward_weights"])
+    env = TransformRewardWrapper(env, reward_phases = env_args["reward_phases"])
     env = TransformActionWrapper(env, env_args["transform_action"])
     env = TransformObsWrapper(env, env_args["transform_obs"])
     return env
@@ -27,6 +27,7 @@ def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs
     env = SimplifyTruncationWrapper(env)
     env = MemoryWrapper(env, env_args["memory"])
     env = TrackerWrapper(env)
+    env = TransformRewardWrapper(env, reward_phases = env_args["reward_phases"])
     return env
 
 

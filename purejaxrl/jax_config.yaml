@@ -2,17 +2,19 @@ env_args:
   transform_obs: HybridTransformObs
   transform_action: SimplerActionWithSap
   memory: RelicPointMemory
-  reward_weights:
-    stat_0: points_gained
-    weight_0: 0.3
-    stat_1: points_discovered
-    weight_1: 2.0
-    stat_2: relics_discovered
-    weight_2: 1.0
-    stat_3: cells_discovered
-    weight_3: 0.01
-    stat_4: energy_gained
-    weight_4: 0.0001
+  reward_phases:
+    0:
+      type: dense
+      weights:
+        points_gained: 0.3
+        points_discovered: 2.0
+        relics_discovered: 1.0
+        cells_discovered: 0.01
+        energy_gained: 0.0001
+    1:
+      type: dense
+      weights:
+        wins: 1.0
 
 network:
   model: Pix2Pix_AC
