@@ -6,13 +6,13 @@ env_args:
     stat_0: points_gained
     weight_0: 0.3
     stat_1: points_discovered
-    weight_1: 5.0
+    weight_1: 2.0
     stat_2: relics_discovered
     weight_2: 1.0
     stat_3: cells_discovered
     weight_3: 0.01
-    stat_3: energy_gained
-    weight_3: 1e-4
+    stat_4: energy_gained
+    weight_4: 0.0001
 
 network:
   model: Pix2Pix_AC
@@ -28,12 +28,12 @@ ppo:
   # Learning Args
   lr: 1e-4
   num_envs: 64
-  num_steps: 32
-  total_timesteps: 1e4
+  num_steps: 64
+  total_timesteps: 6e7
   update_epochs: 4
   num_minibatches: 8
-  gamma: 0.95
-  gae_lambda: 0.9
+  gamma: 0.9
+  gae_lambda: 0.95
   clip_grad_norm: 0.5
   clip_eps: 0.2
   ent_coef: 0.05
@@ -42,7 +42,8 @@ ppo:
   anneal_lr: True
   action_temperature: 1.0
   match_count_per_episode: 5
-  seed: 0
+  seed: 1
+  selfplay_freq_update: 100
 
   # Log Args
   verbose: 0
@@ -50,14 +51,14 @@ ppo:
   run_name: purejaxrl_ppo
 
   # Save Args
-  save_checkpoint_path: save_exploration
+  save_checkpoint_path: single_phase
   save_checkpoint_freq: 1000
 
 arena_jax:
   agent: NaiveAgent_Jax
-  num_matches: 50
-  arena_freq: 200
-  record_freq: 200
+  num_matches: 20
+  arena_freq: 500
+  record_freq: 500
 # arena_std:
 #   agent: RelicBoundAgent
 #   num_matches: 10

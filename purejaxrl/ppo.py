@@ -1,4 +1,7 @@
 import sys, os
+from turtle import st
+
+from orjson import OPT_APPEND_NEWLINE
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from luxai_s3.env import LuxAIS3Env
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode
@@ -101,12 +104,9 @@ def make_train(config, debug=False,):
             batch_stats = start_state_dict["batch_stats"],
             tx=transform_lr,
         )
-        # test_state = CustomTrainState.create(
-        #     apply_fn = model.apply,
-        #     params = start_state_dict["params"],
-        #     batch_stats = start_state_dict["batch_stats"],
-        #     tx=transform_lr,
-        # )
+        opp_state_dict = start_state_dict
+
+        @jax.jit
         def step_and_keep_or_reset(rng, env_state, actions, env_params):
             obs, next_env_state, reward, done, info = env.step(rng, env_state, actions, env_params)
             
@@ -138,12 +138,10 @@ def make_train(config, debug=False,):
         # TRAIN LOOP
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
-            
-            
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, update_i):
                 # GET OBS BATCHES
-                train_state, env_state_v, last_obs_v, rng, env_params = runner_state
+                train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
 
                 # SELECT ACTION: PLAYER 0
@@ -158,7 +156,7 @@ def make_train(config, debug=False,):
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits1_v, _, _  = model.apply(start_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
+                logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
                 action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
@@ -185,16 +183,24 @@ def make_train(config, debug=False,):
                     info_v = info_v
                 )
 
-                runner_state = (train_state, env_state_v, obs_v, rng, env_params)
+                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params)
                 return runner_state, transition
-
+            
             runner_state, traj_batch = jax.lax.scan(
                 _env_step, runner_state, None, config["ppo"]["num_steps"],
             )
-
+            train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            
+            ################# Self-play opponent update #################
+            update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
+            opp_state_dict = {
+                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                    train_state.params, opp_state_dict["params"]),
+                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
+            }
             
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
-            train_state, env_state_v, last_obs_v, rng, env_params = runner_state
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
             _, last_val_v,_ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
 
@@ -345,7 +351,7 @@ def make_train(config, debug=False,):
             game_info = traj_batch.info_v
             rng = update_state[-1]
             (loss, loss_dict) = loss_info
-            
+
 
             ################# LOG COOL STUFF #################
             def callback(game_info, loss, loss_dict, update_i, current_state_dict):
@@ -354,10 +360,8 @@ def make_train(config, debug=False,):
                 rng_callback = jax.random.PRNGKey(update_step)
 
                 ########### SAVE CHECKPOINT ###########
-                if update_step % config['ppo']["save_checkpoint_freq"] == 0: 
-                    
+                if update_step % config['ppo']["save_checkpoint_freq"] == 0 or update_step == config['ppo']['num_updates'] - 1: 
                     save_state_dict(current_state_dict, checkpoint_manager, step=update_step//config['ppo']['save_checkpoint_freq'])
-                    print(f"save{update_step}", current_state_dict["params"]["Dense_0"]["bias"][0:5], current_state_dict["batch_stats"]["SpectralNorm_0"]["spectral_norm/Conv_0/kernel/u"][0][0:5])   
                 
                 ############# COMPUTE GAME METRICS ############ 
                 returned_episodes = game_info["returned_episode"]
@@ -487,12 +491,12 @@ def make_train(config, debug=False,):
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
-            runner_state = (train_state, env_state_v, last_obs_v, rng, env_params)
+            runner_state = (train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, env_state_v, obs_v, _rng, env_params)
+        runner_state = (train_state, opp_state_dict, env_state_v, obs_v, _rng, env_params)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )
