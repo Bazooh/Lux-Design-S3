@@ -1,7 +1,4 @@
 import sys, os
-from turtle import st
-
-from orjson import OPT_APPEND_NEWLINE
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from luxai_s3.env import LuxAIS3Env
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode
@@ -10,6 +7,7 @@ import jax, chex
 import jax.numpy as jnp
 import optax
 from purejaxrl.env.make_env import make_env, make_vanilla_env, LogWrapper
+from purejaxrl.env.wrappers import RewardObject, gamma_from_reward_phase
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
 from purejaxrl.utils import (
@@ -28,6 +26,7 @@ from purejaxrl.eval_jax import run_arena_jax_agents, run_episode_and_record
 from purejaxrl.eval_standard import run_arena_standard_agents
 from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent
 from datetime import datetime
+from functools import partial
 """
 Reference:  ppo implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -46,6 +45,28 @@ class Transition(NamedTuple):
     info_v: jnp.ndarray
 
 
+@partial(jax.jit, static_argnums=(2))
+def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: bool = True):
+    """
+    Adjust the gamma depending on the curriculum phase
+    frac: float in (0,1)
+    rewards: Array of shape (n_phases)
+    reward_smoothing: whether to smooth reward between phases
+    """
+    start_phase = jnp.round(frac * len(rewards)).astype(int)
+    weight = (frac * len(rewards)) - start_phase
+    reshaped_reward = jax.lax.select(
+         start_phase == len(rewards),
+         rewards[-1],
+         jax.lax.select(
+            reward_smoothing,
+            rewards[start_phase] * (1 - weight) + rewards[start_phase + 1] * weight,
+            rewards[start_phase]
+         ),
+    )
+    return reshaped_reward
+
+
 def make_train(config, debug=False,):
     if os.path.exists(config["ppo"]["save_checkpoint_path"]):
         config["ppo"]["save_checkpoint_path"] += datetime.now().strftime("_%H_%M")
@@ -55,7 +76,7 @@ def make_train(config, debug=False,):
     
     print('-'*150)
     print("Network has args: ", { k: v for k, v in config["network_args"].items()}, "\n", '-'*150)
-    print("Env has reward weights:", config["env_args"]["reward_weights"],"\n", '-'*150)
+    print("Reward phases:", config["env_args"]["reward_phases"],"\n", '-'*150)
     print("Starting ppo with config:", config["ppo"], "\n",'-'*150)
 
     if config["arena_jax"] is not None:
@@ -89,7 +110,29 @@ def make_train(config, debug=False,):
         arena_std_agent = config["arena_std"]["agent"]
         rec_env_gym = RecordEpisode(LuxAIS3GymEnv(numpy_output=True), save_on_close=True, save_dir = "replays_ppo_std")
         arena_env_gym = LuxAIS3GymEnv(numpy_output=True)
-        
+
+    reward_phases = env.reward_phases
+
+    @partial(jax.jit, static_argnums=(2))
+    def compute_reshaped_gamma(frac: float, gamma: float, gamma_smoothing: bool = True):
+        """
+        Adjust the gamma depending on the curriculum phase
+        """
+        start_phase = jnp.round(frac * len(reward_phases)).astype(int)
+        weight = (frac * len(reward_phases)) - start_phase
+        gammas = jnp.array([gamma_from_reward_phase(reward_phase=reward_phase, gamma = gamma) for reward_phase in reward_phases])
+        reshaped_gamma = jax.lax.select(
+            start_phase == len(reward_phases),
+            gammas[-1],
+            jax.lax.select(
+                gamma_smoothing,
+                gammas[start_phase]* (1 - weight) + gammas[start_phase+1] * weight,
+                gammas[start_phase+1]            
+            ),
+        )
+        return reshaped_gamma  
+
+
     def train(rng: chex.PRNGKey,):
 
         #create TrainState objects
@@ -139,7 +182,7 @@ def make_train(config, debug=False,):
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
-            def _env_step(runner_state, update_i):
+            def _env_step(runner_state, _):
                 # GET OBS BATCHES
                 train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
@@ -150,14 +193,14 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits0_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, last_obs_batch_player_0["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
                 log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
                 logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, last_obs_batch_player_1["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
@@ -170,14 +213,26 @@ def make_train(config, debug=False,):
                 )
 
                 # LOG THE TRANSITION
-                reward_batch =  jnp.stack([reward_v[a] for a in env.agents])
-                reward_batch_player_0 = reward_batch[0]
+                reshaped_reward_v = {
+                    "player_0" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
+                        update_i / config["ppo"]["num_updates"], 
+                        reward_v["player_0"],
+                        env.reward_smoothing 
+                    ), 
+                    "player_1" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
+                        update_i / config["ppo"]["num_updates"], 
+                        reward_v["player_1"],
+                        env.reward_smoothing 
+                    ),
+                }
+                 
+                reshaped_reward_player_0 = reshaped_reward_v["player_0"]
 
                 transition = Transition(
                     done_v = done_v,
                     action_v = action0_v, 
                     value_v = value0_v, 
-                    reward_v = reward_batch_player_0, 
+                    reward_v = reshaped_reward_player_0, 
                     log_prob_v = log_prob0_v, 
                     obs_v = last_obs_batch_player_0, 
                     info_v = info_v
@@ -206,16 +261,21 @@ def make_train(config, debug=False,):
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
+                    reshaped_gamma = compute_reshaped_gamma(
+                        frac = update_i / config["ppo"]["num_updates"],
+                        gamma = config["ppo"]["gamma"],
+                        gamma_smoothing = config['ppo']['gamma_smoothing'],
+                    )
                     gae, next_value = gae_and_next_value
                     done_v, value_v, reward_v = (
                         transition.done_v,
                         transition.value_v,
                         transition.reward_v,
                     )
-                    delta = reward_v + config["ppo"]["gamma"] * next_value * (1 - done_v) - value_v
+                    delta = reward_v + reshaped_gamma * next_value * (1 - done_v) - value_v
                     gae = (
                         delta
-                        + config["ppo"]["gamma"] * config["ppo"]["gae_lambda"] * (1 - done_v) * gae
+                        + reshaped_gamma * config["ppo"]["gae_lambda"] * (1 - done_v) * gae
                     )
                     return (gae, value_v), gae
 

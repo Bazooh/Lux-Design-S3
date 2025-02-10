@@ -49,7 +49,7 @@ class RawPureJaxRLAgent(JaxAgent):
         ) 
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
         logits, _, _ = self.model.apply(self.state_dict, **transformed_obs_batched, train = False) # logits is (16, 6)
-        action = sample_group_action(key, logits[0])
+        action = sample_group_action(key = key, logits_group = logits[0], action_mask = transformed_obs_batched["action_mask"][0])
 
         # actions = jnp.array([2, 3, 5])
         # key, new_key = jax.random.split(key)

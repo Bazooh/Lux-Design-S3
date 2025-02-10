@@ -3,6 +3,7 @@ import jax
 import chex
 from flax import struct
 from typing import Optional, Tuple, Union, Any, Literal
+from enum import Enum
 import jax.numpy as jnp
 import gymnax
 from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams
@@ -16,7 +17,12 @@ from functools import partial
 from typing import Any
 from purejaxrl.env.memory import Memory, RelicPointMemoryState
 # for recording
-from purejaxrl.env.utils import serialize_metadata, serialize_env_params, json_to_html
+from purejaxrl.env.utils import (
+    serialize_metadata, 
+    serialize_env_params, 
+    json_to_html, 
+    get_action_masking_from_obs
+)
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 import os, json
 PlayerAction = Any
@@ -195,6 +201,8 @@ class PlayerStats:
     collisions: int = 0
     units_moved: int = 0
     energy_gained: int = 0
+    sap_tried: int = 0
+    sap_available: float = 0
 
     def __add__(self, other: "PlayerStats"):
         return PlayerStats(
@@ -204,6 +212,16 @@ class PlayerStats:
         return PlayerStats(**
             {key: value * x for key, value in self.__dict__.items()}
         )
+
+@struct.dataclass
+class State_with_Stats:
+    env_state: Env_Mem_State
+    dense_stats_player_0: PlayerStats
+    dense_stats_player_1: PlayerStats
+    episode_stats_player_0: PlayerStats
+    episode_stats_player_1: PlayerStats
+    def __getattr__(self, name):
+        return getattr(self.env_state, name)
     
 class TrackerWrapper(GymnaxWrapper):
     def __init__(self, env: SimplifyTruncationWrapper):
@@ -277,6 +295,10 @@ class TrackerWrapper(GymnaxWrapper):
             0,
             jnp.sum(~alive_units_mask & last_alive_units_mask) # units that were alive but are anymore
         )
+        
+        sap_tried = jnp.sum((action[:, 0] == 5).astype(jnp.int8))
+        action_mask = get_action_masking_from_obs(team_id = team_id, obs = obs, sap_range = params.unit_sap_range)
+        sap_available = jnp.sum((action_mask[:, 5]).astype(jnp.int8))
 
         return PlayerStats(
             wins = wins,
@@ -288,45 +310,128 @@ class TrackerWrapper(GymnaxWrapper):
             units_moved=jax.lax.stop_gradient(units_moved), 
             collisions=jax.lax.stop_gradient(collisions),
             deaths=jax.lax.stop_gradient(deaths),
+            sap_tried=jax.lax.stop_gradient(sap_tried),
+            sap_available=jax.lax.stop_gradient(sap_available),            
         )
-
+    def reset(self, key: chex.PRNGKey, params: Optional[EnvParams] = None) -> Tuple[chex.Array, State_with_Stats]:
+        obs, env_state = self._env.reset(key, params)
+        new_state = State_with_Stats(
+            env_state=env_state,
+            dense_stats_player_0=PlayerStats(),
+            dense_stats_player_1=PlayerStats(),
+            episode_stats_player_0=PlayerStats(),
+            episode_stats_player_1=PlayerStats(),
+        )
+        return obs, new_state
+    
     def step(
         self,
         key: chex.PRNGKey,
-        env_state: Env_Mem_State,
+        env_state: State_with_Stats,
         action: PlayerAction,
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
-        last_mem_state_player_0, last_mem_state_player_1 = env_state.memory_state_player_0, env_state.memory_state_player_1 
         last_obs = self._env.get_obs(env_state.env_state)
-        obs, env_state, reward, done, info = self._env.step(key, env_state, action, params)
-        info["stats"]={
-            "player_0": self.get_player_statistics(team_id=0, 
-                                                    action = action["player_0"],
-                                                    last_obs=last_obs["player_0"], 
-                                                    last_mem_state = last_mem_state_player_0, 
-                                                    obs = info["final_observation"]["player_0"], 
-                                                    mem_state = env_state.memory_state_player_0,
-                                                    params = params),
-            "player_1": self.get_player_statistics(team_id=1, 
-                                                    action = action["player_1"],
-                                                    last_obs=last_obs["player_1"], 
-                                                    last_mem_state = last_mem_state_player_1,
-                                                    obs = info["final_observation"]["player_1"], 
-                                                    mem_state = env_state.memory_state_player_1,
-                                                    params = params)
-        }
-        return obs, env_state, reward, done, info
+        obs, new_env_state, reward, done, info = self._env.step(key, env_state.env_state, action, params)
+        
+        dense_stats_player_0 = self.get_player_statistics(
+            team_id=0, 
+            action = action["player_0"],
+            last_obs=last_obs["player_0"], 
+            last_mem_state = env_state.memory_state_player_0, 
+            obs = info["final_observation"]["player_0"], 
+            mem_state = new_env_state.memory_state_player_0,
+            params = params
+        )
+        dense_stats_player_1 = self.get_player_statistics(
+            team_id=1, 
+            action = action["player_1"],
+            last_obs=last_obs["player_1"], 
+            last_mem_state = env_state.memory_state_player_1,
+            obs = info["final_observation"]["player_1"], 
+            mem_state = new_env_state.memory_state_player_1,
+            params = params
+        )
+        episode_stats_player_0 = env_state.episode_stats_player_0 + dense_stats_player_0
+        episode_stats_player_1 = env_state.episode_stats_player_1 + dense_stats_player_1
+        
+        new_env_state = State_with_Stats(
+            env_state=new_env_state,
+            dense_stats_player_0=dense_stats_player_0,
+            dense_stats_player_1=dense_stats_player_1,
+            episode_stats_player_0=episode_stats_player_0 * (1-done),
+            episode_stats_player_1=episode_stats_player_1 * (1-done),
+        )
+        return obs, new_env_state, reward, done, info
 
 
 ################################## REWARD WRAPPER ##################################
+class RewardType(Enum):
+    DENSE = "dense"
+    SPARSE = "sparse"
+    SPARSE_DELTA = "sparse-delta"
+
+class RewardObject:
+    def __init__(self, reward_type: RewardType, reward_weights: dict[str, float]):
+        if not isinstance(reward_type, RewardType):
+            raise ValueError("reward_type must be an instance of RewardType Enum")
+        self.reward_type = reward_type
+        self.reward_weights = reward_weights
+    
+    def __repr__(self):
+        return f"RewardObject(type={self.reward_type.value}, weights={self.reward_weights})"
+    
+    @partial(jax.jit, static_argnums=(0,))
+    def compute_reward(
+        self, 
+        state: State_with_Stats,
+        params: EnvParams,
+    ) -> dict[str, float]:
+        match_end = state.steps % (params.max_steps_in_match + 1) == 0
+        done = (state.steps == (params.max_steps_in_match + 1)*params.match_count_per_episode) 
+        if self.reward_type == RewardType.DENSE: 
+            r =  {
+                "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                "player_1": sum([getattr(state.dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+            }
+            # jax.debug.print("state_stats {s}", s = state.dense_stats_player_0, step = state.dense_stats_player_0,)
+            return r
+        else:
+            r = {
+                "player_0": jax.lax.select(
+                    done, 
+                    sum([getattr(state.episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    0.0,
+                ),
+                "player_1": jax.lax.select(
+                    done, 
+                    sum([getattr(state.episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    0.0,
+                )
+            }
+            if self.reward_type == RewardType.SPARSE:
+                return r
+            elif self.reward_type == RewardType.SPARSE_DELTA:
+                delta = r["player_0"] - r["player_1"]
+                return {
+                    "player_0": jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
+                    "player_1": -jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
+                }
+
+def gamma_from_reward_phase(reward_phase: RewardObject, gamma: float):
+    if reward_phase.reward_type == RewardType.DENSE:
+        return gamma
+    else:
+        return 1
+    
 class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment
     """
-    def __init__(self, env: TrackerWrapper, reward_weights: dict):
+    def __init__(self, env: TrackerWrapper, reward_phases: list[RewardObject], reward_smoothing = False):
         super().__init__(env)
-        self.reward_weights = reward_weights
+        self.reward_phases = reward_phases
+        self.reward_smoothing = reward_smoothing
 
     def step(
         self,
@@ -336,9 +441,13 @@ class TransformRewardWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         obs, state, _, done, info = self._env.step(key, env_mem_state, action, params)
+
+        reward_per_phase = [
+            self.reward_phases[i].compute_reward(state, params) for i in range(len(self.reward_phases))
+        ]
         transformed_reward = {
-            "player_0": sum([getattr(info["stats"]["player_0"], stat) * weight for stat, weight in self.reward_weights.items()]),
-            "player_1": sum([getattr(info["stats"]["player_1"], stat) * weight for stat, weight in self.reward_weights.items()]),
+            "player_0": jnp.array([reward["player_0"] for reward in reward_per_phase]),
+            "player_1": jnp.array([reward["player_1"] for reward in reward_per_phase]),
         }
         return obs, state, transformed_reward, done, info
     
@@ -448,25 +557,21 @@ class LogWrapper(GymnaxWrapper):
         )
 
         # Update episode returns
-        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"], reward["player_1"]])
-
-        # Update cumulative statistics for each player
-        new_episode_stats_player_0 = log_env_state.episode_stats_player_0 + info["stats"]["player_0"]
-        new_episode_stats_player_1 = log_env_state.episode_stats_player_1 + info["stats"]["player_1"]
+        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"][0], reward["player_1"][0]])
 
         # Prepare info dictionary
         if self.replace_info:
             info = {}
         info["episode_return"] = new_episode_return
-        info["episode_stats_player_0"] = new_episode_stats_player_0
-        info["episode_stats_player_1"] = new_episode_stats_player_1
+        info["episode_stats_player_0"] = log_env_state.episode_stats_player_0
+        info["episode_stats_player_1"] = log_env_state.episode_stats_player_1
         info["returned_episode"] = done
 
         # Create new LogEnvState
         new_log_env_state = LogEnvState(
             env_state = env_state,
             episode_return = new_episode_return * (1 - done),
-            episode_stats_player_0 = new_episode_stats_player_0 * (1-done),
-            episode_stats_player_1 = new_episode_stats_player_1 * (1-done),
+            episode_stats_player_0 = log_env_state.episode_stats_player_0 * (1-done),
+            episode_stats_player_1 = log_env_state.episode_stats_player_1 * (1-done),
         )
         return obs, new_log_env_state, reward, done, info

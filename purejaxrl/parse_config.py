@@ -35,14 +35,23 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
         "transform_obs": transform_obs,
         "transform_action": transform_action,
         "memory": memory,
+        "reward_smoothing": bool(yaml_dict["env_args"]["reward_smoothing"]),
     }
 
     ######### Reward arguments ########
-    if "reward_weights" in yaml_dict['env_args'].keys():
-        num_stats = len(yaml_dict['env_args']["reward_weights"])//2
-        config["env_args"]["reward_weights"] = {
-            yaml_dict['env_args']["reward_weights"]["stat_" + str(i)]: yaml_dict['env_args']["reward_weights"]["weight_" + str(i)] for i in range(num_stats)
-        }
+    if "reward_phases" in yaml_dict["env_args"].keys():
+        from purejaxrl.env.wrappers import RewardObject, RewardType
+        reward_phases = []
+        
+        for i, reward_phase in enumerate(yaml_dict["env_args"]['reward_phases']):
+            reward_phase = yaml_dict["env_args"]['reward_phases'][i]
+            reward_type = RewardType(reward_phase["type"])
+            reward_weights = {k: float(v) for k, v in reward_phase["weights"].items()}
+            reward_phases.append(RewardObject(reward_type, reward_weights))
+            
+        config["env_args"]["reward_phases"] = reward_phases
+
+
     ###### Network arguments ######
     network_args = {
             "action_dim": int(transform_action.action_space.n),
@@ -88,6 +97,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "update_epochs": int(yaml_dict["ppo"]["update_epochs"]),
             "num_minibatches": int(yaml_dict["ppo"]["num_minibatches"]),
             "gamma": float(yaml_dict["ppo"]["gamma"]),
+            "gamma_smoothing": bool(yaml_dict["ppo"]["gamma_smoothing"]),
             "gae_lambda": float(yaml_dict["ppo"]["gae_lambda"]),
             "clip_grad_norm": float(yaml_dict["ppo"]["clip_grad_norm"]),
             "clip_eps": float(yaml_dict["ppo"]["clip_eps"]),

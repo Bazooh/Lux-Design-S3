@@ -6,19 +6,24 @@ import orbax.checkpoint
 from flax.training import orbax_utils
 from typing import Any
 import os
+from functools import partial
 
-@jax.jit
-def sample_group_action(key, logits_group, action_temperature: float = 1.0):
+@partial(jax.jit, static_argnums=(3))
+def sample_group_action(key, logits_group: chex.Array, action_mask: chex.Array, action_temperature: float = 1.0):
     """
     key: PRNG key for sampling.
     logits_group: Logits for the action of a group of ships. Shape: (16, action_dim).
+    action_mask: Mask for the action of a group of ships. Shape: (16, action_dim).
     """
-    def sample_action(key: chex.PRNGKey, logits: chex.Array, action_temperature: float = 1.0):
+    @partial(jax.jit, static_argnums=(3))
+    def sample_action(key: chex.PRNGKey, logits: chex.Array, action_mask: chex.Array, action_temperature: float = 1.0):
         """
         key: PRNG key for sampling.
         logits: Logits for the action of a single ship. Shape: (action_dim).
+        action_mask: Mask for the action of a single ship. Shape: (action_dim).
         """
         scaled_logits = (logits - jnp.mean(logits, axis=-1, keepdims=True)) / action_temperature
+        scaled_logits = jnp.where(action_mask, scaled_logits, -1e9)  # Mask invalid
         action = jax.random.categorical(key=key, logits=scaled_logits, axis=-1)
         return action
     
@@ -26,7 +31,7 @@ def sample_group_action(key, logits_group, action_temperature: float = 1.0):
     group_keys = jax.random.split(key, num=logits_group.shape[0])
     
     # Use vmap to vectorize the sampling over group_keys and logits_group
-    action_group = jax.vmap(sample_action, in_axes=(0, 0, None))(group_keys, logits_group, action_temperature)
+    action_group = jax.vmap(sample_action, in_axes=(0, 0, 0, None))(group_keys, logits_group, action_mask, action_temperature)
     
     return action_group
 
