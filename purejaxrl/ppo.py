@@ -1,7 +1,4 @@
 import sys, os
-from turtle import st
-
-from orjson import OPT_APPEND_NEWLINE
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from luxai_s3.env import LuxAIS3Env
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode
@@ -28,6 +25,7 @@ from purejaxrl.eval_jax import run_arena_jax_agents, run_episode_and_record
 from purejaxrl.eval_standard import run_arena_standard_agents
 from purejaxrl.purejaxrl_agent import RawPureJaxRLAgent
 from datetime import datetime
+from functools import partial
 """
 Reference:  ppo implementation from PUREJAXRL
 https://github.com/Hadrien-Cr/purejaxrl/blob/main/purejaxrl/ppo.py
@@ -46,17 +44,25 @@ class Transition(NamedTuple):
     info_v: jnp.ndarray
 
 
-def compute_reward(step: float, rewards: list[float], smooth: bool = True) -> float:
-    phase = int(step * len(rewards))
-
-    if phase == len(rewards):
-        return rewards[-1]
-
-    if smooth:
-        weight = (step * len(rewards)) - phase
-        return rewards[phase] * (1 - weight) + rewards[phase + 1] * weight
-
-    return rewards[phase]
+@partial(jax.jit, static_argnums=(2))
+def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: bool = True):
+    """
+    frac: float in (0,1)
+    rewards: Array of shape (n_phases)
+    reward_smoothing: whether to smooth reward between phases
+    """
+    start_phase = jnp.round(frac * len(rewards)).astype(int)
+    weight = (frac * len(rewards)) - start_phase
+    reward = jax.lax.select(
+         start_phase == len(rewards),
+         rewards[-1],
+         jax.lax.select(
+            smooth,
+            rewards[start_phase] * (1 - weight) + rewards[start_phase + 1] * weight,
+            rewards[start_phase]
+         ),
+    )
+    return reward
 
 
 def make_train(config, debug=False,):
@@ -68,7 +74,7 @@ def make_train(config, debug=False,):
     
     print('-'*150)
     print("Network has args: ", { k: v for k, v in config["network_args"].items()}, "\n", '-'*150)
-    print("Env has reward weights:", config["env_args"]["reward_weights"],"\n", '-'*150)
+    print("Reward phases:", config["env_args"]["reward_phases"],"\n", '-'*150)
     print("Starting ppo with config:", config["ppo"], "\n",'-'*150)
 
     if config["arena_jax"] is not None:
@@ -152,7 +158,7 @@ def make_train(config, debug=False,):
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
-            def _env_step(runner_state, update_i):
+            def _env_step(runner_state, _):
                 # GET OBS BATCHES
                 train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
@@ -163,14 +169,14 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, obs["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, last_obs_batch_player_0["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
                 log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
                 logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, obs["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, last_obs_batch_player_1["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
@@ -183,15 +189,26 @@ def make_train(config, debug=False,):
                 )
 
                 # LOG THE TRANSITION
-                print(update_i)
-                reward_batch =  jnp.stack([compute_reward(0 / config["ppo"]["num_updates"], reward_v[a]) for a in env.agents])
-                reward_batch_player_0 = reward_batch[0]
+                reshaped_reward_v = {
+                    "player_0" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
+                        update_i / config["ppo"]["num_updates"], 
+                        reward_v["player_0"],
+                        reward_smoothing = env.reward_smoothing 
+                    ), 
+                    "player_1" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
+                        update_i / config["ppo"]["num_updates"], 
+                        reward_v["player_1"],
+                        reward_smoothing = env.reward_smoothing 
+                    ),
+                }
+                 
+                reshaped_reward_player_0 = reshaped_reward_v["player_0"]
 
                 transition = Transition(
                     done_v = done_v,
                     action_v = action0_v, 
                     value_v = value0_v, 
-                    reward_v = reward_batch_player_0, 
+                    reward_v = reshaped_reward_player_0, 
                     log_prob_v = log_prob0_v, 
                     obs_v = last_obs_batch_player_0, 
                     info_v = info_v

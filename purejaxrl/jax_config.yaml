@@ -2,6 +2,7 @@ env_args:
   transform_obs: HybridTransformObs
   transform_action: SimplerActionWithSap
   memory: RelicPointMemory
+  reward_smoothing: False
   reward_phases:
     0:
       type: dense
@@ -12,9 +13,9 @@ env_args:
         cells_discovered: 0.01
         energy_gained: 0.0001
     1:
-      type: dense
+      type: sparse
       weights:
-        wins: 1.0
+        wins: 100.0
 
 network:
   model: Pix2Pix_AC
@@ -31,7 +32,7 @@ ppo:
   lr: 1e-4
   num_envs: 64
   num_steps: 64
-  total_timesteps: 6e7
+  total_timesteps: 1e5
   update_epochs: 4
   num_minibatches: 8
   gamma: 0.9
@@ -48,8 +49,8 @@ ppo:
   selfplay_freq_update: 100
 
   # Log Args
-  verbose: 0
-  use_wandb: True
+  verbose: 1
+  use_wandb: False
   run_name: purejaxrl_ppo
 
   # Save Args

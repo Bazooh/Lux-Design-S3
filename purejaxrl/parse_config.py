@@ -35,6 +35,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
         "transform_obs": transform_obs,
         "transform_action": transform_action,
         "memory": memory,
+        "reward_smoothing": bool(yaml_dict["env_args"]["reward_smoothing"]),
     }
 
     ######### Reward arguments ########

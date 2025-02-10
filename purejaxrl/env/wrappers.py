@@ -412,9 +412,10 @@ class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment
     """
-    def __init__(self, env: TrackerWrapper, reward_phases: list[RewardObject]):
+    def __init__(self, env: TrackerWrapper, reward_phases: list[RewardObject], reward_smoothing = False):
         super().__init__(env)
         self.reward_phases = reward_phases
+        self.reward_smoothing = reward_smoothing
 
     def step(
         self,
