@@ -338,7 +338,7 @@ class TrackerWrapper(GymnaxWrapper):
             team_id=0, 
             action = action["player_0"],
             last_obs=last_obs["player_0"], 
-            last_mem_state = env_state.memory_state_player_1, 
+            last_mem_state = env_state.memory_state_player_0, 
             obs = info["final_observation"]["player_0"], 
             mem_state = new_env_state.memory_state_player_0,
             params = params
@@ -394,6 +394,7 @@ class RewardObject:
                 "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
                 "player_1": sum([getattr(state.dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
             }
+            # jax.debug.print("state_stats {s}", s = state.dense_stats_player_0, step = state.dense_stats_player_0,)
             return r
         else:
             r = {
@@ -416,6 +417,13 @@ class RewardObject:
                     "player_0": jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
                     "player_1": -jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
                 }
+
+def gamma_from_reward_phase(reward_phase: RewardObject, gamma: float):
+    if reward_phase.reward_type == RewardType.DENSE:
+        return gamma
+    else:
+        return 1
+    
 class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment

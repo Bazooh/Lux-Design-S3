@@ -7,6 +7,7 @@ import jax, chex
 import jax.numpy as jnp
 import optax
 from purejaxrl.env.make_env import make_env, make_vanilla_env, LogWrapper
+from purejaxrl.env.wrappers import RewardObject, gamma_from_reward_phase
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
 from purejaxrl.utils import (
@@ -47,13 +48,14 @@ class Transition(NamedTuple):
 @partial(jax.jit, static_argnums=(2))
 def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: bool = True):
     """
+    Adjust the gamma depending on the curriculum phase
     frac: float in (0,1)
     rewards: Array of shape (n_phases)
     reward_smoothing: whether to smooth reward between phases
     """
     start_phase = jnp.round(frac * len(rewards)).astype(int)
     weight = (frac * len(rewards)) - start_phase
-    reward = jax.lax.select(
+    reshaped_reward = jax.lax.select(
          start_phase == len(rewards),
          rewards[-1],
          jax.lax.select(
@@ -62,7 +64,7 @@ def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: 
             rewards[start_phase]
          ),
     )
-    return reward
+    return reshaped_reward
 
 
 def make_train(config, debug=False,):
@@ -108,7 +110,29 @@ def make_train(config, debug=False,):
         arena_std_agent = config["arena_std"]["agent"]
         rec_env_gym = RecordEpisode(LuxAIS3GymEnv(numpy_output=True), save_on_close=True, save_dir = "replays_ppo_std")
         arena_env_gym = LuxAIS3GymEnv(numpy_output=True)
-        
+
+    reward_phases = env.reward_phases
+
+    @partial(jax.jit, static_argnums=(2))
+    def compute_reshaped_gamma(frac: float, gamma: float, gamma_smoothing: bool = True):
+        """
+        Adjust the gamma depending on the curriculum phase
+        """
+        start_phase = jnp.round(frac * len(reward_phases)).astype(int)
+        weight = (frac * len(reward_phases)) - start_phase
+        gammas = jnp.array([gamma_from_reward_phase(reward_phase=reward_phase, gamma = gamma) for reward_phase in reward_phases])
+        reshaped_gamma = jax.lax.select(
+            start_phase == len(reward_phases),
+            gammas[-1],
+            jax.lax.select(
+                gamma_smoothing,
+                gammas[start_phase]* (1 - weight) + gammas[start_phase+1] * weight,
+                gammas[start_phase+1]            
+            ),
+        )
+        return reshaped_gamma  
+
+
     def train(rng: chex.PRNGKey,):
 
         #create TrainState objects
@@ -237,16 +261,21 @@ def make_train(config, debug=False,):
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
+                    reshaped_gamma = compute_reshaped_gamma(
+                        frac = update_i / config["ppo"]["num_updates"],
+                        gamma = config["ppo"]["gamma"],
+                        gamma_smoothing = config['ppo']['gamma_smoothing'],
+                    )
                     gae, next_value = gae_and_next_value
                     done_v, value_v, reward_v = (
                         transition.done_v,
                         transition.value_v,
                         transition.reward_v,
                     )
-                    delta = reward_v + config["ppo"]["gamma"] * next_value * (1 - done_v) - value_v
+                    delta = reward_v + reshaped_gamma * next_value * (1 - done_v) - value_v
                     gae = (
                         delta
-                        + config["ppo"]["gamma"] * config["ppo"]["gae_lambda"] * (1 - done_v) * gae
+                        + reshaped_gamma * config["ppo"]["gae_lambda"] * (1 - done_v) * gae
                     )
                     return (gae, value_v), gae
 

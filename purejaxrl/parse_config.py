@@ -97,6 +97,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "update_epochs": int(yaml_dict["ppo"]["update_epochs"]),
             "num_minibatches": int(yaml_dict["ppo"]["num_minibatches"]),
             "gamma": float(yaml_dict["ppo"]["gamma"]),
+            "gamma_smoothing": bool(yaml_dict["ppo"]["gamma_smoothing"]),
             "gae_lambda": float(yaml_dict["ppo"]["gae_lambda"]),
             "clip_grad_norm": float(yaml_dict["ppo"]["clip_grad_norm"]),
             "clip_eps": float(yaml_dict["ppo"]["clip_eps"]),
