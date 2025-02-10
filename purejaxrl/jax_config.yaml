@@ -12,10 +12,14 @@ env_args:
         relics_discovered: 1.0
         cells_discovered: 0.01
         energy_gained: 0.0001
-    1:
-      type: sparse
-      weights:
-        wins: 100.0
+    # 1:
+    #   type: sparse-delta
+    #   weights:
+    #     points_gained: 1.0
+    # 2:
+    #   type: sparse
+    #   weights:
+    #     wins: 100.0
 
 network:
   model: Pix2Pix_AC
@@ -30,9 +34,9 @@ network:
 ppo:
   # Learning Args
   lr: 1e-4
-  num_envs: 64
+  num_envs: 2
   num_steps: 64
-  total_timesteps: 1e5
+  total_timesteps: 1e7
   update_epochs: 4
   num_minibatches: 8
   gamma: 0.9

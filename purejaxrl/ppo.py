@@ -57,7 +57,7 @@ def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: 
          start_phase == len(rewards),
          rewards[-1],
          jax.lax.select(
-            smooth,
+            reward_smoothing,
             rewards[start_phase] * (1 - weight) + rewards[start_phase + 1] * weight,
             rewards[start_phase]
          ),
@@ -193,12 +193,12 @@ def make_train(config, debug=False,):
                     "player_0" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
                         update_i / config["ppo"]["num_updates"], 
                         reward_v["player_0"],
-                        reward_smoothing = env.reward_smoothing 
+                        env.reward_smoothing 
                     ), 
                     "player_1" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
                         update_i / config["ppo"]["num_updates"], 
                         reward_v["player_1"],
-                        reward_smoothing = env.reward_smoothing 
+                        env.reward_smoothing 
                     ),
                 }
                  

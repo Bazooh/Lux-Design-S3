@@ -369,7 +369,7 @@ class TrackerWrapper(GymnaxWrapper):
 class RewardType(Enum):
     DENSE = "dense"
     SPARSE = "sparse"
-    SPARSE_DELTA = "sparse_delta"
+    SPARSE_DELTA = "sparse-delta"
 
 class RewardObject:
     def __init__(self, reward_type: RewardType, reward_weights: dict[str, float]):
@@ -380,34 +380,42 @@ class RewardObject:
     
     def __repr__(self):
         return f"RewardObject(type={self.reward_type.value}, weights={self.reward_weights})"
+    
+    @partial(jax.jit, static_argnums=(0,))
     def compute_reward(
         self, 
-        done: bool,
-        match_end: bool,
-        dense_stats_player_0: PlayerStats, 
-        dense_stats_player_1: PlayerStats,
-        episode_stats_player_0: PlayerStats,
-        episode_stats_player_1: PlayerStats,
+        state: State_with_Stats,
+        params: EnvParams,
     ) -> dict[str, float]:
+        match_end = state.steps % (params.max_steps_in_match + 1) == 0
+        done = (state.steps == (params.max_steps_in_match + 1)*params.match_count_per_episode) 
         if self.reward_type == RewardType.DENSE: 
-            return {
-                "player_0": sum([getattr(dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
-                "player_1": sum([getattr(dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+            r =  {
+                "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                "player_1": sum([getattr(state.dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
             }
-        elif self.reward_type == RewardType.SPARSE:
-            return {
-                "player_0": sum([getattr(episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
-                "player_1": sum([getattr(episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
+            return r
+        else:
+            r = {
+                "player_0": jax.lax.select(
+                    done, 
+                    sum([getattr(state.episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    0.0,
+                ),
+                "player_1": jax.lax.select(
+                    done, 
+                    sum([getattr(state.episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    0.0,
+                )
             }
-        elif self.reward_type == RewardType.SPARSE_DELTA:
-            reward =  {
-                "player_0": sum([getattr(episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
-                "player_1": sum([getattr(episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]) if done else 0,
-            }
-            return {
-                "player_0": jnp.sqrt(reward["player_0"] - reward["player_1"]),
-                "player_1": jnp.sqrt(reward["player_0"] - reward["player_1"]),
-            }
+            if self.reward_type == RewardType.SPARSE:
+                return r
+            elif self.reward_type == RewardType.SPARSE_DELTA:
+                delta = r["player_0"] - r["player_1"]
+                return {
+                    "player_0": jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
+                    "player_1": -jnp.sign(delta) * jnp.sqrt(jnp.abs(delta)),
+                }
 class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment
@@ -425,20 +433,13 @@ class TransformRewardWrapper(GymnaxWrapper):
         params: Optional[EnvParams] = None,
     ) -> Tuple[chex.Array, Env_Mem_State, float, bool, dict]:
         obs, state, _, done, info = self._env.step(key, env_mem_state, action, params)
-        match_end = state.steps % (params.max_steps_in_match + 1) == 0
-        transformed_reward = [
-            self.reward_phases[i].compute_reward(
-                done = done,
-                match_end = match_end,
-                dense_stats_player_0 = state.dense_stats_player_0,
-                dense_stats_player_1 = state.dense_stats_player_1,
-                episode_stats_player_0 = state.episode_stats_player_0,
-                episode_stats_player_1 = state.episode_stats_player_1,
-            ) for i in range(len(self.reward_phases))
+
+        reward_per_phase = [
+            self.reward_phases[i].compute_reward(state, params) for i in range(len(self.reward_phases))
         ]
         transformed_reward = {
-            "player_0": jnp.array([reward["player_0"] for reward in transformed_reward]),
-            "player_1": jnp.array([reward["player_1"] for reward in transformed_reward]),
+            "player_0": jnp.array([reward["player_0"] for reward in reward_per_phase]),
+            "player_1": jnp.array([reward["player_1"] for reward in reward_per_phase]),
         }
         return obs, state, transformed_reward, done, info
     
