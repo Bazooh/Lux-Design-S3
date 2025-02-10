@@ -9,7 +9,15 @@ import gymnax
 from typing import Any
 import jax.numpy as jnp
 import numpy as np
-from purejaxrl.env.utils import mirror_grid, mirror_position, symmetrize, manhattan_distance_to_nearest_point, diagonal_distances, Tiles
+from purejaxrl.env.utils import (
+    mirror_grid, 
+    mirror_position, 
+    symmetrize, 
+    manhattan_distance_to_nearest_point, 
+    diagonal_distances, 
+    Tiles, 
+    get_action_masking_from_obs
+)
 from purejaxrl.env.memory import RelicPointMemoryState
 
 class TransformObs(ABC):
@@ -118,6 +126,7 @@ class HybridTransformObs(TransformObs):
                             'time': gymnax.environments.spaces.Box(low=0, high=1, shape=(self.time_size), dtype=jnp.float32),
                             'position': gymnax.environments.spaces.Box(low=0, high=23, shape=(16, 2), dtype=jnp.int8), 
                             'mask_awake': gymnax.environments.spaces.Box(low=0, high=1, shape=(16), dtype=jnp.int8),
+                            'action_mask': gymnax.environments.spaces.Box(low=0, high=1, shape=(16, 6), dtype=jnp.int8),
         })
     @partial(jax.jit, static_argnums=(0, 1))
     def convert(
@@ -218,6 +227,7 @@ class HybridTransformObs(TransformObs):
                 'time': jax.lax.stop_gradient(time_vector),
                 'position': jax.lax.stop_gradient(jax.vmap(mirror_position)(obs.units.position[team_id])),
                 'mask_awake': jax.lax.stop_gradient(mask_awake),
+                'action_mask': jax.lax.stop_gradient(get_action_masking_from_obs(team_id = team_id, obs = obs, sap_range=params.unit_sap_range)),
             }
         else:
             return {
@@ -226,4 +236,5 @@ class HybridTransformObs(TransformObs):
                 'time': jax.lax.stop_gradient(time_vector),
                 'position': jax.lax.stop_gradient(obs.units.position[team_id]),
                 'mask_awake': jax.lax.stop_gradient(mask_awake),
+                'action_mask': jax.lax.stop_gradient(get_action_masking_from_obs(team_id = team_id, obs = obs, sap_range=params.unit_sap_range)),
             }

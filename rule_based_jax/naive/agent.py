@@ -40,7 +40,7 @@ class NaiveAgent_Jax(JaxAgent):
         alive_units_image = alive_units_image.at[positions[:, 0], positions[:, 1]].set(
             1
         )
-        alive_units_image = alive_units_image == 1
+        alive_units_image = (alive_units_image == 1)
 
         point_not_occupied_by_allies = (points_found == 1) & (alive_units_image < 1)
 
@@ -53,6 +53,10 @@ class NaiveAgent_Jax(JaxAgent):
             )
             > 0
         )
+        padded_points_not_occupied_by_allies = jnp.pad(
+            point_not_occupied_by_allies, ((RING_POINT // 2, RING_POINT // 2), (RING_POINT // 2, RING_POINT // 2))
+        )
+        
         relic_near_image = (
             jax.scipy.signal.convolve2d(
                 (relics_found == 1).astype(jnp.int8), jnp.ones((5, 5)), mode="same"
@@ -70,22 +74,25 @@ class NaiveAgent_Jax(JaxAgent):
 
         # Generate random keys for each unit
         key_group = jax.random.split(key, positions.shape[0])
-
+        padded_relics_found = jnp.pad(
+            relics_found, ((RING_RELIC // 2, RING_RELIC // 2), (RING_RELIC // 2, RING_RELIC // 2))
+        )
         go_to_relic = lambda pos, key: find_nearest(
+            key,
             jax.lax.dynamic_slice(
-                relics_found == 1,
-                (pos[0] - RING_RELIC // 2, pos[1] - RING_RELIC // 2),
+                padded_relics_found == 1,    
+                (pos[0], pos[1]),
                 (RING_RELIC, RING_RELIC),
             ),
             RING_RELIC,
         )
         go_to_point = lambda pos, key: find_nearest(
+            key,
             jax.lax.dynamic_slice(
-                point_not_occupied_by_allies,
-                (pos[0] - RING_POINT // 2, pos[1] - RING_POINT // 2),
+                padded_points_not_occupied_by_allies,
+                (pos[0], pos[1]),
                 (RING_POINT, RING_POINT),
-            ),
-            RING_POINT,
+            )
         )
         random_direction = lambda pos, key: direction_to(
             src=pos, target=jax.random.randint(key, shape=(2), minval=0, maxval=23)
@@ -94,29 +101,35 @@ class NaiveAgent_Jax(JaxAgent):
         random_exploration = lambda pos, key, idx: jax.random.choice(
             key,
             a=jnp.arange(5),
-            p=jnp.array([0.0, 0.0, 0.25 + 0.5 * idx % 2, 0.25 - 0.5 * idx % 2, 0.0])
+            p=jnp.array([0.0, 0.0, 0.5 + 0.2 * (((idx + (2*idx)) % 4) - 1.5), 0.5 - 0.2 *  (((idx + (2*idx)) % 4) - 1.5), 0.0])
             if team_id == 0
-            else jnp.array([0.0, 0.25 + 0.5 * idx % 2, 0.0, 0.0, 0.25 - 0.5 * idx % 2]),
+            else jnp.array([0.0, 0.5 + 0.2 * (((idx + (2*idx)) % 4) - 1.5), 0.0, 0.0, 0.5 - 0.2 * (((idx + (2*idx)) % 4) - 1.5)]),
         )
 
         # Define a function to compute actions for each ship
         def get_ship_move_action(key, idx):
             pos = positions[idx]
-
+            draw = jax.random.uniform(key)
             # Check for nearby points, relics, or unseen areas
             action = jax.lax.select(
-                obs.steps
+                obs.steps % 101
                 < 30
                 | ~((relics_found == 1).any()),
                 random_exploration(pos, key, idx),
                 jax.lax.select(
                     relic_near_image_large_ring[pos[0], pos[1]] & ~relic_near_image[pos[0], pos[1]],
                     go_to_relic(pos, key),
-                    random_direction(pos, key),
+                    jax.lax.select(
+                        relic_near_image[pos[0], pos[1]],
+                        jax.lax.select(
+                            draw < 0.33,
+                            go_to_relic(pos, key),
+                            random_direction(pos, key),
+                        ),
+                        random_direction(pos, key),
+                    ),
                 ),
             )
-            # jax.debug.print("action : {a}, points = {bp}, relics large = {blr}, relics = {br}", 
-            #                 a = action, bp = points_near_image[pos[0], pos[1]], br = relic_near_image_large_ring[pos[0], pos[1]], blr = relic_near_image[pos[0], pos[1]])
             return action #int
 
         # Vectorize the action computation
@@ -130,6 +143,7 @@ class NaiveAgent_Jax(JaxAgent):
 
         sapactions = jnp.ones_like(action[:, 0]) * 5
         auxaction = jax.lax.select(obs.steps%101 < 95, action[:,0], sapactions)
+        # jax.debug.print("team id : {team_id}, step : {step}, action : {action}", team_id = team_id, step = obs.steps, action = move_actions)
         action = self.transform_action.convert(team_id, auxaction, obs, env_params)
 
         return action

@@ -65,10 +65,13 @@ def is_enemy_in_range(x_ally, y_ally, x_enemy, y_enemy, sap_range):
         jnp.logical_and(x_enemy > -1, y_enemy > -1)
     )
 
+DEFAULT_SAP_DELTAX = 0
+DEFAULT_SAP_DELTAY = 0
+
 @jax.jit
 def find_delta(x,y,enemies, sap_range) :
     """
-    returns a delta position of an enemy in range. if none, returns -1, -1
+    returns a delta position of an enemy in range. if none, returns DEFAULT_SAP_DELTAX, DEFAULT_SAP_DELTAY
     """
     mask_enemy_in_range = jax.vmap(is_enemy_in_range, in_axes=(None, None, 0, 0, None))(x,y,enemies[:,0],enemies[:,1],sap_range)
 
@@ -77,7 +80,7 @@ def find_delta(x,y,enemies, sap_range) :
     abs_pos_to_sap = jax.lax.select(
         mask_enemy_in_range.sum() > 0,
         jnp.take(enemies, valid_indices[0], axis=0).astype(jnp.int16),
-        jnp.array([x-1,y-1], dtype=jnp.int16),
+        jnp.array([x+DEFAULT_SAP_DELTAX,y+DEFAULT_SAP_DELTAY], dtype=jnp.int16),
     )
 
     delta = jnp.array([abs_pos_to_sap[0]-x, abs_pos_to_sap[1]-y], dtype=jnp.int16)
@@ -91,16 +94,29 @@ def get_full_sap_action(ally_action,x,y,enemies,sap_range) :
     delta = find_delta(x, y, enemies, sap_range)
     #jax.debug.print("delta : {p}", p = delta)
     if_5_action =  jax.lax.select(
-        jnp.logical_and(delta[0] == -1, delta[1] == -1),
-        jnp.array([0, -1, -1], dtype=jnp.int16),
+        jnp.logical_and(delta[0] == DEFAULT_SAP_DELTAX, delta[1] == DEFAULT_SAP_DELTAY),
+        jnp.array([0, DEFAULT_SAP_DELTAX, DEFAULT_SAP_DELTAY], dtype=jnp.int16),
         jnp.array([5, delta[0], delta[1]], dtype=jnp.int16),
     )
 
     return jax.lax.select(
         ally_action == 5,
         if_5_action,
-        jnp.array([ally_action, -1, -1], dtype=jnp.int16),
+        jnp.array([ally_action, 0, 0], dtype=jnp.int16),
     )
+
+@jax.jit
+def get_action_masking_from_obs(team_id, obs: EnvObs, sap_range: int):
+    """
+    return the action_mask for a given team_id
+    """
+    enemies = obs.units.position[1- team_id]
+    sap_deltas = jax.vmap(find_delta, in_axes=(0, 0, None, None))(obs.units.position[team_id, :, 0], obs.units.position[team_id, :, 1], enemies, sap_range)
+    action_mask = jnp.ones((16, 6), dtype=jnp.bool_)
+    can_sap_masking = (sap_deltas[:,0] != DEFAULT_SAP_DELTAX) & (sap_deltas[:,1] != DEFAULT_SAP_DELTAY)
+    action_mask = action_mask.at[:, 5].set(can_sap_masking)
+    return action_mask
+
 
 def mirror_relic_positions_arrays(relic_positions):
     """

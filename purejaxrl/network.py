@@ -167,7 +167,7 @@ Pos-Masking |                   |  Value Head
     normalize_value: bool = True
 
     @nn.compact
-    def __call__(self, image, vector, time, position,  mask_awake, train = False):
+    def __call__(self, image, vector, time, position,  mask_awake, action_mask, train = False):
         
         B, C, H, W = image.shape
         B, V = vector.shape

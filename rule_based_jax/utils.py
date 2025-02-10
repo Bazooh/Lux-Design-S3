@@ -43,25 +43,20 @@ def create_manhattan_matrix(n):
     D = jnp.abs(xv - center[0]) + jnp.abs(yv - center[1])
     return D
 
-@partial(jax.jit, static_argnums=(1))
-def find_nearest(mask_image, n):
+@partial(jax.jit, static_argnums=(2))
+def find_nearest(key, mask_image, n):
+    # jax.debug.print("mask = {p}", p = mask_image.astype(jnp.int32))
     D = create_manhattan_matrix(n)
-    idx = jnp.argmin(D * mask_image + 100 * (1 - mask_image))
+    idx = jnp.argmin(D * mask_image + 100 * (1 - mask_image) + jax.random.uniform(key, shape = D.shape, minval = 0.0, maxval = 0.1))
     return direction_to(src = jnp.ones(2) * n//2, target =  jnp.array([idx // n, idx % n]))
 
 if __name__ == "__main__":
     relic = jnp.array([
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0],
+        [0, 0, 0, 0, 0],
+        [1, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0],
     ])
     relic = jax.scipy.signal.convolve2d((relic  == 1).astype(jnp.int8), jnp.ones((5, 5)), mode='same') >0
     print(relic)

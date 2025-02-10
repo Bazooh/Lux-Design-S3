@@ -150,14 +150,14 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits0_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, obs["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
                 log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
                 logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, obs["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
