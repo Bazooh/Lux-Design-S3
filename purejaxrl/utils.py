@@ -5,7 +5,7 @@ import flax
 import orbax.checkpoint
 from flax.training import orbax_utils
 from typing import Any
-import os
+from typing import Sequence
 from functools import partial
 
 @partial(jax.jit, static_argnums=(3))

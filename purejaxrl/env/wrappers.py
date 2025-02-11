@@ -1,18 +1,14 @@
-import gymnax.environments.spaces
 import jax
 import chex
 from flax import struct
 from typing import Optional, Tuple, Union, Any, Literal
 from enum import Enum
 import jax.numpy as jnp
-import gymnax
 from luxai_s3.env import LuxAIS3Env, EnvState, EnvParams
 from purejaxrl.env.transform_obs import TransformObs
 from purejaxrl.env.transform_action import TransformAction
 from luxai_s3.env import EnvObs
-import jax.numpy as jnp
 from flax import struct
-import jax, chex
 from functools import partial
 from typing import Any
 from purejaxrl.env.memory import Memory, RelicPointMemoryState
@@ -359,8 +355,8 @@ class TrackerWrapper(GymnaxWrapper):
             env_state=new_env_state,
             dense_stats_player_0=dense_stats_player_0,
             dense_stats_player_1=dense_stats_player_1,
-            episode_stats_player_0=episode_stats_player_0 * (1-done),
-            episode_stats_player_1=episode_stats_player_1 * (1-done),
+            episode_stats_player_0=episode_stats_player_0,
+            episode_stats_player_1=episode_stats_player_1,
         )
         return obs, new_env_state, reward, done, info
 
@@ -388,7 +384,7 @@ class RewardObject:
         params: EnvParams,
     ) -> dict[str, float]:
         match_end = state.steps % (params.max_steps_in_match + 1) == 0
-        done = (state.steps == (params.max_steps_in_match + 1)*params.match_count_per_episode) 
+        done = (state.steps == (params.max_steps_in_match + 1) * params.match_count_per_episode) 
         if self.reward_type == RewardType.DENSE: 
             r =  {
                 "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
@@ -432,6 +428,7 @@ class TransformRewardWrapper(GymnaxWrapper):
         super().__init__(env)
         self.reward_phases = reward_phases
         self.reward_smoothing = reward_smoothing
+        self.num_phases = len(self.reward_phases)
 
     def step(
         self,
@@ -462,10 +459,8 @@ class TransformActionWrapper(GymnaxWrapper):
         super().__init__(env)
     
     def action_space(self, params: Optional[EnvParams] = None):
-        return gymnax.environments.spaces.Dict(
-            dict(player_0=self.transform_action.action_space, player_1=self.transform_action.action_space)
-        )
-
+        return self.transform_action.action_space
+    
     def step(
         self,
         key: chex.PRNGKey,
@@ -522,9 +517,8 @@ class TransformObsWrapper(GymnaxWrapper):
 @struct.dataclass
 class LogEnvState:
     env_state: Env_Mem_State
-    episode_return: chex.Array
-    episode_stats_player_0: PlayerStats
-    episode_stats_player_1: PlayerStats
+    episode_return_player_0: chex.Array
+    episode_return_player_1: chex.Array
 
     def __getattr__(self, name):
         return getattr(self.env_state, name)
@@ -539,9 +533,8 @@ class LogWrapper(GymnaxWrapper):
         obs, env_state = self._env.reset(key, params)
         log_env_state = LogEnvState(
             env_state=env_state,
-            episode_return=jnp.array([0.0, 0.0], dtype=jnp.float32),
-            episode_stats_player_0=PlayerStats(),
-            episode_stats_player_1=PlayerStats(),
+            episode_return_player_0=jnp.zeros(shape = (self._env.num_phases), dtype = jnp.float32),
+            episode_return_player_1=jnp.zeros(shape = (self._env.num_phases), dtype = jnp.float32),
         )
         return obs, log_env_state
 
@@ -557,21 +550,25 @@ class LogWrapper(GymnaxWrapper):
         )
 
         # Update episode returns
-        new_episode_return = log_env_state.episode_return + jnp.array([reward["player_0"][0], reward["player_1"][0]])
+        new_episode_return_player_0 = log_env_state.episode_return_player_0 + reward["player_0"]
+        new_episode_return_player_1 = log_env_state.episode_return_player_1 + reward["player_1"]
 
         # Prepare info dictionary
         if self.replace_info:
             info = {}
-        info["episode_return"] = new_episode_return
-        info["episode_stats_player_0"] = log_env_state.episode_stats_player_0
-        info["episode_stats_player_1"] = log_env_state.episode_stats_player_1
+
+        info["episode_return_player_0"] = new_episode_return_player_0
+        info["episode_return_player_1"] = new_episode_return_player_1
+        info["episode_stats_player_0"] = env_state.episode_stats_player_0
+        info["episode_stats_player_1"] = env_state.episode_stats_player_1
+        info["dense_stats_player_0"] = env_state.dense_stats_player_0
+        info["dense_stats_player_1"] = env_state.dense_stats_player_1
         info["returned_episode"] = done
 
         # Create new LogEnvState
         new_log_env_state = LogEnvState(
             env_state = env_state,
-            episode_return = new_episode_return * (1 - done),
-            episode_stats_player_0 = log_env_state.episode_stats_player_0 * (1-done),
-            episode_stats_player_1 = log_env_state.episode_stats_player_1 * (1-done),
+            episode_return_player_0 = new_episode_return_player_0 * (1 - done),
+            episode_return_player_1 = new_episode_return_player_1 * (1 - done),
         )
         return obs, new_log_env_state, reward, done, info

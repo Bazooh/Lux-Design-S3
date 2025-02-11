@@ -98,7 +98,8 @@ def make_train(config, debug=False,):
     env = LogWrapper(env, replace_info=True)    
     start_state_dict = config["network"]["state_dict"]
     model = config["network"]["model"]
-
+    num_phases = env.num_phases
+    
     if config["arena_jax"] is not None:
         arena_jax_agent = config["arena_jax"]["agent"]
         rec_env_jax = make_vanilla_env(config["env_args"], record=True, save_on_close=True, save_dir = "replays_ppo_jax", save_format = "html")
@@ -427,8 +428,11 @@ def make_train(config, debug=False,):
                 returned_episodes = game_info["returned_episode"]
                 metrics = {}
 
-                if jnp.sum(returned_episodes) > 0:                  
-                    return_values = jnp.mean(game_info["episode_return"][returned_episodes][0], axis=0)
+                if jnp.sum(returned_episodes) > 0:     
+                    return_values = jnp.mean(game_info["episode_return_player_0"][returned_episodes], axis=-1)             
+                    for i in range(num_phases): 
+                        metrics[f"reward/selfplay_return_phase_{i}"] = return_values[i]
+                    
                     total_loss = jnp.mean(loss)
                     value_loss = jnp.mean(loss_dict["value_loss"])
                     actor_loss = jnp.mean(loss_dict["actor_loss"])
@@ -436,7 +440,6 @@ def make_train(config, debug=False,):
                     clip_frac = jnp.mean(loss_dict["clip_frac"])
                     explained_var = jnp.mean(loss_dict["explained_var"])
                     metrics = {
-                        "reward/return_values": return_values,
                         "loss/total_loss": total_loss,
                         "loss/value_loss": value_loss,
                         "loss/actor_loss": actor_loss,
@@ -453,16 +456,24 @@ def make_train(config, debug=False,):
                     winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
                     metrics["reward/selfplay_winrate"] = winrate
 
-                    if config['ppo']['verbose']>0:
+                    if config['ppo']['verbose'] > 0:
                         print(
-                            f"Return Values: {return_values:<5.2f} | "
-                            f"Win Rate: {100 * winrate:<5.1f} % | "
-                            f"Entropy: {entropy:<3.1f} | "
-                            f"Actor Loss: {actor_loss:<6.4f} | "
-                            f"Value Loss: {value_loss:<4.2f} | "
-                            f"Clip Frac: {clip_frac:<4.2f} | "
-                            f"Update Step: {update_step:<5d}  "
+                            "------------------------------------\n"  
+                            + "\n".join(
+                            [f"| Return Phase {i:<12} | {return_values[i]:<10.4f} |" for i in range(num_phases)]
                         )
+                        + "\n"
+                        + (
+                            "------------------------------------\n"
+                            f"| Win Rate            | {100 * winrate:<7.1f} %  |\n"
+                            f"| Entropy             | {entropy:<10.4f} |\n"
+                            f"| Actor Loss          | {actor_loss:<10.4f} |\n"
+                            f"| Value Loss          | {value_loss:<10.4f} |\n"
+                            f"| Clip Frac           | {clip_frac:<10.4f} |\n"
+                            f"| Update Step         | {update_step:<10d} |\n"
+                            "------------------------------------"
+                        ))
+
 
                 ############ RUN ARENA JAX ############
                 if config["arena_jax"] is not None:

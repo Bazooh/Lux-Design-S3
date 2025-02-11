@@ -2,6 +2,8 @@ import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 import jax
 from purejaxrl.env.utils import sample_params
+from purejaxrl.parse_config import parse_config
+import numpy as np
 
 # base env and wrappers
 from luxai_s3.env import LuxAIS3Env
@@ -32,15 +34,23 @@ def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs
 
 
 if __name__ == "__main__":
-    env = make_env()
-    env = LogWrapper(env, replace_info=True)
-    key = jax.random.PRNGKey(0)
+    config = parse_config()
+    seed = np.random.randint(0, 100)
+    key = jax.random.PRNGKey(seed)
+    env = make_env(config["env_args"])
+    env = LogWrapper(env)
     params = sample_params(key)
     obs, state = env.reset(key, params)
-    obs, state, reward, done, info = env.step(key, state, {player: env.action_space.sample(key) for player in env.players}, params=params)
+    rng_0, rng_1 = jax.random.split(key)
+    key_a_0, key_a_1 = jax.random.split(rng_0, 16), jax.random.split(rng_1, 16)
 
-    for i in range(1, 510):
+    for i in range(0, 510):
         print("Step:", i)
-        print(f"info: global timestep {info['global_timestep']}, episode timestep {info['episode_timestep']}, episode return {info['episode_return']}, episode points {info['episode_points']}, episode wins {info['episode_wins']}")
-        print(state.env_state.memory_state_player_0.points_gained)
-        obs, state, reward, done, info = env.step(key, state, {player: env.action_space.sample(key) for player in env.players}, params=params)
+        a = {"player_0": jax.vmap(env.action_space().sample)(key_a_0), "player_1": jax.vmap(env.action_space().sample)(key_a_1)}         
+        obs, state, reward, done, info = env.step(key, state, a, params=params)
+        print(f"info: global timestep {state.steps}, done {done}, reward {reward} ")
+        print(f" episode_return_player_0 {info['episode_return_player_0']}, episode_stats_player_0 {info['episode_stats_player_0']}")
+        print(f" episode_return_player_1 {info['episode_return_player_1']}, episode_stats_player_1 {info['episode_stats_player_1']}")
+        if done:
+            obs, state = env.reset(key, params)
+            print("reset")
