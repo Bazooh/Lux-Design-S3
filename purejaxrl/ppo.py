@@ -436,29 +436,7 @@ def make_train(config, debug=False,):
                 returned_episodes = game_info["returned_episode"]
                 metrics = {}
 
-                if jnp.sum(returned_episodes) > 0:     
-                    # Rewards
-                    return_values_v = game_info["episode_return_player_0"][returned_episodes]
-                    return_values_per_phases = jnp.mean(return_values_v, axis=0)     
-                      
-                    for i in range(num_phases): 
-                        metrics[f"reward/selfplay_return_phase_{i}"] = return_values_per_phases[i]
-                    frac = update_step/ config["ppo"]["num_updates"]
-                    
-                    start_phase = jnp.round(frac * num_phases).astype(int)
-                    weight = (frac * num_phases) - start_phase
-                    reshaped_return_values_v = compute_reshaped_reward(start_phase, weight, return_values_v, reward_smoothing=env.reward_smoothing)
-                    reshaped_return_values = jnp.mean(reshaped_return_values_v, axis=0)
-                    metrics["reward/selfplay_reshaped_return"] = reshaped_return_values
-                    
-                    # Stats
-                    player_stats = game_info["episode_stats_player_0"].__dict__
-                    for key, value in player_stats.items():
-                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
-                            value[returned_episodes], axis=0
-                        )
-                    winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
-                    metrics["reward/selfplay_winrate"] = winrate
+                if jnp.sum(returned_episodes) > 0:
 
                     # Losses
                     total_loss = jnp.mean(loss)
@@ -476,6 +454,30 @@ def make_train(config, debug=False,):
                         "loss/explained_var": explained_var                    
                     }
 
+                    # Rewards
+                    return_values_v = game_info["episode_return_player_0"][returned_episodes]
+                    return_values_per_phases = jnp.mean(return_values_v, axis=0)     
+                      
+                    for i in range(num_phases): 
+                        metrics[f"reward/selfplay_return_phase_{i}"] = return_values_per_phases[i]
+                    frac = update_step/ config["ppo"]["num_updates"]
+                    
+                    start_phase = jnp.round(frac * num_phases).astype(int)
+                    weight = (frac * num_phases) - start_phase
+                    reshaped_return_values_v = compute_reshaped_reward(start_phase, weight, return_values_v, reward_smoothing=env.reward_smoothing)
+                    reshaped_return_values = jnp.mean(reshaped_return_values_v, axis=0)
+                    metrics["reward/selfplay_reshaped_return"] = reshaped_return_values
+
+
+                    # Stats
+                    player_stats = game_info["episode_stats_player_0"].__dict__
+                    for key, value in player_stats.items():
+                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
+                            value[returned_episodes], axis=0
+                        )
+                    winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
+                    metrics["reward/selfplay_winrate"] = winrate
+
                     if config['ppo']['verbose'] > 0:
                         print(
                             "------------------------------------\n"  
@@ -486,12 +488,12 @@ def make_train(config, debug=False,):
                         + "\n"
                         + (
                             "------------------------------------\n"
+                            f"| Update Step         | {update_step:<10d} |\n"
                             f"| Win Rate            | {100 * winrate:<7.1f} %  |\n"
                             f"| Entropy             | {entropy:<10.4f} |\n"
                             f"| Actor Loss          | {actor_loss:<10.4f} |\n"
                             f"| Value Loss          | {value_loss:<10.4f} |\n"
                             f"| Clip Frac           | {clip_frac:<10.4f} |\n"
-                            f"| Update Step         | {update_step:<10d} |\n"
                             "------------------------------------"
                         ))
 
@@ -578,7 +580,6 @@ def make_train(config, debug=False,):
 
                 
                 if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
-
 
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
