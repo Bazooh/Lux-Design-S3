@@ -418,7 +418,7 @@ def gamma_from_reward_phase(reward_phase: RewardObject, gamma: float):
     if reward_phase.reward_type == RewardType.DENSE:
         return gamma
     else:
-        return 1
+        return 1.0
     
 class TransformRewardWrapper(GymnaxWrapper):
     """"

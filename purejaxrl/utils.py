@@ -23,8 +23,8 @@ def sample_group_action(key, logits_group: chex.Array, action_mask: chex.Array, 
         action_mask: Mask for the action of a single ship. Shape: (action_dim).
         """
         scaled_logits = (logits - jnp.mean(logits, axis=-1, keepdims=True)) / action_temperature
-        scaled_logits = jnp.where(action_mask, scaled_logits, -1e9)  # Mask invalid
-        action = jax.random.categorical(key=key, logits=scaled_logits, axis=-1)
+        masked_logits = jnp.where(action_mask, scaled_logits, -1e9)  # Mask invalid actions
+        action = jax.random.categorical(key=key, logits=masked_logits, axis=-1)
         return action
     
     # Split the PRNG key into one key per group element
@@ -36,24 +36,26 @@ def sample_group_action(key, logits_group: chex.Array, action_mask: chex.Array, 
     return action_group
 
 @jax.jit
-def get_logprob(logits, mask_awake, action):
-    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 6)
+def get_logprob(logits, mask_awake, action, action_mask):
+    masked_logits = jnp.where(action_mask, logits, -1e9)  # Mask invalid
+    log_prob_group = jax.nn.log_softmax(masked_logits, axis=-1)  # Shape: (N, 16, 6)
     log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
     log_prob_a_masked = jnp.where(mask_awake, log_prob_a, 0.0)  # Mask invalid positions
     log_prob = jnp.sum(log_prob_a_masked, axis=-1)  # Shape: (N,)
     return(log_prob)
 
 @jax.jit
-def get_entropy(logits, mask_awake):
+def get_entropy(logits, mask_awake, action_mask):
     """
     logits: Array of shape (16, action_dim), where N is the number of rows.
     mask_awake: Boolean mask of shape (16,), indicating which rows to include.
     """
+    masked_logits = jnp.where(action_mask, logits, -1e9)  # Mask invalid
     def entropy_row(logits_row):
         probs = jax.nn.softmax(logits_row)
         return -jnp.sum(probs * jnp.log(probs + 1e-9))  
     
-    entropies = jax.vmap(entropy_row)(logits)
+    entropies = jax.vmap(entropy_row)(masked_logits)
     return jnp.mean(jnp.where(mask_awake, entropies, 0.0))
 
 

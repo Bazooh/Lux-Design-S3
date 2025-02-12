@@ -45,27 +45,25 @@ class Transition(NamedTuple):
     info_v: jnp.ndarray
 
 
-@partial(jax.jit, static_argnums=(2))
-def compute_reshaped_reward(frac: float, rewards: chex.Array, reward_smoothing: bool = True):
+@partial(jax.jit, static_argnums=(3))
+def compute_reshaped_reward(start_phase: int, weight: float, rewards: chex.Array, reward_smoothing: bool = True):
     """
     Adjust the gamma depending on the curriculum phase
-    frac: float in (0,1)
-    rewards: Array of shape (n_phases)
+    start_phase: the current phase
+    weight: the weight between the current phase and the next phase in (0, 1)
+    rewards: Array of shape (N, n_phases)
     reward_smoothing: whether to smooth reward between phases
     """
-    start_phase = jnp.round(frac * len(rewards)).astype(int)
-    weight = (frac * len(rewards)) - start_phase
     reshaped_reward = jax.lax.select(
-         start_phase == len(rewards),
-         rewards[-1],
-         jax.lax.select(
+        start_phase == len(rewards),
+        rewards[:,-1],
+        jax.lax.select(
             reward_smoothing,
-            rewards[start_phase] * (1 - weight) + rewards[start_phase + 1] * weight,
-            rewards[start_phase]
-         ),
+            rewards[:,start_phase] * (1 - weight) + rewards[:,start_phase + 1] * weight,
+            rewards[:,start_phase]
+        ),
     )
     return reshaped_reward
-
 
 def make_train(config, debug=False,):
     if os.path.exists(config["ppo"]["save_checkpoint_path"]):
@@ -114,13 +112,11 @@ def make_train(config, debug=False,):
 
     reward_phases = env.reward_phases
 
-    @partial(jax.jit, static_argnums=(2))
-    def compute_reshaped_gamma(frac: float, gamma: float, gamma_smoothing: bool = True):
+    @partial(jax.jit, static_argnums=(3))
+    def compute_reshaped_gamma(start_phase: int, weight: float, gamma: float, gamma_smoothing: bool = True):
         """
         Adjust the gamma depending on the curriculum phase
         """
-        start_phase = jnp.round(frac * len(reward_phases)).astype(int)
-        weight = (frac * len(reward_phases)) - start_phase
         gammas = jnp.array([gamma_from_reward_phase(reward_phase=reward_phase, gamma = gamma) for reward_phase in reward_phases])
         reshaped_gamma = jax.lax.select(
             start_phase == len(reward_phases),
@@ -128,7 +124,7 @@ def make_train(config, debug=False,):
             jax.lax.select(
                 gamma_smoothing,
                 gammas[start_phase]* (1 - weight) + gammas[start_phase+1] * weight,
-                gammas[start_phase+1]            
+                gammas[start_phase]            
             ),
         )
         return reshaped_gamma  
@@ -194,14 +190,16 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, last_obs_batch_player_0["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
-                log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v)
+                action_mask0_v = last_obs_batch_player_0['action_mask'].astype(jnp.float32)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, action_mask0_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v, action_mask0_v)
 
                 # SELECT ACTION: PLAYER 1
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
+                action_mask1_v = last_obs_batch_player_1['action_mask'].astype(jnp.float32)
                 logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, last_obs_batch_player_1["action_mask"], config["ppo"]["action_temperature"]) # action is (N, 16)
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, action_mask1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
@@ -213,27 +211,12 @@ def make_train(config, debug=False,):
                     env_params
                 )
 
-                # LOG THE TRANSITION
-                reshaped_reward_v = {
-                    "player_0" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
-                        update_i / config["ppo"]["num_updates"], 
-                        reward_v["player_0"],
-                        env.reward_smoothing 
-                    ), 
-                    "player_1" : jax.vmap(compute_reshaped_reward, in_axes=(None, 0, None))(
-                        update_i / config["ppo"]["num_updates"], 
-                        reward_v["player_1"],
-                        env.reward_smoothing 
-                    ),
-                }
-                 
-                reshaped_reward_player_0 = reshaped_reward_v["player_0"]
-
+                # LOG THE TRANSITION                 
                 transition = Transition(
                     done_v = done_v,
                     action_v = action0_v, 
                     value_v = value0_v, 
-                    reward_v = reshaped_reward_player_0, 
+                    reward_v = reward_v["player_0"], 
                     log_prob_v = log_prob0_v, 
                     obs_v = last_obs_batch_player_0, 
                     info_v = info_v
@@ -246,7 +229,7 @@ def make_train(config, debug=False,):
                 _env_step, runner_state, None, config["ppo"]["num_steps"],
             )
             train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
-            
+
             ################# Self-play opponent update #################
             update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
             opp_state_dict = {
@@ -255,18 +238,42 @@ def make_train(config, debug=False,):
                 "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
                                         train_state.batch_stats, opp_state_dict["batch_stats"]),
             }
+
+            ################# RESHAPING R & GAMMA #####################
+            frac = update_i/ config["ppo"]["num_updates"]
+            start_phase = jnp.round(frac * num_phases).astype(int)
+            weight = (frac * num_phases) - start_phase
             
+            reshaped_reward_v = jax.vmap(compute_reshaped_reward, in_axes=(None, None, 0, None))(
+                start_phase, 
+                weight,
+                traj_batch.reward_v,
+                env.reward_smoothing 
+            )
+
+            reshaped_gamma = compute_reshaped_gamma(
+                start_phase, 
+                weight,
+                gamma = config["ppo"]["gamma"],
+                gamma_smoothing = config['ppo']['gamma_smoothing'],
+            )  
+        
+            # jax.debug.print("start phase: {s}, weight: {w}, tg = {tg}, r = {r}, tr = {tr}", 
+            #     s = start_phase, 
+            #     w = weight, 
+            #     r = jnp.mean(traj_batch.reward_v, axis = (0,1)), 
+            #     tr = jnp.mean(reshaped_reward_v), 
+            #     tg = reshaped_gamma
+            # )
+            traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
+
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
             _, last_val_v,_ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
-                    reshaped_gamma = compute_reshaped_gamma(
-                        frac = update_i / config["ppo"]["num_updates"],
-                        gamma = config["ppo"]["gamma"],
-                        gamma_smoothing = config['ppo']['gamma_smoothing'],
-                    )
+
                     gae, next_value = gae_and_next_value
                     done_v, value_v, reward_v = (
                         transition.done_v,
@@ -306,7 +313,8 @@ def make_train(config, debug=False,):
                             mutable=["batch_stats"],
                         )
                         mask_awake0_v = traj_batch.obs_v["mask_awake"]
-                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v)
+                        action_mask_v = traj_batch.obs_v["action_mask"]
+                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v, action_mask_v)
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value_v + (
@@ -341,7 +349,7 @@ def make_train(config, debug=False,):
                         
                         actor_loss = -jnp.minimum(actor_loss1, actor_loss2)
                         actor_loss = actor_loss.mean()
-                        entropy = jax.vmap(get_entropy)(logits0_v, mask_awake0_v).mean()
+                        entropy = jax.vmap(get_entropy)(logits0_v, mask_awake0_v, action_mask_v).mean()
 
                         total_loss = (
                             actor_loss
@@ -429,10 +437,30 @@ def make_train(config, debug=False,):
                 metrics = {}
 
                 if jnp.sum(returned_episodes) > 0:     
-                    return_values = jnp.mean(game_info["episode_return_player_0"][returned_episodes], axis=-1)             
+                    # Rewards
+                    return_values_v = game_info["episode_return_player_0"][returned_episodes]
+                    return_values_per_phases = jnp.mean(return_values_v, axis=0)     
+                      
                     for i in range(num_phases): 
-                        metrics[f"reward/selfplay_return_phase_{i}"] = return_values[i]
+                        metrics[f"reward/selfplay_return_phase_{i}"] = return_values_per_phases[i]
+                    frac = update_step/ config["ppo"]["num_updates"]
                     
+                    start_phase = jnp.round(frac * num_phases).astype(int)
+                    weight = (frac * num_phases) - start_phase
+                    reshaped_return_values_v = compute_reshaped_reward(start_phase, weight, return_values_v, reward_smoothing=env.reward_smoothing)
+                    reshaped_return_values = jnp.mean(reshaped_return_values_v, axis=0)
+                    metrics["reward/selfplay_reshaped_return"] = reshaped_return_values
+                    
+                    # Stats
+                    player_stats = game_info["episode_stats_player_0"].__dict__
+                    for key, value in player_stats.items():
+                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
+                            value[returned_episodes], axis=0
+                        )
+                    winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
+                    metrics["reward/selfplay_winrate"] = winrate
+
+                    # Losses
                     total_loss = jnp.mean(loss)
                     value_loss = jnp.mean(loss_dict["value_loss"])
                     actor_loss = jnp.mean(loss_dict["actor_loss"])
@@ -448,19 +476,12 @@ def make_train(config, debug=False,):
                         "loss/explained_var": explained_var                    
                     }
 
-                    player_stats = game_info["episode_stats_player_0"].__dict__
-                    for key, value in player_stats.items():
-                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
-                            value[returned_episodes], axis=0
-                        )
-                    winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
-                    metrics["reward/selfplay_winrate"] = winrate
-
                     if config['ppo']['verbose'] > 0:
                         print(
                             "------------------------------------\n"  
+                            + f"| Return Reshaped     | {reshaped_return_values:<10.4f} |\n"
                             + "\n".join(
-                            [f"| Return Phase {i:<12} | {return_values[i]:<10.4f} |" for i in range(num_phases)]
+                            [f"| Return Phase {i:<6} | {return_values_per_phases[i]:<10.4f} |" for i in range(num_phases)]
                         )
                         + "\n"
                         + (
