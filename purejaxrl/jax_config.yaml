@@ -36,8 +36,8 @@ ppo:
   # Learning Args
   lr: 1e-4
   num_envs: 64
-  num_steps: 64
-  total_timesteps: 3e4
+  num_steps: 32
+  total_timesteps: 1e8
   update_epochs: 4
   num_minibatches: 8
   gamma: 0.99
@@ -52,7 +52,7 @@ ppo:
   action_temperature: 1.0
   match_count_per_episode: 5
   seed: 0
-  selfplay_freq_update: 200
+  selfplay_freq_update: 100
 
   # Log Args
   verbose: 1
@@ -66,7 +66,7 @@ ppo:
 arena_jax:
   agent: NaiveAgent_Jax
   num_matches: 50
-  arena_freq: 100
+  arena_freq: 250
   record_freq: 500
 # arena_std:
 #   agent: RelicBoundAgent

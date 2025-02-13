@@ -145,6 +145,7 @@ def make_train(config, debug=False,):
             tx=transform_lr,
         )
         opp_state_dict = start_state_dict
+        prev_opp_state_dict = start_state_dict
 
         @jax.jit
         def step_and_keep_or_reset(rng, env_state, actions, env_params):
@@ -178,19 +179,11 @@ def make_train(config, debug=False,):
         # TRAIN LOOP
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
-            ################# Self-play opponent update #################
-            update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
-            opp_state_dict = {
-                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                    train_state.params, opp_state_dict["params"]),
-                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
-            }
             
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, _):
                 # GET OBS BATCHES
-                train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
 
                 # SELECT ACTION: PLAYER 0
@@ -207,7 +200,7 @@ def make_train(config, debug=False,):
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
                 action_mask1_v = last_obs_batch_player_1['action_mask'].astype(jnp.float32)
-                logits1_v, _, _  = model.apply(opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
+                logits1_v, _, _  = model.apply(prev_opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
                 action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, action_mask1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
@@ -234,11 +227,27 @@ def make_train(config, debug=False,):
                 runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params)
                 return runner_state, transition
             
-            runner_state, traj_batch = jax.lax.scan(
-                _env_step, runner_state, None, config["ppo"]["num_steps"],
-            )
-            train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
 
+            runner_state, traj_batch = jax.lax.scan(
+                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params), None, config["ppo"]["num_steps"],
+            )
+            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+
+            ################# Self-play opponent update #################
+            update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
+            prev_opp_state_dict = {
+                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                    train_state.params, opp_state_dict["params"]),
+                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
+            }
+            opp_state_dict = {
+                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                    train_state.params, opp_state_dict["params"]),
+                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
+            }
 
             ################# RESHAPING R & GAMMA #####################
             frac = update_i/ config["ppo"]["num_updates"]
@@ -268,7 +277,8 @@ def make_train(config, debug=False,):
             #     tr = jnp.mean(reshaped_reward_v), 
             #     tg = reshaped_gamma
             # )
-            # traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
+            
+            traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
 
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
@@ -591,12 +601,12 @@ def make_train(config, debug=False,):
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
-            runner_state = (train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params)
+            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, opp_state_dict, env_state_v, obs_v, _rng, env_params)
+        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )
@@ -617,7 +627,7 @@ if __name__ == "__main__":
         )
     jax.config.update("jax_numpy_dtype_promotion", "standard")
 
-    ########### RUN PPO ###########
+    ########### RUN PPO ########### 
     train_jit = jax.jit(make_train(config, debug=True))
     rng = jax.random.PRNGKey(seed = config["ppo"]["seed"])
     output = train_jit(rng)
