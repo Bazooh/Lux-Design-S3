@@ -178,6 +178,15 @@ def make_train(config, debug=False,):
         # TRAIN LOOP
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
+            ################# Self-play opponent update #################
+            update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
+            opp_state_dict = {
+                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                    train_state.params, opp_state_dict["params"]),
+                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
+                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
+            }
+            
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, _):
                 # GET OBS BATCHES
@@ -230,18 +239,10 @@ def make_train(config, debug=False,):
             )
             train_state, opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
 
-            ################# Self-play opponent update #################
-            update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
-            opp_state_dict = {
-                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                    train_state.params, opp_state_dict["params"]),
-                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
-            }
 
             ################# RESHAPING R & GAMMA #####################
             frac = update_i/ config["ppo"]["num_updates"]
-            start_phase = jnp.round(frac * num_phases).astype(int)
+            start_phase = jnp.floor(frac * num_phases).astype(int)
             weight = (frac * num_phases) - start_phase
             
             reshaped_reward_v = jax.vmap(compute_reshaped_reward, in_axes=(None, None, 0, None))(
@@ -258,14 +259,16 @@ def make_train(config, debug=False,):
                 gamma_smoothing = config['ppo']['gamma_smoothing'],
             )  
         
-            # jax.debug.print("start phase: {s}, weight: {w}, tg = {tg}, r = {r}, tr = {tr}", 
+            # jax.debug.print("n = {n} frac = {f}, start phase: {s}, weight: {w}, tg = {tg}, r = {r}, tr = {tr}", 
+            #     n =num_phases,
+            #     f= frac,
             #     s = start_phase, 
             #     w = weight, 
             #     r = jnp.mean(traj_batch.reward_v, axis = (0,1)), 
             #     tr = jnp.mean(reshaped_reward_v), 
             #     tg = reshaped_gamma
             # )
-            traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
+            # traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
 
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
@@ -462,7 +465,7 @@ def make_train(config, debug=False,):
                         metrics[f"reward/selfplay_return_phase_{i}"] = return_values_per_phases[i]
                     frac = update_step/ config["ppo"]["num_updates"]
                     
-                    start_phase = jnp.round(frac * num_phases).astype(int)
+                    start_phase = jnp.floor(frac * num_phases).astype(int)
                     weight = (frac * num_phases) - start_phase
                     reshaped_return_values_v = compute_reshaped_reward(start_phase, weight, return_values_v, reward_smoothing=env.reward_smoothing)
                     reshaped_return_values = jnp.mean(reshaped_return_values_v, axis=0)
@@ -472,11 +475,11 @@ def make_train(config, debug=False,):
                     # Stats
                     player_stats = game_info["episode_stats_player_0"].__dict__
                     for key, value in player_stats.items():
-                        metrics[f"reward/selfplay_{key}"] = jnp.mean(
+                        metrics[f"stats/selfplay_{key}"] = jnp.mean(
                             value[returned_episodes], axis=0
                         )
                     winrate = jnp.mean(player_stats["wins"][returned_episodes] > 0, axis=0)
-                    metrics["reward/selfplay_winrate"] = winrate
+                    metrics["stats/selfplay_winrate"] = winrate
 
                     if config['ppo']['verbose'] > 0:
                         print(
@@ -519,8 +522,12 @@ def make_train(config, debug=False,):
                             number_of_games = config["arena_jax"]["num_matches"],
                         )
                         arena_stats = arena_info["episode_stats_player_0"].__dict__
+                        for key, value in arena_stats.items():
+                            metrics[f"arena_stats/{key}"] = jnp.mean(
+                                value[arena_info["returned_episode"]], axis=0
+                            )
                         arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
-                        metrics["reward/arena_jax_winrate"] = arena_winrate
+                        metrics["arena_stats/arena_jax_winrate"] = arena_winrate
 
                     if update_step % config['arena_jax']["record_freq"] == 0 and update_step > 0:
                         our_agent = RawPureJaxRLAgent(
@@ -559,7 +566,7 @@ def make_train(config, debug=False,):
                             )
                             arena_winrate += (1 if reward["player_0"] > reward["player_0"] else 0) / config["arena_std"]["num_matches"]
                         
-                        metrics["reward/arena_std_winrate"] = arena_winrate
+                        metrics["arena_stats/arena_std_winrate"] = arena_winrate
 
                     if update_step % config['arena_std']["record_freq"] == 0 and update_step > 0:
                         our_agent = RawPureJaxRLAgent(
