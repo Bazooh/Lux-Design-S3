@@ -7,7 +7,7 @@ import jax, chex
 import jax.numpy as jnp
 import optax
 from purejaxrl.env.make_env import make_env, make_vanilla_env, LogWrapper
-from purejaxrl.env.wrappers import RewardObject, gamma_from_reward_phase
+from purejaxrl.env.wrappers import RewardObject, gamma_from_reward_phase, done_from_reward_phase
 from typing import NamedTuple
 from jax_tqdm import scan_tqdm
 from purejaxrl.utils import (
@@ -43,6 +43,7 @@ class Transition(NamedTuple):
     log_prob_v: jnp.ndarray
     obs_v: dict
     info_v: jnp.ndarray
+    steps_v: jnp.ndarray
 
 
 @partial(jax.jit, static_argnums=(3))
@@ -129,6 +130,24 @@ def make_train(config, debug=False,):
         )
         return reshaped_gamma  
 
+    max_steps_in_match, match_count_per_episode = sample_params(rng_key=jax.random.PRNGKey(0)).max_steps_in_match, sample_params(rng_key=jax.random.PRNGKey(0)).match_count_per_episode
+    @jax.jit
+    def compute_reshaped_done(start_phase: int, step: int):
+        """
+        Adjust the gamma depending on the curriculum phase
+        start_phase: the current phase
+        weight: the weight between the current phase and the next phase in (0, 1)
+        rewards: Array of shape (N, n_phases)
+        reward_smoothing: whether to smooth reward between phases
+        """
+        dones = jnp.array([done_from_reward_phase(reward_phase, step, max_steps_in_match,match_count_per_episode) for reward_phase in reward_phases])
+        reshaped_done = jax.lax.select(
+            start_phase == len(reward_phases),
+            dones[-1],
+            dones[start_phase]
+        )
+        return reshaped_done
+
 
     def train(rng: chex.PRNGKey,):
 
@@ -185,7 +204,7 @@ def make_train(config, debug=False,):
                 # GET OBS BATCHES
                 train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
-
+                steps_v = env_state_v.steps
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
@@ -221,7 +240,8 @@ def make_train(config, debug=False,):
                     reward_v = reward_v["player_0"], 
                     log_prob_v = log_prob0_v, 
                     obs_v = last_obs_batch_player_0, 
-                    info_v = info_v
+                    info_v = info_v,
+                    steps_v = steps_v
                 )
 
                 runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params)
@@ -267,7 +287,12 @@ def make_train(config, debug=False,):
                 gamma = config["ppo"]["gamma"],
                 gamma_smoothing = config['ppo']['gamma_smoothing'],
             )  
-        
+
+            reshaped_done_v = jax.vmap(jax.vmap(compute_reshaped_done, in_axes=(None, 0)), in_axes=(None, 0))(
+                start_phase, 
+                traj_batch.steps_v
+            )
+
             # jax.debug.print("n = {n} frac = {f}, start phase: {s}, weight: {w}, tg = {tg}, r = {r}, tr = {tr}", 
             #     n =num_phases,
             #     f= frac,
@@ -279,6 +304,7 @@ def make_train(config, debug=False,):
             # )
             
             traj_batch = traj_batch._replace(reward_v = reshaped_reward_v)
+            traj_batch = traj_batch._replace(done_v = reshaped_done_v)
 
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
@@ -621,6 +647,7 @@ if __name__ == "__main__":
 
     if config["ppo"]["use_wandb"]: 
         wandb.init(
+            entity = "pierre-jourdinnn-centralesup-lec",
             project = "LuxAIS3",
             name = config["ppo"]["run_name"],
             mode = "online",

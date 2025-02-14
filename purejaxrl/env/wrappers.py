@@ -419,7 +419,15 @@ def gamma_from_reward_phase(reward_phase: RewardObject, gamma: float):
         return gamma
     else:
         return 1.0
-    
+
+def done_from_reward_phase(reward_phase: RewardObject, step: int, max_steps_in_match, match_count_per_episode):
+    match_end = (step % (max_steps_in_match + 1) == 0) & (step > 0)
+    done = (step == ((max_steps_in_match + 1) * match_count_per_episode))
+    if reward_phase.reward_type == RewardType.DENSE:
+        return match_end
+    else:
+        return done
+      
 class TransformRewardWrapper(GymnaxWrapper):
     """"
     Changes the reward of the environment

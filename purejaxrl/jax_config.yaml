@@ -8,19 +8,20 @@ env_args:
       type: dense
       weights:
         points_gained: 0.2
-        points_discovered: 2.0
-        relics_discovered: 1.0
+        points_discovered: 5.0
+        relics_discovered: 5.0
         cells_discovered: 0.01
         energy_gained: 0.0001
-        sap_tried: 0.025
+        sap_tried: 0.01
+        units_moved: 0.0001
     1:
       type: sparse-delta
       weights:
-        points_gained: 10.0
+        points_gained: 1.0
     2:
       type: sparse
       weights:
-        wins: 10.0
+        wins: 1.0
 
 network:
   model: Pix2Pix_AC
@@ -40,19 +41,19 @@ ppo:
   total_timesteps: 1e8
   update_epochs: 4
   num_minibatches: 8
-  gamma: 0.99
+  gamma: 0.98
   gamma_smoothing: False
   gae_lambda: 0.95
   clip_grad_norm: 0.5
   clip_eps: 0.2
-  ent_coef: 0.05
+  ent_coef: 0.025
   vf_coef: 0.5
   max_grad_norm: 0.5
   anneal_lr: False
   action_temperature: 1.0
   match_count_per_episode: 5
   seed: 0
-  selfplay_freq_update: 100
+  selfplay_freq_update: 200
 
   # Log Args
   verbose: 1
