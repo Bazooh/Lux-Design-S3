@@ -114,7 +114,7 @@ def get_action_masking_from_obs(team_id, obs: EnvObs, sap_range: int):
     sap_deltas = jax.vmap(find_delta, in_axes=(0, 0, None, None))(obs.units.position[team_id, :, 0], obs.units.position[team_id, :, 1], enemies, sap_range)
     action_mask = jnp.ones((16, 6), dtype=jnp.bool_)
     can_sap_masking = (sap_deltas[:,0] != DEFAULT_SAP_DELTAX) & (sap_deltas[:,1] != DEFAULT_SAP_DELTAY)
-    # action_mask = action_mask.at[:, 5].set(can_sap_masking)
+    action_mask = action_mask.at[:, 5].set(can_sap_masking)
     return action_mask
 
 

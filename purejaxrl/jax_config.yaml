@@ -8,12 +8,13 @@ env_args:
       type: dense
       weights:
         points_gained: 0.2
-        points_discovered: 5.0
-        relics_discovered: 5.0
+        points_discovered: 3.0
+        relics_discovered: 3.0
         cells_discovered: 0.01
         energy_gained: 0.0001
         sap_tried: 0.01
         units_moved: 0.0001
+        distance_to_spawn: 0.0001
     1:
       type: sparse-delta
       weights:
@@ -25,14 +26,14 @@ env_args:
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: None
+  load_from_checkpoint: checkpoints/3phase_2025_02_14_21_50
   restore_to_cpu: False
   n_resblocks: 5
   n_channels: 128
   embedding_time: 8
   normalize_logits: True
   normalize_value: True
-
+  action_masking: False
 ppo:
   # Learning Args
   lr: 1e-4
@@ -54,6 +55,7 @@ ppo:
   match_count_per_episode: 5
   seed: 0
   selfplay_freq_update: 200
+  play_against_latest_model_ratio: 0.5
 
   # Log Args
   verbose: 1
@@ -67,7 +69,7 @@ ppo:
 arena_jax:
   agent: NaiveAgent_Jax
   num_matches: 50
-  arena_freq: 250
+  arena_freq: 500
   record_freq: 500
 # arena_std:
 #   agent: RelicBoundAgent

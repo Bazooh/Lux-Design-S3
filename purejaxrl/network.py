@@ -165,6 +165,7 @@ Pos-Masking |                   |  Value Head
     embedding_time: int = 10
     normalize_logits: bool = True
     normalize_value: bool = True
+    action_masking: bool = True
 
     @nn.compact
     def __call__(self, image, vector, time, position,  mask_awake, action_mask, train = False):
@@ -236,5 +237,5 @@ Pos-Masking |                   |  Value Head
         
         mask_awake_expanded = mask_awake[:, :, None]  # Expand dimensions to (1, 16, 1)
         logits = logits_gathered * mask_awake_expanded 
-        
-        return logits, value, logits_maps
+        logits_masked = jnp.where(action_mask, logits, 1e-9)
+        return jax.lax.select(self.action_masking, logits_masked, logits), value, logits_maps

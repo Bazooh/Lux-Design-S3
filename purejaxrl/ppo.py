@@ -211,16 +211,20 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action_mask0_v = last_obs_batch_player_0['action_mask'].astype(jnp.float32)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits0_v, action_mask0_v, config["ppo"]["action_temperature"]) # action is (N, 16)
-                log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, action0_v, action_mask0_v)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits0_v) # action is (N, 16)
+                log_prob0_v = jax.vmap(get_logprob, in_axes=(0, 0, 0))(logits0_v, mask_awake0_v, action0_v)
 
                 # SELECT ACTION: PLAYER 1
+                play_against_latest_model = (jax.random.uniform(rng) < config["ppo"]["play_against_latest_model_ratio"])
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                action_mask1_v = last_obs_batch_player_1['action_mask'].astype(jnp.float32)
-                logits1_v, _, _  = model.apply(prev_opp_state_dict, **last_obs_batch_player_1) # logits is (N, 16, 6)
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, 0, None))(rng_v, logits1_v, action_mask1_v, config["ppo"]["action_temperature"]) # action is (N, 16)
+                logits1_v, _, _  = jax.lax.cond(
+                    play_against_latest_model,
+                    lambda _: model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_1),
+                    lambda _: model.apply(prev_opp_state_dict, **last_obs_batch_player_1),
+                    play_against_latest_model
+                )
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits1_v) # action is (N, 16)
 
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
@@ -352,8 +356,7 @@ def make_train(config, debug=False,):
                             mutable=["batch_stats"],
                         )
                         mask_awake0_v = traj_batch.obs_v["mask_awake"]
-                        action_mask_v = traj_batch.obs_v["action_mask"]
-                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v, action_mask_v)
+                        log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v)
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value_v + (
@@ -388,7 +391,7 @@ def make_train(config, debug=False,):
                         
                         actor_loss = -jnp.minimum(actor_loss1, actor_loss2)
                         actor_loss = actor_loss.mean()
-                        entropy = jax.vmap(get_entropy)(logits0_v, mask_awake0_v, action_mask_v).mean()
+                        entropy = jax.vmap(get_entropy)(logits0_v, mask_awake0_v).mean()
 
                         total_loss = (
                             actor_loss

@@ -8,55 +8,65 @@ from typing import Any
 from typing import Sequence
 from functools import partial
 
-@partial(jax.jit, static_argnums=(3))
-def sample_group_action(key, logits_group: chex.Array, action_mask: chex.Array, action_temperature: float = 1.0):
+@jax.jit
+def sample_group_action(key, logits_group: chex.Array):
     """
     key: PRNG key for sampling.
     logits_group: Logits for the action of a group of ships. Shape: (16, action_dim).
     action_mask: Mask for the action of a group of ships. Shape: (16, action_dim).
     """
-    @partial(jax.jit, static_argnums=(3))
-    def sample_action(key: chex.PRNGKey, logits: chex.Array, action_mask: chex.Array, action_temperature: float = 1.0):
+    @jax.jit
+    def sample_action(key: chex.PRNGKey, logits: chex.Array):
         """
         key: PRNG key for sampling.
         logits: Logits for the action of a single ship. Shape: (action_dim).
         action_mask: Mask for the action of a single ship. Shape: (action_dim).
         """
-        scaled_logits = (logits - jnp.mean(logits, axis=-1, keepdims=True)) / action_temperature
-        masked_logits = jnp.where(action_mask, scaled_logits, -1e9)  # Mask invalid actions
-        action = jax.random.categorical(key=key, logits=masked_logits, axis=-1)
+        action = jax.random.categorical(key=key, logits=logits, axis=-1)
         return action
     
     # Split the PRNG key into one key per group element
     group_keys = jax.random.split(key, num=logits_group.shape[0])
     
     # Use vmap to vectorize the sampling over group_keys and logits_group
-    action_group = jax.vmap(sample_action, in_axes=(0, 0, 0, None))(group_keys, logits_group, action_mask, action_temperature)
+    action_group = jax.vmap(sample_action, in_axes=(0, 0))(group_keys, logits_group)
     
     return action_group
 
 @jax.jit
-def get_logprob(logits, mask_awake, action, action_mask):
-    masked_logits = jnp.where(action_mask, logits, -1e9)  # Mask invalid
-    log_prob_group = jax.nn.log_softmax(masked_logits, axis=-1)  # Shape: (N, 16, 6)
+def get_logprob(logits, mask_awake, action):
+    log_prob_group = jax.nn.log_softmax(logits, axis=-1)  # Shape: (N, 16, 6)
     log_prob_a = jnp.take_along_axis(log_prob_group, action[..., None], axis=-1).squeeze(axis=-1)  # Shape: (N, 16)
     log_prob_a_masked = jnp.where(mask_awake, log_prob_a, 0.0)  # Mask invalid positions
     log_prob = jnp.sum(log_prob_a_masked, axis=-1)  # Shape: (N,)
+    n_awake = jax.lax.select(
+        jnp.sum(mask_awake.astype(jnp.float32)) > 0,
+        jnp.sum(mask_awake.astype(jnp.float32)),
+        1.0
+    ) 
+    #log_prob = log_prob / n_awake
     return(log_prob)
 
 @jax.jit
-def get_entropy(logits, mask_awake, action_mask):
+def get_entropy(logits, mask_awake):
     """
     logits: Array of shape (16, action_dim), where N is the number of rows.
     mask_awake: Boolean mask of shape (16,), indicating which rows to include.
     """
-    masked_logits = jnp.where(action_mask, logits, -1e9)  # Mask invalid
     def entropy_row(logits_row):
         probs = jax.nn.softmax(logits_row)
         return -jnp.sum(probs * jnp.log(probs + 1e-9))  
     
-    entropies = jax.vmap(entropy_row)(masked_logits)
-    return jnp.mean(jnp.where(mask_awake, entropies, 0.0))
+    entropies = jax.vmap(entropy_row)(logits) 
+    entropies = jnp.where(mask_awake, entropies, 0.0) 
+    entropy = jnp.mean(entropies) 
+    n_awake = jax.lax.select(
+        jnp.sum(mask_awake.astype(jnp.float32)) > 0,
+        jnp.sum(mask_awake.astype(jnp.float32)),
+        1.0
+    ) 
+    #entropy = entropy * n_awake
+    return entropy
 
 
 
@@ -149,7 +159,16 @@ def restore_state_dict(path, step=None):
     checkpoint_manager = orbax.checkpoint.CheckpointManager(path, orbax.checkpoint.PyTreeCheckpointer())
     if step is None:
         step = checkpoint_manager.latest_step()
-    restored_state_dict = checkpoint_manager.restore(step)
+    structure = checkpoint_manager.item_metadata(step)
+    sharding = jax.sharding.PositionalSharding(jax.devices("gpu")[0])
+    restored_state_dict = checkpoint_manager.restore(
+        step,
+        restore_kwargs={
+            "restore_args": jax.tree_map(
+                lambda _: orbax.checkpoint.ArrayRestoreArgs(sharding=sharding), structure
+            )
+        },
+    )
     return restored_state_dict
 
 def restore_state_dict_cpu(path, step=None):

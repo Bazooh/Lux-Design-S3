@@ -60,6 +60,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "embedding_time": int(yaml_dict["network"]["embedding_time"]),
             "normalize_logits": bool(yaml_dict["network"]["normalize_logits"]),
             "normalize_value": bool(yaml_dict["network"]["normalize_value"]),
+            "action_masking": bool(yaml_dict["network"]["action_masking"])
     }
     if yaml_dict["network"]["model"] == "Pix2Pix_AC":
         from purejaxrl.network import Pix2Pix_AC
@@ -106,8 +107,8 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "max_grad_norm": float(yaml_dict["ppo"]["max_grad_norm"]),
             "anneal_lr": bool(yaml_dict["ppo"]["anneal_lr"]),
             "seed": int(yaml_dict["ppo"]["seed"]),
-            "action_temperature": float(yaml_dict["ppo"]["action_temperature"]),
             "selfplay_freq_update": int(yaml_dict["ppo"]["selfplay_freq_update"]),
+            "play_against_latest_model_ratio": float(yaml_dict["ppo"]["play_against_latest_model_ratio"]),
             # Log args
             "verbose": int(yaml_dict["ppo"]["verbose"]),
             "use_wandb": bool(yaml_dict["ppo"]["use_wandb"]),
