@@ -17,7 +17,8 @@ from purejaxrl.env.utils import (
     serialize_metadata, 
     serialize_env_params, 
     json_to_html, 
-    get_action_masking_from_obs
+    get_action_masking_from_obs,
+    diagonal_distances
 )
 from luxai_s3.state import serialize_env_actions, serialize_env_states
 import os, json
@@ -198,7 +199,8 @@ class PlayerStats:
     units_moved: int = 0
     energy_gained: int = 0
     sap_tried: int = 0
-    sap_available: float = 0
+    sap_available: int = 0
+    distance_to_spawn: float = 0.0
 
     def __add__(self, other: "PlayerStats"):
         return PlayerStats(
@@ -265,6 +267,15 @@ class TrackerWrapper(GymnaxWrapper):
             jnp.maximum(0, cumulated_energy - last_cumulated_energy)
         )
         
+        units_mask_image = jnp.zeros((24,24), dtype = jnp.int32).at[
+            obs.units.position[team_id, :, 0],
+            obs.units.position[team_id, :, 0],
+        ].add(obs.units_mask[team_id])
+
+        _, d2 = diagonal_distances(24)
+
+        distance_to_spawn = jnp.sum( (23*jnp.ones((24,24), dtype = jnp.int32) - d2) * units_mask_image)
+        
         current_positions = obs.units.position[team_id]
         last_positions = last_obs.units.position[team_id]
 
@@ -307,7 +318,8 @@ class TrackerWrapper(GymnaxWrapper):
             collisions=jax.lax.stop_gradient(collisions),
             deaths=jax.lax.stop_gradient(deaths),
             sap_tried=jax.lax.stop_gradient(sap_tried),
-            sap_available=jax.lax.stop_gradient(sap_available),            
+            sap_available=jax.lax.stop_gradient(sap_available),
+            distance_to_spawn= jax.lax.stop_gradient(distance_to_spawn)            
         )
     def reset(self, key: chex.PRNGKey, params: Optional[EnvParams] = None) -> Tuple[chex.Array, State_with_Stats]:
         obs, env_state = self._env.reset(key, params)
