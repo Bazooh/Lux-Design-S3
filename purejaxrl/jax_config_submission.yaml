@@ -2,13 +2,15 @@ env_args:
   transform_obs: HybridTransformObs
   transform_action: SimplerActionWithSap
   memory: RelicPointMemory
+  reward_smoothing: False
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: checkpoints/single_phase_2025_02_09
+  load_from_checkpoint: checkpoints/3phase_2025_02_15_14_44
   restore_to_cpu: True
-  n_resblocks: 4
+  n_resblocks: 5
   n_channels: 128
   embedding_time: 8
   normalize_logits: True
   normalize_value: True
+  action_masking: True

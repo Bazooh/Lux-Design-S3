@@ -34,6 +34,41 @@ class GymnaxWrapper(object):
     def __getattr__(self, name):
         return getattr(self._env, name)
 
+################################## POINTS MAP WRAPPER ##################################
+@struct.dataclass
+class State_With_Points_Maps:
+    env_state: EnvState
+    points_map: Any
+    def __getattr__(self, name):
+        return getattr(self.env_state, name)
+    
+def compute_points_map(env_state: EnvState) -> Any:
+    points_map = jnp.zeros((24,24), dtype = bool)
+    relic_weights = env_state.relic_nodes_map_weights
+    active_relic_mask = env_state.relic_spawn_schedule >= env_state.steps
+    points_map = relic_weights>0 & active_relic_mask[relic_weights]
+    return points_map
+
+class PointsMapWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.num_agents = 2
+    def reset(
+        self,
+        key: chex.PRNGKey, 
+        params: Optional[EnvParams] = None
+    ) -> Tuple[chex.Array, State_With_Points_Maps]:
+        obs, env_state = self._env.reset(key, params)
+        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state))
+    def step(
+        self, 
+        key: chex.PRNGKey, 
+        env_state: EnvState, 
+        action: PlayerAction, 
+        params: Optional[EnvParams] = None
+    ) -> Tuple[chex.Array, State_With_Points_Maps, float, bool, dict]:
+        obs, env_state, reward, terminated, truncated, info = self._env.step(key, env_state.env_state, action, params)
+        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state)), reward, terminated, truncated, info
 
 ################################## RECORD WRAPPER ##################################
 class RecordEpisodeWrapper(GymnaxWrapper): # adapted from the gym record wrapper
@@ -200,7 +235,7 @@ class PlayerStats:
     energy_gained: int = 0
     sap_tried: int = 0
     sap_available: int = 0
-    distance_to_spawn: float = 0.0
+    distance_to_spawn: int = 0
 
     def __add__(self, other: "PlayerStats"):
         return PlayerStats(
@@ -272,9 +307,8 @@ class TrackerWrapper(GymnaxWrapper):
             obs.units.position[team_id, :, 0],
         ].add(obs.units_mask[team_id])
 
-        _, d2 = diagonal_distances(24)
-
-        distance_to_spawn = jnp.sum( (23*jnp.ones((24,24), dtype = jnp.int32) - d2) * units_mask_image)
+        _, d2, d3, _, _ = diagonal_distances(24)
+        distance_to_spawn = jnp.sum((23*jnp.ones((24,24), dtype = jnp.int32) - d2) * units_mask_image) + jnp.sum((23*jnp.ones((24,24), dtype = jnp.int32) - d3.astype(jnp.int32)) * units_mask_image)
         
         current_positions = obs.units.position[team_id]
         last_positions = last_obs.units.position[team_id]
@@ -396,7 +430,7 @@ class RewardObject:
         params: EnvParams,
     ) -> dict[str, float]:
         match_end = state.steps % (params.max_steps_in_match + 1) == 0
-        done = (state.steps == (params.max_steps_in_match + 1) * params.match_count_per_episode) 
+        done = (state.steps == ((params.max_steps_in_match + 1) * params.match_count_per_episode))
         if self.reward_type == RewardType.DENSE: 
             r =  {
                 "player_0": sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
@@ -436,7 +470,7 @@ def done_from_reward_phase(reward_phase: RewardObject, step: int, max_steps_in_m
     match_end = (step % (max_steps_in_match + 1) == 0) & (step > 0)
     done = (step == ((max_steps_in_match + 1) * match_count_per_episode))
     if reward_phase.reward_type == RewardType.DENSE:
-        return match_end
+        return done
     else:
         return done
       

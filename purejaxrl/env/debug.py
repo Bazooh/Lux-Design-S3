@@ -16,7 +16,7 @@ from rule_based_jax.naive.agent import NaiveAgent_Jax
 from purejaxrl.eval_jax import run_episode_and_record
 
 # Function to plot tensor features
-def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int, relic_weights):
+def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: str, frame_idx: int, n_columns: int, points_map):
     for i, (feat_name, feat_array) in enumerate(channels.items()):
         ax = axes_row[i]
         ax.clear()
@@ -37,7 +37,7 @@ def plot_channel_features(channels: dict, axes_row: np.ndarray, title_prefix: st
     # Plot relic weights
     ax = axes_row[i+1]
     ax.clear()
-    ax.imshow(relic_weights[frame_idx].T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
+    ax.imshow(points_map[frame_idx].T, cmap = "bwr", vmin = -1, vmax = 1, aspect = "auto")
     ax.set_title(f"(Ground Truth) Points", fontsize=10)
     ax.set_xticks(np.arange(-0.5, 24, 1), minor=True)
     ax.set_yticks(np.arange(-0.5, 24, 1), minor=True)
@@ -87,15 +87,15 @@ def update(frame_idx: int,
             channels: dict, 
             vectors: dict,
             stats: dict,
-            relic_weights,
+            points_map,
             n_columns, 
             progressbar):
     # Player 0 Channels (Row 0)
-    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, relic_weights=relic_weights)
+    plot_channel_features(channels["obs_player_0"], axes[0, :], "P0-", frame_idx, n_columns, points_map=points_map)
     # Player 1 Channels (Row 1)
     plot_vector_features(vectors["obs_player_0"], axes[1, :], "P0-", frame_idx)
     # Player 1 Channels (Row 2)
-    plot_channel_features(channels["obs_player_1"], axes[2, :], "P1-", frame_idx, n_columns, relic_weights=relic_weights)
+    plot_channel_features(channels["obs_player_1"], axes[2, :], "P1-", frame_idx, n_columns, points_map=points_map)
     # Player 2 Channels (Row 3)
     plot_vector_features(vectors["obs_player_1"], axes[3, :], "P1-", frame_idx)
     # Player 1 Stats (Row 4)
@@ -114,7 +114,7 @@ if __name__ == "__main__":
     agent_0=PureJaxRLAgent("player_0")
     agent_1=NaiveAgent_Jax("player_1")
     
-    channels_arrays, vec_arrays, stats_arrays, relic_weights = run_episode_and_record(
+    channels_arrays, vec_arrays, stats_arrays, points_map = run_episode_and_record(
         rec_env = rec_env,
         agent_0 = agent_0,
         agent_1 = agent_1, 
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         plot_stats_curves = False        
     )
     
-    steps = len(relic_weights)
+    steps = len(points_map)
     n_columns = max(len(channels_arrays["obs_player_0"].keys()) +1, max(len(stats_arrays["episode_stats_player_0"].keys()), len(vec_arrays["obs_player_0"].keys())))
     fig, axes = plt.subplots(5, n_columns, figsize=(3*n_columns, 20))
 
@@ -140,7 +140,7 @@ if __name__ == "__main__":
             stats=stats_arrays, 
             progressbar=progressbar,
             n_columns = n_columns,
-            relic_weights = relic_weights
+            points_map = points_map
         ),
         frames=steps,
         interval=250,

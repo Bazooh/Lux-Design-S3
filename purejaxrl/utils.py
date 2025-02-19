@@ -65,7 +65,7 @@ def get_entropy(logits, mask_awake):
         jnp.sum(mask_awake.astype(jnp.float32)),
         1.0
     ) 
-    #entropy = entropy * n_awake
+    #entropy = entropy / n_awake
     return entropy
 
 

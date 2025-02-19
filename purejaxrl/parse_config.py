@@ -75,11 +75,11 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
     if yaml_dict["network"]["load_from_checkpoint"] == "None":
         state_dict = init_state
     else:
-        from purejaxrl.utils import restore_state_dict
+        from purejaxrl.utils import restore_state_dict, restore_state_dict_cpu
         checkpoint_path = ROOT_DIR + yaml_dict["network"]["load_from_checkpoint"]
         if not os.path.exists(checkpoint_path): raise ValueError(f"Checkpoint {checkpoint_path} not found") 
-        state_dict = restore_state_dict(checkpoint_path)
-
+        if yaml_dict["network"]["restore_to_cpu"]: state_dict = restore_state_dict_cpu(checkpoint_path)
+        else: state_dict = restore_state_dict(checkpoint_path)
     config["network"]={
             "model": model,
             "state_dict": state_dict,
@@ -112,7 +112,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             # Log args
             "verbose": int(yaml_dict["ppo"]["verbose"]),
             "use_wandb": bool(yaml_dict["ppo"]["use_wandb"]),
-            "run_name": yaml_dict["ppo"]["run_name"],
+            "run_name": yaml_dict["ppo"]["run_name"]+"_"+datetime.now().strftime("%Y_%m_%d"),
             # Save Args
             "save_checkpoint_path": ROOT_DIR + "/checkpoints/" + yaml_dict["ppo"]["save_checkpoint_path"]+"_"+datetime.now().strftime("%Y_%m_%d"),
             "save_checkpoint_freq": int(yaml_dict["ppo"]["save_checkpoint_freq"]),

@@ -60,7 +60,7 @@ def compute_reshaped_reward(start_phase: int, weight: float, rewards: chex.Array
         rewards[:,-1],
         jax.lax.select(
             reward_smoothing,
-            rewards[:,start_phase] * (1 - weight) + rewards[:,start_phase + 1] * weight,
+            rewards[:,start_phase] * (1 - weight**2) + rewards[:,start_phase + 1] * weight**2,
             rewards[:,start_phase]
         ),
     )
@@ -124,7 +124,7 @@ def make_train(config, debug=False,):
             gammas[-1],
             jax.lax.select(
                 gamma_smoothing,
-                gammas[start_phase]* (1 - weight) + gammas[start_phase+1] * weight,
+                gammas[start_phase]* (1 - weight**2) + gammas[start_phase+1] * weight**2,
                 gammas[start_phase]            
             ),
         )
@@ -188,13 +188,37 @@ def make_train(config, debug=False,):
         # sample random params initially
         rng, _rng = jax.random.split(rng)
         rng_params = jax.random.split(rng, config["ppo"]["num_envs"])
-        env_params = jax.vmap(lambda key: sample_params(key, match_count_per_episode = config["ppo"]["match_count_per_episode"]))(rng_params)
+        env_params_v = jax.vmap(lambda key: sample_params(key, match_count_per_episode = config["ppo"]["match_count_per_episode"]))(rng_params)
         
         # reset 
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(rng, config["ppo"]["num_envs"])
-        obs_v, env_state_v = jax.vmap(env.reset)(reset_rng, env_params)
-
+        obs_v, env_state_v = jax.vmap(env.reset)(reset_rng, env_params_v)
+        
+        @jax.jit
+        def stagger_env(stagger_offset, rng, obs, env_state, env_params):
+            @jax.jit
+            def arbitrary_move(_, a):
+                rng, obs, env_state, env_params = a
+                rng, _rng = jax.random.split(rng)
+                rng_0, rng_1 = jax.random.split(rng)
+                key_a_0, key_a_1 = jax.random.split(rng_0, 16), jax.random.split(rng_1, 16)
+                obs, env_state, _, _, _, _ = step_and_keep_or_reset(
+                    rng, 
+                    env_state, 
+                    {"player_0": jax.vmap(env.action_space().sample)(key_a_0), "player_1": jax.vmap(env.action_space().sample)(key_a_1)}, 
+                    env_params
+                )
+                return rng, obs, env_state, env_params
+            
+            rng, obs, env_state, env_params = jax.lax.fori_loop(lower=0, upper=stagger_offset, body_fun=arbitrary_move, init_val=(rng, obs, env_state, env_params))
+            return obs, env_state, env_params
+        
+        # stagger_rng = jax.random.split(rng, config["ppo"]["num_envs"])
+        # stagger_step = 505 // config["ppo"]["num_envs"]
+        # stagger_offsets = jnp.arange(start = 0, stop = stagger_step * config["ppo"]["num_envs"], step = stagger_step, dtype = jnp.int32)
+        # obs_v, env_state_v, env_params_v = jax.vmap(stagger_env, in_axes=(0, 0, 0, 0, 0))(stagger_offsets, stagger_rng, obs_v, env_state_v, env_params_v)
+        
         # TRAIN LOOP
         @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
         def _update_step(runner_state, update_i):
@@ -202,7 +226,7 @@ def make_train(config, debug=False,):
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, _):
                 # GET OBS BATCHES
-                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
                 steps_v = env_state_v.steps
                 # SELECT ACTION: PLAYER 0
@@ -229,11 +253,11 @@ def make_train(config, debug=False,):
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                obs_v, env_state_v, reward_v, done_v, info_v, env_params = jax.vmap(step_and_keep_or_reset)(
+                obs_v, env_state_v, reward_v, done_v, info_v, env_params_v = jax.vmap(step_and_keep_or_reset)(
                     rng_v, 
                     env_state_v, 
                     {"player_0": action0_v, "player_1": action1_v},
-                    env_params
+                    env_params_v
                 )
 
                 # LOG THE TRANSITION                 
@@ -248,15 +272,15 @@ def make_train(config, debug=False,):
                     steps_v = steps_v
                 )
 
-                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params)
+                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params_v)
                 return runner_state, transition
             
-            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params), None, config["ppo"]["num_steps"],
+                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v), None, config["ppo"]["num_steps"],
             )
-            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             ################# Self-play opponent update #################
             update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
@@ -630,12 +654,12 @@ def make_train(config, debug=False,):
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
-            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params)
+            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params)
+        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params_v)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )

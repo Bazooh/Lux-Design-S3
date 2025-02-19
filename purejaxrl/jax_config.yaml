@@ -15,18 +15,19 @@ env_args:
         sap_tried: 0.01
         units_moved: 0.0001
         distance_to_spawn: 0.0001
+    # 1:
+    #   type: sparse-delta
+    #   weights:
+    #     points_gained: 1.0
     1:
-      type: sparse-delta
-      weights:
-        points_gained: 1.0
-    2:
       type: sparse
       weights:
         wins: 1.0
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: checkpoints/3phase_2025_02_14_21_50
+  #load_from_checkpoint: checkpoints/3phase_2025_02_16_12_35
+  load_from_checkpoint: None
   restore_to_cpu: False
   n_resblocks: 5
   n_channels: 128
@@ -36,13 +37,13 @@ network:
   action_masking: False
 ppo:
   # Learning Args
-  lr: 1e-4
+  lr: 1e-5
   num_envs: 64
   num_steps: 32
   total_timesteps: 1e8
   update_epochs: 4
   num_minibatches: 8
-  gamma: 0.98
+  gamma: 0.95
   gamma_smoothing: False
   gae_lambda: 0.95
   clip_grad_norm: 0.5
@@ -50,11 +51,11 @@ ppo:
   ent_coef: 0.025
   vf_coef: 0.5
   max_grad_norm: 0.5
-  anneal_lr: False
+  anneal_lr: True
   action_temperature: 1.0
   match_count_per_episode: 5
   seed: 0
-  selfplay_freq_update: 200
+  selfplay_freq_update: 1000
   play_against_latest_model_ratio: 0.5
 
   # Log Args

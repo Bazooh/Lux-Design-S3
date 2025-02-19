@@ -11,6 +11,7 @@ from purejaxrl.env.wrappers import *
 
 def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TransformObsWrapper:
     env = LuxAIS3Env(auto_reset=auto_reset)
+    env = PointsMapWrapper(env)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)
@@ -24,6 +25,7 @@ def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> Tra
 
 def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TrackerWrapper:
     env = LuxAIS3Env(auto_reset=auto_reset)
+    env = PointsMapWrapper(env)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)

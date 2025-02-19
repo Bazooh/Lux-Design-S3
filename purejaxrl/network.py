@@ -145,18 +145,18 @@ class Pix2Pix_AC(nn.Module):
                     | 
                     V
                 Representation Normalized (B,24,24,64)
-                /            \  
-1x1-Conv       /              \  AvgPool2D
-              /                \ 
-             V                  V
-    Logit Maps(B,24,24,6)     Avg (B, 64)
-            |                   |
-            |                   |
-            |                   |                                  
-Pos-Masking |                   |  Value Head
-            |                   |
-            V                   V
-        Logits (B,16,6)        Value (B, 1)
+                /                   |                   \  
+1x1-Conv       /                    |                    \  AvgPool2D
+              /                     |                     \ 
+             V                      v                      V
+    Logit Maps(B,24,24,6)        Point Pred (B,24,24)   Avg (B, 64)
+            |                                               |
+            |                                               |
+            |                                               |                               
+Pos-Masking |                                               |    Value Head
+            |                                               |
+            V                                               V
+        Logits (B,16,6)                                 Value (B, 1)
     """
     
     action_dim: int = 6
@@ -181,6 +181,7 @@ Pos-Masking |                   |  Value Head
         conv1x1_time_vec = Conv1x1(channels=T+V, name="conv1x1_time_vec") # conv 1x1 block 
         conv1x1_input = Conv1x1(channels=self.n_channels, name="conv1x1_input") # conv 1x1 block
         conv1x1_logits = Conv1x1(channels=self.action_dim, name="conv1x1_logits") # conv 1x1 block  
+        conv1x1_points = Conv1x1(channels=self.action_dim, name="conv1x1_points") # conv 1x1 block  
         spectral_norm = nn.SpectralNorm(Conv1x1(channels=self.n_channels, name="spectral_norm"))
 
         res_blocks = nn.Sequential([ResidualBlock(n_channels=self.n_channels, kernel_size=5, padding=2, strides=1) for _ in range(self.n_resblocks)], name="res_blocks")
@@ -226,6 +227,13 @@ Pos-Masking |                   |  Value Head
             conv1x1_logits(x_normalized),
             conv1x1_logits(x)
         )
+        ################# Compute Points ################
+        points = jax.lax.select(
+            self.normalize_logits,
+            conv1x1_points(x_normalized),
+            conv1x1_points(x)
+        )
+        points = nn.sigmoid(points)
 
         # Gather logits based on position
         def gather_logits(logits_map, pos):
@@ -238,4 +246,4 @@ Pos-Masking |                   |  Value Head
         mask_awake_expanded = mask_awake[:, :, None]  # Expand dimensions to (1, 16, 1)
         logits = logits_gathered * mask_awake_expanded 
         logits_masked = jnp.where(action_mask, logits, 1e-9)
-        return jax.lax.select(self.action_masking, logits_masked, logits), value, logits_maps
+        return jax.lax.select(self.action_masking, logits_masked, logits), value, logits_maps, points
