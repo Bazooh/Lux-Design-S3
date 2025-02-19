@@ -232,7 +232,7 @@ def make_train(config, debug=False,):
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
+                logits0_v, value0_v, _, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
                 action0_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits0_v) # action is (N, 16)
@@ -242,7 +242,7 @@ def make_train(config, debug=False,):
                 play_against_latest_model = (jax.random.uniform(rng) < config["ppo"]["play_against_latest_model_ratio"])
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits1_v, _, _  = jax.lax.cond(
+                logits1_v, _, _, _  = jax.lax.cond(
                     play_against_latest_model,
                     lambda _: model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_1),
                     lambda _: model.apply(prev_opp_state_dict, **last_obs_batch_player_1),
@@ -336,7 +336,7 @@ def make_train(config, debug=False,):
 
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
-            _, last_val_v,_ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
+            _, last_val_v, _, _ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
@@ -373,7 +373,7 @@ def make_train(config, debug=False,):
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # Apply the model with batch_stats and mutable updates
-                        (logits0_v, value0_v, _), updates = train_state.apply_fn(
+                        (logits0_v, value0_v, _, _), updates = train_state.apply_fn(
                             {"params": params, "batch_stats": train_state.batch_stats},
                             **traj_batch.obs_v,
                             train=True,

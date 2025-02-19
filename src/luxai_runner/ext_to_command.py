@@ -1,6 +1,6 @@
 ext_to_command = {
     ".js": "node",
-    ".py": "python3",
+    ".py": "python",
     ".out": "./",
     ".exe": "./",
     ".java": "java",

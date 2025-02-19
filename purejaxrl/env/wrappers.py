@@ -43,10 +43,8 @@ class State_With_Points_Maps:
         return getattr(self.env_state, name)
     
 def compute_points_map(env_state: EnvState) -> Any:
-    points_map = jnp.zeros((24,24), dtype = bool)
-    relic_weights = env_state.relic_nodes_map_weights
-    active_relic_mask = env_state.relic_spawn_schedule >= env_state.steps
-    points_map = relic_weights>0 & active_relic_mask[relic_weights]
+    active_relic_mask = (env_state.relic_spawn_schedule <= env_state.steps) & env_state.relic_nodes_mask
+    points_map = (env_state.relic_nodes_map_weights>0) & active_relic_mask[env_state.relic_nodes_map_weights]
     return points_map
 
 class PointsMapWrapper(GymnaxWrapper):
