@@ -88,7 +88,10 @@ class HybridTransformObs(TransformObs):
             "Last Visit": 1,
             # Other
             "Distance to frontier": 1,
-            "Distance to main diagonal": 1
+            "Distance to main diagonal": 1,
+            "Distance to center": 1,
+            "Xcoord": 1,
+            "Ycoord": 1,
         }
         self.vector_features = { # Key: Name of the feature, Value: Size of the vector representing the feature
             # 11 Game Parameters
@@ -186,9 +189,12 @@ class HybridTransformObs(TransformObs):
         image = image.at[11].set(memory_state.points_found_image)
         image = image.at[12].set(memory_state.last_visits_timestep / (obs.steps + 1))
         
-        d1, d2 = diagonal_distances(24)
-        image = image.at[13].set(d1 / 24)
-        image = image.at[14].set(d2 / 24)
+        d1, d2, d3, d4, d5 = diagonal_distances(24)
+        image = image.at[13].set(d1 / 23)
+        image = image.at[14].set(d2 / 23)
+        image = image.at[15].set(d3 / 23)
+        image = image.at[16].set(symmetrize(team_id, mirror_grid(d4)) / 23 if team_id == 1 else symmetrize(team_id,d4) / 23)
+        image = image.at[17].set(symmetrize(team_id, mirror_grid(d5)) / 23 if team_id == 1 else symmetrize(team_id,d5) / 23)
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)
@@ -210,8 +216,8 @@ class HybridTransformObs(TransformObs):
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
         
         ############# HANDLES TIME WITH OHE ##############
-        current_step = obs.steps // (params.max_steps_in_match + 1)
-        current_match = obs.steps % (params.max_steps_in_match + 1)
+        current_step = obs.steps % (params.max_steps_in_match + 1)
+        current_match = obs.steps // (params.max_steps_in_match + 1)
 
         time_vector = jnp.zeros((self.time_size), dtype=jnp.float32)
         time_vector = time_vector.at[5 + current_step//self.time_discretization].set(1)

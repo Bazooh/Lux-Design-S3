@@ -26,7 +26,7 @@ env_args:
 
 network:
   model: Pix2Pix_AC
-  load_from_checkpoint: checkpoints/3phase_2025_02_14_21_50
+  load_from_checkpoint: checkpoints/3phase_2025_02_21
   restore_to_cpu: False
   n_resblocks: 5
   n_channels: 128
@@ -36,26 +36,29 @@ network:
   action_masking: False
 ppo:
   # Learning Args
-  lr: 1e-4
+  start_lr: 1e-4
+  end_lr: 1e-5
   num_envs: 64
   num_steps: 32
   total_timesteps: 1e8
   update_epochs: 4
-  num_minibatches: 8
-  gamma: 0.98
+  num_minibatches: 32
+  gamma: 1.0
   gamma_smoothing: False
   gae_lambda: 0.95
   clip_grad_norm: 0.5
   clip_eps: 0.2
+  points_pred_coef: 0.1
   ent_coef: 0.025
   vf_coef: 0.5
   max_grad_norm: 0.5
-  anneal_lr: False
+  anneal_lr: True
   action_temperature: 1.0
   match_count_per_episode: 5
   seed: 0
-  selfplay_freq_update: 200
-  play_against_latest_model_ratio: 0.5
+  selfplay_freq_update: 1000
+  play_against_latest_model_ratio: 0.25
+  play_against_arena_jax_ratio: 0.0
 
   # Log Args
   verbose: 1

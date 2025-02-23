@@ -1,4 +1,7 @@
 import sys, os
+
+import flax
+import flax.linen
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from luxai_s3.env import LuxAIS3Env
 from luxai_s3.wrappers import LuxAIS3GymEnv, RecordEpisode
@@ -17,6 +20,7 @@ from purejaxrl.utils import (
     get_obs_batch, 
     save_state_dict, 
     create_checkpoint_manager,
+    binary_cross_entropy,
     CustomTrainState, 
 )
 from purejaxrl.env.utils import sample_params
@@ -39,6 +43,8 @@ class Transition(NamedTuple):
     done_v: jnp.ndarray
     action_v: jnp.ndarray
     value_v: jnp.ndarray
+    points_pred_v: jnp.ndarray
+    points_true_v: jnp.ndarray
     reward_v: jnp.ndarray
     log_prob_v: jnp.ndarray
     obs_v: dict
@@ -60,7 +66,7 @@ def compute_reshaped_reward(start_phase: int, weight: float, rewards: chex.Array
         rewards[:,-1],
         jax.lax.select(
             reward_smoothing,
-            rewards[:,start_phase] * (1 - weight) + rewards[:,start_phase + 1] * weight,
+            rewards[:,start_phase] * (1 - weight**2) + rewards[:,start_phase + 1] * weight**2,
             rewards[:,start_phase]
         ),
     )
@@ -86,12 +92,8 @@ def make_train(config, debug=False,):
     checkpoint_manager = create_checkpoint_manager(config["ppo"]["save_checkpoint_path"])
 
     def linear_schedule(count):
-        frac = (
-            1.0
-            - (count // (config["ppo"]["num_minibatches"] * config["ppo"]["update_epochs"]))
-            / config["ppo"]["num_updates"]
-        )
-        return config["ppo"]["lr"] * frac
+        frac = (count // (config["ppo"]["num_minibatches"] * config["ppo"]["update_epochs"])) / config["ppo"]["num_updates"]
+        return config["ppo"]["start_lr"] * (1 - frac) + config["ppo"]["end_lr"] * frac if config["ppo"]["anneal_lr"]  else config["ppo"]["start_lr"]
 
     env = make_env(config["env_args"])
     env = LogWrapper(env, replace_info=True)    
@@ -100,7 +102,7 @@ def make_train(config, debug=False,):
     num_phases = env.num_phases
     
     if config["arena_jax"] is not None:
-        arena_jax_agent = config["arena_jax"]["agent"]
+        arena_jax_agent = config["arena_jax"]["agent"]("player_1")
         rec_env_jax = make_vanilla_env(config["env_args"], record=True, save_on_close=True, save_dir = "replays_ppo_jax", save_format = "html")
         rec_env_jax = LogWrapper(rec_env_jax)
         arena_env_jax = make_vanilla_env(config["env_args"])
@@ -111,8 +113,20 @@ def make_train(config, debug=False,):
         rec_env_gym = RecordEpisode(LuxAIS3GymEnv(numpy_output=True), save_on_close=True, save_dir = "replays_ppo_std")
         arena_env_gym = LuxAIS3GymEnv(numpy_output=True)
 
-    reward_phases = env.reward_phases
+    def agent_jax_forward(key: chex.PRNGKey, env_state, env_params):
+        obs = env.get_obs(env_state.env_state)["player_1"]
+        mem_state = env_state.memory_state_player_1
+        action = arena_jax_agent.forward(
+            team_id=1,
+            key=key,
+            obs=obs,
+            memory_state=mem_state,
+            env_params=env_params,
+        )
+        return action[:,0].astype(jnp.int32)
 
+    reward_phases = env.reward_phases
+ 
     @partial(jax.jit, static_argnums=(3))
     def compute_reshaped_gamma(start_phase: int, weight: float, gamma: float, gamma_smoothing: bool = True):
         """
@@ -124,7 +138,7 @@ def make_train(config, debug=False,):
             gammas[-1],
             jax.lax.select(
                 gamma_smoothing,
-                gammas[start_phase]* (1 - weight) + gammas[start_phase+1] * weight,
+                gammas[start_phase]* (1 - weight**2) + gammas[start_phase+1] * weight**2,
                 gammas[start_phase]            
             ),
         )
@@ -188,27 +202,52 @@ def make_train(config, debug=False,):
         # sample random params initially
         rng, _rng = jax.random.split(rng)
         rng_params = jax.random.split(rng, config["ppo"]["num_envs"])
-        env_params = jax.vmap(lambda key: sample_params(key, match_count_per_episode = config["ppo"]["match_count_per_episode"]))(rng_params)
+        env_params_v = jax.vmap(lambda key: sample_params(key, match_count_per_episode = config["ppo"]["match_count_per_episode"]))(rng_params)
         
         # reset 
         rng, _rng = jax.random.split(rng)
         reset_rng = jax.random.split(rng, config["ppo"]["num_envs"])
-        obs_v, env_state_v = jax.vmap(env.reset)(reset_rng, env_params)
-
+        obs_v, env_state_v = jax.vmap(env.reset)(reset_rng, env_params_v)
+        
+        @jax.jit
+        def stagger_env(stagger_offset, rng, obs, env_state, env_params):
+            @jax.jit
+            def arbitrary_move(_, a):
+                rng, obs, env_state, env_params = a
+                rng, _rng = jax.random.split(rng)
+                rng_0, rng_1 = jax.random.split(rng)
+                key_a_0, key_a_1 = jax.random.split(rng_0, 16), jax.random.split(rng_1, 16)
+                obs, env_state, _, _, _, _ = step_and_keep_or_reset(
+                    rng, 
+                    env_state, 
+                    {"player_0": jax.vmap(env.action_space().sample)(key_a_0), "player_1": jax.vmap(env.action_space().sample)(key_a_1)}, 
+                    env_params
+                )
+                return rng, obs, env_state, env_params
+            
+            rng, obs, env_state, env_params = jax.lax.fori_loop(lower=0, upper=stagger_offset, body_fun=arbitrary_move, init_val=(rng, obs, env_state, env_params))
+            return obs, env_state, env_params
+        
+        # stagger_rng = jax.random.split(rng, config["ppo"]["num_envs"])
+        # stagger_step = 505 // config["ppo"]["num_envs"]
+        # stagger_offsets = jnp.arange(start = 0, stop = stagger_step * config["ppo"]["num_envs"], step = stagger_step, dtype = jnp.int32)
+        # obs_v, env_state_v, env_params_v = jax.vmap(stagger_env, in_axes=(0, 0, 0, 0, 0))(stagger_offsets, stagger_rng, obs_v, env_state_v, env_params_v)
+        
         # TRAIN LOOP
-        @scan_tqdm(config["ppo"]["num_updates"], print_rate=1, desc = "Training PPO")
+        @scan_tqdm(config["ppo"]["num_updates"], print_rate=10, desc = "Training PPO")
         def _update_step(runner_state, update_i):
             
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, _):
                 # GET OBS BATCHES
-                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
+                points_true_v = env_state_v.points_map
                 steps_v = env_state_v.steps
                 # SELECT ACTION: PLAYER 0
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits0_v, value0_v, _  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
+                logits0_v, value0_v, _, points_pred_v  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
                 action0_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits0_v) # action is (N, 16)
@@ -216,24 +255,31 @@ def make_train(config, debug=False,):
 
                 # SELECT ACTION: PLAYER 1
                 play_against_latest_model = (jax.random.uniform(rng) < config["ppo"]["play_against_latest_model_ratio"])
+                play_against_arena_jax = (jax.random.uniform(rng) < config["ppo"]["play_against_arena_jax_ratio"])
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                logits1_v, _, _  = jax.lax.cond(
+                logits1_v, _, _, _  = jax.lax.cond(
                     play_against_latest_model,
                     lambda _: model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_1),
                     lambda _: model.apply(prev_opp_state_dict, **last_obs_batch_player_1),
                     play_against_latest_model
                 )
-                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits1_v) # action is (N, 16)
-
+                action1_v_model = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits1_v) # action is (N, 16)
+                action1_v_arena = jax.vmap(agent_jax_forward, in_axes=(0, 0, 0))(rng_v, env_state_v, env_params_v)
+                action1_v = jax.lax.cond(
+                    play_against_arena_jax,
+                    lambda _: action1_v_arena,
+                    lambda _: action1_v_model,
+                    play_against_arena_jax
+                )
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
-                obs_v, env_state_v, reward_v, done_v, info_v, env_params = jax.vmap(step_and_keep_or_reset)(
+                obs_v, env_state_v, reward_v, done_v, info_v, env_params_v = jax.vmap(step_and_keep_or_reset)(
                     rng_v, 
                     env_state_v, 
                     {"player_0": action0_v, "player_1": action1_v},
-                    env_params
+                    env_params_v
                 )
 
                 # LOG THE TRANSITION                 
@@ -241,6 +287,8 @@ def make_train(config, debug=False,):
                     done_v = done_v,
                     action_v = action0_v, 
                     value_v = value0_v, 
+                    points_pred_v = points_pred_v,
+                    points_true_v = points_true_v,
                     reward_v = reward_v["player_0"], 
                     log_prob_v = log_prob0_v, 
                     obs_v = last_obs_batch_player_0, 
@@ -248,15 +296,15 @@ def make_train(config, debug=False,):
                     steps_v = steps_v
                 )
 
-                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params)
+                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params_v)
                 return runner_state, transition
             
-            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params), None, config["ppo"]["num_steps"],
+                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v), None, config["ppo"]["num_steps"],
             )
-            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params = runner_state
+            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             ################# Self-play opponent update #################
             update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
@@ -312,7 +360,7 @@ def make_train(config, debug=False,):
 
             ################# CALCULATE ADVANTAGE OVER THE LAST TRAJECTORIES #################
             last_obs_batch_player_0, _ = get_obs_batch(last_obs_v, env.agents) # GET OBS BATCHES
-            _, last_val_v,_ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
+            _, last_val_v, _, _ = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # COMPUTE VALUES
 
             def _calculate_gae(traj_batch, last_val):
                 def _get_advantages(gae_and_next_value, transition: Transition):
@@ -349,7 +397,7 @@ def make_train(config, debug=False,):
 
                     def _loss_fn(params, traj_batch, gae, targets):
                         # Apply the model with batch_stats and mutable updates
-                        (logits0_v, value0_v, _), updates = train_state.apply_fn(
+                        (logits0_v, value0_v, _, _), updates = train_state.apply_fn(
                             {"params": params, "batch_stats": train_state.batch_stats},
                             **traj_batch.obs_v,
                             train=True,
@@ -357,6 +405,11 @@ def make_train(config, debug=False,):
                         )
                         mask_awake0_v = traj_batch.obs_v["mask_awake"]
                         log_prob0_v = jax.vmap(get_logprob)(logits0_v, mask_awake0_v, traj_batch.action_v)
+
+                        # CALCULATE POINT_PRED LOSS
+                        points_pred_loss = jax.vmap(jax.vmap(jax.vmap(binary_cross_entropy, in_axes=(0, 0)), in_axes=(0, 0)), in_axes=(0, 0))(
+                            traj_batch.points_pred_v, traj_batch.points_true_v
+                        ).mean()
 
                         # CALCULATE VALUE LOSS
                         value_pred_clipped = traj_batch.value_v + (
@@ -395,6 +448,7 @@ def make_train(config, debug=False,):
 
                         total_loss = (
                             actor_loss
+                            + config["ppo"]["points_pred_coef"] * points_pred_loss
                             + config["ppo"]["vf_coef"] * value_loss
                             - config["ppo"]["ent_coef"] * entropy
                         )
@@ -402,6 +456,7 @@ def make_train(config, debug=False,):
                         return total_loss, {
                             "value_loss": value_loss,
                             "actor_loss": actor_loss,
+                            "points_pred_loss": points_pred_loss,
                             "entropy": entropy,
                             "clip_frac": clip_frac,
                             "batch_stats": updates["batch_stats"],
@@ -420,6 +475,7 @@ def make_train(config, debug=False,):
                     return train_state, (total_loss, {
                             "value_loss":  aux["value_loss"],
                             "actor_loss":  aux["actor_loss"],
+                            "points_pred_loss": aux["points_pred_loss"],
                             "entropy": aux["entropy"],
                             "clip_frac": aux["clip_frac"],   
                             "explained_var": aux["explained_var"]                         
@@ -484,6 +540,7 @@ def make_train(config, debug=False,):
                     total_loss = jnp.mean(loss)
                     value_loss = jnp.mean(loss_dict["value_loss"])
                     actor_loss = jnp.mean(loss_dict["actor_loss"])
+                    points_pred_loss = jnp.mean(loss_dict["points_pred_loss"])
                     entropy = jnp.mean(loss_dict["entropy"]) 
                     clip_frac = jnp.mean(loss_dict["clip_frac"])
                     explained_var = jnp.mean(loss_dict["explained_var"])
@@ -491,6 +548,7 @@ def make_train(config, debug=False,):
                         "loss/total_loss": total_loss,
                         "loss/value_loss": value_loss,
                         "loss/actor_loss": actor_loss,
+                        "loss/points_pred_loss": points_pred_loss,
                         "loss/entropy": entropy,
                         "loss/clip_frac": clip_frac,
                         "loss/explained_var": explained_var                    
@@ -533,6 +591,8 @@ def make_train(config, debug=False,):
                             f"| Update Step         | {update_step:<10d} |\n"
                             f"| Win Rate            | {100 * winrate:<7.1f} %  |\n"
                             f"| Entropy             | {entropy:<10.4f} |\n"
+                            f"| Expl. Var.          | {explained_var:<10.4f} |\n"
+                            f"| Points Pred Loss    | {points_pred_loss:<10.4f} |\n"
                             f"| Actor Loss          | {actor_loss:<10.4f} |\n"
                             f"| Value Loss          | {value_loss:<10.4f} |\n"
                             f"| Clip Frac           | {clip_frac:<10.4f} |\n"
@@ -555,7 +615,7 @@ def make_train(config, debug=False,):
 
                         arena_info = run_arena_jax_agents(
                             agent_0=our_agent,
-                            agent_1=arena_jax_agent("player_1"),
+                            agent_1=arena_jax_agent,
                             vanilla_env=arena_env_jax,
                             key = rng_callback,
                             number_of_games = config["arena_jax"]["num_matches"],
@@ -568,21 +628,21 @@ def make_train(config, debug=False,):
                         arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
                         metrics["arena_stats/arena_jax_winrate"] = arena_winrate
 
-                    if update_step % config['arena_jax']["record_freq"] == 0 and update_step > 0:
-                        our_agent = RawPureJaxRLAgent(
-                            player="player_0",
-                            model = model,
-                            transform_action=env.transform_action,
-                            transform_obs=env.transform_obs,
-                            state_dict=current_state_dict,
-                            memory=env.memory,
-                        )
-                        run_episode_and_record(
-                            rec_env=rec_env_jax,                        
-                            agent_0=our_agent,
-                            agent_1=arena_jax_agent("player_1"),
-                            key=rng_callback,
-                        )
+                    # if update_step % config['arena_jax']["record_freq"] == 0 and update_step > 0:
+                    #     our_agent = RawPureJaxRLAgent(
+                    #         player="player_0",
+                    #         model = model,
+                    #         transform_action=env.transform_action,
+                    #         transform_obs=env.transform_obs,
+                    #         state_dict=current_state_dict,
+                    #         memory=env.memory,
+                    #     )
+                    #     run_episode_and_record(
+                    #         rec_env=rec_env_jax,                        
+                    #         agent_0=our_agent,
+                    #         agent_1=arena_jax_agent,
+                    #         key=rng_callback,
+                    #     )
                     
                 ############ RUN ARENA STD ############
                 if config["arena_std"] is not None:
@@ -625,17 +685,17 @@ def make_train(config, debug=False,):
                         rec_env_gym.close()
 
                 
-                if config["ppo"]["use_wandb"]: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
+                if config["ppo"]["use_wandb"] and metrics != {}: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
 
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
-            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params)
+            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params)
+        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params_v)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )

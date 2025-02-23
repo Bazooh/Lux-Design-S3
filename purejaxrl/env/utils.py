@@ -195,16 +195,23 @@ def manhattan_distance_to_nearest_point(source_pos, n):
     
     return jnp.clip(distances, 0, n//2)
 
+import jax.numpy as jnp
+
 def diagonal_distances(N):
     # Create a grid of indices
     x = jnp.arange(N)
     i, j = jnp.meshgrid(x, x, indexing='ij')
 
-    # Compute distances
+    # Compute distances to diagonals
     main_diag_dist = jnp.abs(i - j)
     anti_diag_dist = jnp.abs((N - 1 - i) - j)
+    center = (N - 1) / 2  # Center coordinates (can be fractional for even N)
+    dist_to_center = jnp.abs(i - center) + jnp.abs(j - center)
+    dist_to_top = i
+    dist_to_left = j
 
-    return main_diag_dist, anti_diag_dist
+    return main_diag_dist, anti_diag_dist, dist_to_center, dist_to_top, dist_to_left
+
 
 def EnvObs_from_dict(observation: dict) -> EnvObs:
     return EnvObs(

@@ -65,7 +65,7 @@ def get_entropy(logits, mask_awake):
         jnp.sum(mask_awake.astype(jnp.float32)),
         1.0
     ) 
-    #entropy = entropy * n_awake
+    #entropy = entropy / n_awake
     return entropy
 
 
@@ -187,3 +187,6 @@ def restore_state_dict_cpu(path, step=None):
         },
     )
     return restored_state_dict
+
+def binary_cross_entropy(prob, label):
+    return - jnp.sum(label * jnp.log(prob + 1e-6) + (1 - label) * jnp.log(1 - prob + 1e-6))

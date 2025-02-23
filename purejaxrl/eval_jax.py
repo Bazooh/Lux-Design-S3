@@ -162,9 +162,9 @@ def run_episode_and_record(
     stack_stats = []
     stack_states = []
     stack_vec = []
-    relic_weights = []
+    points_map = []
     
-    for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
+    for _ in tqdm(range(2), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
         rng, _ = jax.random.split(rng)
         
         memory_state_player_0 = env_state.memory_state_player_0
@@ -199,7 +199,7 @@ def run_episode_and_record(
             stack_states.append((transformed_obs_0["image"], transformed_obs_1["image"]))
             stack_vec.append((transformed_obs_0["vector"], transformed_obs_1["vector"]))
             stack_stats.append((info["episode_stats_player_0"], info["episode_stats_player_1"]))
-            relic_weights.append(env_state.relic_nodes_map_weights)
+            points_map.append(env_state.points_map)
 
     rec_env.close()
 
@@ -254,7 +254,7 @@ def run_episode_and_record(
         if plot_stats_curves:
             plot_stats(stats_arrays)
 
-        return channels_arrays, vec_arrays, stats_arrays, relic_weights
+        return channels_arrays, vec_arrays, stats_arrays, points_map
     
 def test_a():
     config = parse_config()

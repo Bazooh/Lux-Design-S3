@@ -118,29 +118,7 @@ class EnvObs:
     steps: int = 0
     """steps taken in the environment"""
     match_steps: int = 0
-    """steps taken in the current match"""    
-    
-    @staticmethod
-    def from_dict(observation: dict) -> "EnvObs":
-        return EnvObs(
-            units=UnitState(
-                position=observation["units"]["position"],
-                energy=observation["units"]["energy"],
-            ),
-            units_mask=observation["units_mask"],
-            sensor_mask=observation["sensor_mask"],
-            map_features=MapTile(
-                energy=observation["map_features"]["energy"],
-                tile_type=observation["map_features"]["tile_type"],
-            ),
-            relic_nodes=observation["relic_nodes"],
-            relic_nodes_mask=observation["relic_nodes_mask"],
-            team_points=observation["team_points"],
-            team_wins=observation["team_wins"],
-            steps=observation["steps"],
-            match_steps=observation["match_steps"],
-        )
-
+    """steps taken in the current match"""
     
     
 
@@ -228,7 +206,7 @@ def gen_state(key: chex.PRNGKey, env_params: EnvParams, max_units: int, num_team
                     relic_nodes_map_weights <= relic_node_id + 1
                 )
                 relic_nodes_map_weights = jnp.where(
-                    valid_pos & mask & jnp.logical_not(has_points),
+                    valid_pos & mask & jnp.logical_not(has_points) & relic_node_config[dx, dy],
                     relic_nodes_map_weights.at[x, y].set(relic_node_config[dx, dy].astype(jnp.int16) * (relic_node_id + 1)),
                     relic_nodes_map_weights,
                 )
@@ -288,7 +266,7 @@ def gen_map(key: chex.PRNGKey, params: EnvParams, map_type: int, map_height: int
         
         ### Generate nebula tiles ###
         key, subkey = jax.random.split(key)
-        perlin_noise = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
+        perlin_noise, _ = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
         noise = jnp.where(perlin_noise > 0.5, 1, 0)
         # mirror along diagonal
         noise = noise | noise.T
@@ -297,7 +275,7 @@ def gen_map(key: chex.PRNGKey, params: EnvParams, map_type: int, map_height: int
         
         ### Generate asteroid tiles ###
         key, subkey = jax.random.split(key)
-        perlin_noise = generate_perlin_noise_2d(subkey, (map_height, map_width), (8, 8))
+        perlin_noise, _ = generate_perlin_noise_2d(subkey, (map_height, map_width), (8, 8))
         noise = jnp.where(perlin_noise < -0.5, 1, 0)
         # mirror along diagonal
         noise = noise | noise.T
@@ -306,7 +284,7 @@ def gen_map(key: chex.PRNGKey, params: EnvParams, map_type: int, map_height: int
         
         ### Generate relic nodes ###
         key, subkey = jax.random.split(key)
-        noise = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
+        _, noise = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
         # Find the positions of the  highest noise values
         flat_indices = jnp.argsort(noise.ravel())[-max_relic_nodes // 2:]  # Get indices of two highest values
         highest_positions = jnp.column_stack(jnp.unravel_index(flat_indices, noise.shape))
@@ -385,6 +363,8 @@ def gen_map(key: chex.PRNGKey, params: EnvParams, map_type: int, map_height: int
 def interpolant(t):
     return t*t*t*(t*(t*6 - 15) + 10)
 
+BIAS = 0.2
+
 @functools.partial(jax.jit, static_argnums=(1, 2, 3, 4))
 def generate_perlin_noise_2d(
     key, shape, res, tileable=(False, False), interpolant=interpolant
@@ -434,4 +414,8 @@ def generate_perlin_noise_2d(
     t = interpolant(grid)
     n0 = n00*(1-t[:,:,0]) + t[:,:,0]*n10
     n1 = n01*(1-t[:,:,0]) + t[:,:,0]*n11
-    return jnp.sqrt(2)*((1-t[:,:,1])*n0 + t[:,:,1]*n1)
+    noise = jnp.sqrt(2)*((1-t[:,:,1])*n0 + t[:,:,1]*n1)
+    I, J = jnp.meshgrid(jnp.arange(shape[0]), jnp.arange(shape[1]), indexing='ij')
+    distance_to_frontier = jnp.abs((I+J-shape[0]))/(shape[0]+shape[1])
+    biased_noise = (noise-jnp.mean(noise))/jnp.std(noise) + BIAS * (-distance_to_frontier)
+    return noise, biased_noise
