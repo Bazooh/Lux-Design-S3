@@ -119,7 +119,7 @@ if __name__ == "__main__":
         agent_0 = agent_0,
         agent_1 = agent_1, 
         key = key, 
-        match_count_per_episode = 3,
+        match_count_per_episode = 1,
         use_tdqm = True,
         return_states = True,
         plot_stats_curves = False        

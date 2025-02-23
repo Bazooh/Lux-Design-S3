@@ -316,7 +316,7 @@ def gen_map(key: chex.PRNGKey, params: EnvParams, map_type: int, map_height: int
         
         ### Generate energy nodes ###
         key, subkey = jax.random.split(key)
-        noise, _ = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
+        noise = generate_perlin_noise_2d(subkey, (map_height, map_width), (4, 4))
         # Find the positions of the  highest noise values
         flat_indices = jnp.argsort(noise.ravel())[-max_energy_nodes // 2:]  # Get indices of highest values
         highest_positions = jnp.column_stack(jnp.unravel_index(flat_indices, noise.shape)).astype(jnp.int16)

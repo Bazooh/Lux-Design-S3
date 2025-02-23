@@ -91,7 +91,8 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
         config["ppo"] = {
             # Learning args
             "match_count_per_episode": int(yaml_dict["ppo"]["match_count_per_episode"]),
-            "lr": float(yaml_dict["ppo"]["lr"]),
+            "start_lr": float(yaml_dict["ppo"]["start_lr"]),
+            "end_lr": float(yaml_dict["ppo"]["end_lr"]),
             "num_envs": int(yaml_dict["ppo"]["num_envs"]),
             "num_steps": int(yaml_dict["ppo"]["num_steps"]),
             "total_timesteps": float(yaml_dict["ppo"]["total_timesteps"]),
@@ -102,6 +103,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "gae_lambda": float(yaml_dict["ppo"]["gae_lambda"]),
             "clip_grad_norm": float(yaml_dict["ppo"]["clip_grad_norm"]),
             "clip_eps": float(yaml_dict["ppo"]["clip_eps"]),
+            "points_pred_coef": float(yaml_dict["ppo"]["points_pred_coef"]),
             "ent_coef": float(yaml_dict["ppo"]["ent_coef"]),
             "vf_coef": float(yaml_dict["ppo"]["vf_coef"]),
             "max_grad_norm": float(yaml_dict["ppo"]["max_grad_norm"]),
@@ -109,6 +111,7 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "seed": int(yaml_dict["ppo"]["seed"]),
             "selfplay_freq_update": int(yaml_dict["ppo"]["selfplay_freq_update"]),
             "play_against_latest_model_ratio": float(yaml_dict["ppo"]["play_against_latest_model_ratio"]),
+            "play_against_arena_jax_ratio": float(yaml_dict["ppo"]["play_against_arena_jax_ratio"]),
             # Log args
             "verbose": int(yaml_dict["ppo"]["verbose"]),
             "use_wandb": bool(yaml_dict["ppo"]["use_wandb"]),

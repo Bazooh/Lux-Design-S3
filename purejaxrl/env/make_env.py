@@ -11,10 +11,10 @@ from purejaxrl.env.wrappers import *
 
 def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TransformObsWrapper:
     env = LuxAIS3Env(auto_reset=auto_reset)
-    env = PointsMapWrapper(env)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)
+    env = PointsMapWrapper(env)
     env = MemoryWrapper(env, env_args["memory"])
     env = TrackerWrapper(env)
     env = TransformRewardWrapper(env, reward_phases = env_args["reward_phases"], reward_smoothing = env_args["reward_smoothing"])
@@ -25,10 +25,10 @@ def make_env(env_args, auto_reset = False, record=False, **record_kwargs) -> Tra
 
 def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs) -> TrackerWrapper:
     env = LuxAIS3Env(auto_reset=auto_reset)
-    env = PointsMapWrapper(env)
     if record:
         env = RecordEpisodeWrapper(env, **record_kwargs)
     env = SimplifyTruncationWrapper(env)
+    env = PointsMapWrapper(env)
     env = MemoryWrapper(env, env_args["memory"])
     env = TrackerWrapper(env)
     env = TransformRewardWrapper(env, reward_phases = env_args["reward_phases"], reward_smoothing = env_args["reward_smoothing"])
@@ -36,6 +36,8 @@ def make_vanilla_env(env_args, auto_reset = False, record=False, **record_kwargs
 
 
 if __name__ == "__main__":
+    from jax import config
+    # config.update('jax_enable_x64', True)
     config = parse_config()
     seed = np.random.randint(0, 100)
     key = jax.random.PRNGKey(seed)
@@ -51,8 +53,8 @@ if __name__ == "__main__":
         a = {"player_0": jax.vmap(env.action_space().sample)(key_a_0), "player_1": jax.vmap(env.action_space().sample)(key_a_1)}         
         obs, state, reward, done, info = env.step(key, state, a, params=params)
         print(f"info: global timestep {state.steps}, done {done}, reward {reward} ")
-        print(f" episode_return_player_0 {info['episode_return_player_0']}, episode_stats_player_0 {info['episode_stats_player_0']}")
-        print(f" episode_return_player_1 {info['episode_return_player_1']}, episode_stats_player_1 {info['episode_stats_player_1']}")
+        print(f"episode_stats_player_0 {info['episode_stats_player_0']}")
+        print(f"match_stats_player_1 {info['match_stats_player_1']}")
         if done:
             obs, state = env.reset(key, params)
             print("reset")

@@ -193,8 +193,8 @@ class HybridTransformObs(TransformObs):
         image = image.at[13].set(d1 / 23)
         image = image.at[14].set(d2 / 23)
         image = image.at[15].set(d3 / 23)
-        image = image.at[16].set(symmetrize(team_id,d4) / 23)
-        image = image.at[17].set(symmetrize(team_id,d5) / 23)
+        image = image.at[16].set(symmetrize(team_id, mirror_grid(d4)) / 23 if team_id == 1 else symmetrize(team_id,d4) / 23)
+        image = image.at[17].set(symmetrize(team_id, mirror_grid(d5)) / 23 if team_id == 1 else symmetrize(team_id,d5) / 23)
 
         ############# HANDLES VECTOR ##############
         vector = vector.at[0].set(params.unit_move_cost)
@@ -216,8 +216,8 @@ class HybridTransformObs(TransformObs):
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
         
         ############# HANDLES TIME WITH OHE ##############
-        current_step = obs.steps // (params.max_steps_in_match + 1)
-        current_match = obs.steps % (params.max_steps_in_match + 1)
+        current_step = obs.steps % (params.max_steps_in_match + 1)
+        current_match = obs.steps // (params.max_steps_in_match + 1)
 
         time_vector = jnp.zeros((self.time_size), dtype=jnp.float32)
         time_vector = time_vector.at[5 + current_step//self.time_discretization].set(1)

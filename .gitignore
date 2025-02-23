@@ -14,7 +14,7 @@ models_weights/
 config.py
 
 *.gif
-
+checkpoints/
 __pycache__/
 episodes/
 test/

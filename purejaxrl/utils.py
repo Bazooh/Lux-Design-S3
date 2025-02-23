@@ -187,3 +187,6 @@ def restore_state_dict_cpu(path, step=None):
         },
     )
     return restored_state_dict
+
+def binary_cross_entropy(prob, label):
+    return - jnp.sum(label * jnp.log(prob + 1e-6) + (1 - label) * jnp.log(1 - prob + 1e-6))

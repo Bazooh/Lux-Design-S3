@@ -34,39 +34,6 @@ class GymnaxWrapper(object):
     def __getattr__(self, name):
         return getattr(self._env, name)
 
-################################## POINTS MAP WRAPPER ##################################
-@struct.dataclass
-class State_With_Points_Maps:
-    env_state: EnvState
-    points_map: Any
-    def __getattr__(self, name):
-        return getattr(self.env_state, name)
-    
-def compute_points_map(env_state: EnvState) -> Any:
-    active_relic_mask = (env_state.relic_spawn_schedule <= env_state.steps) & env_state.relic_nodes_mask
-    points_map = (env_state.relic_nodes_map_weights>0) & active_relic_mask[env_state.relic_nodes_map_weights]
-    return points_map
-
-class PointsMapWrapper(GymnaxWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self.num_agents = 2
-    def reset(
-        self,
-        key: chex.PRNGKey, 
-        params: Optional[EnvParams] = None
-    ) -> Tuple[chex.Array, State_With_Points_Maps]:
-        obs, env_state = self._env.reset(key, params)
-        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state))
-    def step(
-        self, 
-        key: chex.PRNGKey, 
-        env_state: EnvState, 
-        action: PlayerAction, 
-        params: Optional[EnvParams] = None
-    ) -> Tuple[chex.Array, State_With_Points_Maps, float, bool, dict]:
-        obs, env_state, reward, terminated, truncated, info = self._env.step(key, env_state.env_state, action, params)
-        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state)), reward, terminated, truncated, info
 
 ################################## RECORD WRAPPER ##################################
 class RecordEpisodeWrapper(GymnaxWrapper): # adapted from the gym record wrapper
@@ -176,6 +143,41 @@ class SimplifyTruncationWrapper(GymnaxWrapper):
         return obs, env_state, reward, done, info 
 
 
+################################## POINTS MAP WRAPPER ##################################
+@struct.dataclass
+class State_With_Points_Maps:
+    env_state: EnvState
+    points_map: Any
+    def __getattr__(self, name):
+        return getattr(self.env_state, name)
+    
+def compute_points_map(env_state: EnvState) -> Any:
+    active_relic_mask = (env_state.relic_spawn_schedule <= env_state.steps) & env_state.relic_nodes_mask
+    points_map = (env_state.relic_nodes_map_weights>0) & active_relic_mask[env_state.relic_nodes_map_weights]
+    return points_map
+
+class PointsMapWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.num_agents = 2
+    def reset(
+        self,
+        key: chex.PRNGKey, 
+        params: Optional[EnvParams] = None
+    ) -> Tuple[chex.Array, State_With_Points_Maps]:
+        obs, env_state = self._env.reset(key, params)
+        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state))
+    def step(
+        self, 
+        key: chex.PRNGKey, 
+        env_state: EnvState, 
+        action: PlayerAction, 
+        params: Optional[EnvParams] = None
+    ) -> Tuple[chex.Array, State_With_Points_Maps, float, bool, dict]:
+        obs, env_state, reward, done, info = self._env.step(key, env_state.env_state, action, params)
+        return obs, State_With_Points_Maps(env_state, compute_points_map(env_state)), reward, done, info
+    
+    
 ################################## MEMORY WRAPPER ##################################
 @struct.dataclass
 class Env_Mem_State:
@@ -249,6 +251,8 @@ class State_with_Stats:
     env_state: Env_Mem_State
     dense_stats_player_0: PlayerStats
     dense_stats_player_1: PlayerStats
+    match_stats_player_0: PlayerStats
+    match_stats_player_1: PlayerStats
     episode_stats_player_0: PlayerStats
     episode_stats_player_1: PlayerStats
     def __getattr__(self, name):
@@ -359,6 +363,8 @@ class TrackerWrapper(GymnaxWrapper):
             env_state=env_state,
             dense_stats_player_0=PlayerStats(),
             dense_stats_player_1=PlayerStats(),
+            match_stats_player_0=PlayerStats(),
+            match_stats_player_1=PlayerStats(),
             episode_stats_player_0=PlayerStats(),
             episode_stats_player_1=PlayerStats(),
         )
@@ -392,6 +398,20 @@ class TrackerWrapper(GymnaxWrapper):
             mem_state = new_env_state.memory_state_player_1,
             params = params
         )
+
+        match_stats_player_0 = jax.lax.cond(
+            (env_state.steps % (params.max_steps_in_match + 1) == 1) & ~(env_state.steps == 1),
+            lambda _: PlayerStats(),
+            lambda _: env_state.match_stats_player_0 + dense_stats_player_0,
+            env_state.steps,
+        )
+        match_stats_player_1 =  jax.lax.cond(
+            (env_state.steps % (params.max_steps_in_match + 1) == 1) & ~(env_state.steps == 1),
+            lambda _: PlayerStats(),
+            lambda _: env_state.match_stats_player_1 + dense_stats_player_1,
+            env_state.steps,
+        )
+
         episode_stats_player_0 = env_state.episode_stats_player_0 + dense_stats_player_0
         episode_stats_player_1 = env_state.episode_stats_player_1 + dense_stats_player_1
         
@@ -399,6 +419,8 @@ class TrackerWrapper(GymnaxWrapper):
             env_state=new_env_state,
             dense_stats_player_0=dense_stats_player_0,
             dense_stats_player_1=dense_stats_player_1,
+            match_stats_player_0=match_stats_player_0,
+            match_stats_player_1=match_stats_player_1,
             episode_stats_player_0=episode_stats_player_0,
             episode_stats_player_1=episode_stats_player_1,
         )
@@ -439,13 +461,13 @@ class RewardObject:
         else:
             r = {
                 "player_0": jax.lax.select(
-                    done, 
-                    sum([getattr(state.episode_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    match_end, 
+                    sum([getattr(state.match_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
                     0.0,
                 ),
                 "player_1": jax.lax.select(
-                    done, 
-                    sum([getattr(state.episode_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    match_end, 
+                    sum([getattr(state.match_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
                     0.0,
                 )
             }
@@ -470,7 +492,7 @@ def done_from_reward_phase(reward_phase: RewardObject, step: int, max_steps_in_m
     if reward_phase.reward_type == RewardType.DENSE:
         return done
     else:
-        return done
+        return match_end
       
 class TransformRewardWrapper(GymnaxWrapper):
     """"
@@ -611,10 +633,12 @@ class LogWrapper(GymnaxWrapper):
 
         info["episode_return_player_0"] = new_episode_return_player_0
         info["episode_return_player_1"] = new_episode_return_player_1
-        info["episode_stats_player_0"] = env_state.episode_stats_player_0
-        info["episode_stats_player_1"] = env_state.episode_stats_player_1
         info["dense_stats_player_0"] = env_state.dense_stats_player_0
         info["dense_stats_player_1"] = env_state.dense_stats_player_1
+        # info["match_stats_player_0"] = env_state.match_stats_player_0
+        # info["match_stats_player_1"] = env_state.match_stats_player_1
+        info["episode_stats_player_0"] = env_state.episode_stats_player_0
+        info["episode_stats_player_1"] = env_state.episode_stats_player_1
         info["returned_episode"] = done
 
         # Create new LogEnvState
