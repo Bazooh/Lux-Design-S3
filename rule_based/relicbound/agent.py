@@ -1,5 +1,6 @@
 import sys, os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
 import copy
 import numpy as np
@@ -13,12 +14,13 @@ from rule_based.relicbound.utils import (
     NodeType,
     ActionType,
     SPACE_SIZE,
+    get_match_idx,
     get_match_step,
     warp_point,
     get_opposite,
     is_team_sector,
-    show_map, 
-    show_energy_field, 
+    show_map,
+    show_energy_field,
     show_exploration_map,
     astar,
     find_closest_target,
@@ -178,7 +180,6 @@ class Space:
     def _update_reward_status_from_reward_results(self):
         # We will use Global.REWARD_RESULTS to identify which nodes yield points
         for result in Global.REWARD_RESULTS:
-
             unknown_nodes = set()
             known_reward = 0
             for n in result["nodes"]:
@@ -253,6 +254,12 @@ class Space:
                 # no relics in range RELIC_REWARD_RANGE
                 node.update_reward_status(False)
 
+    def _reset_reward_around(self, x: int, y: int):
+        for x_, y_ in nearby_positions(x, y, Global.RELIC_REWARD_RANGE):
+            node = self.get_node(x_, y_)
+            if not node.reward:
+                node._explored_for_reward = False
+
     def _update_relic_status(self, x, y, status=True):
         node = self.get_node(x, y)
         node.update_relic_status(status)
@@ -261,9 +268,10 @@ class Space:
         opp_node = self.get_node(*get_opposite(x, y))
         opp_node.update_relic_status(status)
 
-        if status:
+        if status and node not in self._relic_nodes:
             self._relic_nodes.add(node)
             self._relic_nodes.add(opp_node)
+            self._reset_reward_around(x, y)
 
     def _update_reward_status(self, x, y, status):
         node = self.get_node(x, y)
@@ -379,9 +387,14 @@ class Space:
         if len(suitable_directions) == 1:
             return suitable_directions[0]
 
-    def clear(self):
+    def clear(self, match_idx: int):
         for node in self:
             node.is_visible = False
+
+        if match_idx <= 2:
+            for node in self:
+                if not node.relic:
+                    node._explored_for_relic = False
 
     def move_obstacles(self, step):
         if (
@@ -490,6 +503,7 @@ class RelicboundAgent:
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         match_step = get_match_step(step)
+        match_idx = get_match_idx(step)
 
         # print(f"start step={match_step}({step})", file=stderr)
 
@@ -498,7 +512,7 @@ class RelicboundAgent:
             # just need to clean up some of the garbage that was left after the previous match
             self.fleet.clear()
             self.opp_fleet.clear()
-            self.space.clear()
+            self.space.clear(match_idx)
             self.space.move_obstacles(step)
             return self.create_actions_array()
 
@@ -548,7 +562,7 @@ class RelicboundAgent:
                 if is_team_sector(self.fleet.team_id, *node.coordinates):
                     targets.add(node.coordinates)
 
-        def set_task(ship):
+        def set_task(ship: Ship) -> bool:
             if ship.task and ship.task != "find_relics":
                 return False
 
@@ -612,7 +626,6 @@ class RelicboundAgent:
 
         for relic in unexplored_relics:
             if relic not in relic_node_to_ship:
-
                 # find the closest ship to the relic node
                 min_distance, closes_ship = float("inf"), None
                 for ship in self.fleet:
@@ -699,7 +712,6 @@ class RelicboundAgent:
         return relic_nodes
 
     def harvest(self):
-
         def set_task(ship, target_node):
             if ship.node == target_node:
                 ship.task = "harvest"

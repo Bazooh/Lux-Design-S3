@@ -8,7 +8,6 @@ CARDINAL_DIRECTIONS = [(0, 1), (0, -1), (1, 0), (-1, 0)]
 
 
 class Global:
-
     # Game related constants:
 
     SPACE_SIZE = 24
@@ -122,6 +121,10 @@ def get_match_step(step: int) -> int:
     return step % (Global.MAX_STEPS_IN_MATCH + 1)
 
 
+def get_match_idx(step: int) -> int:
+    return step // (Global.MAX_STEPS_IN_MATCH + 1)
+
+
 def warp_int(x):
     if x >= SPACE_SIZE:
         x -= SPACE_SIZE
@@ -149,6 +152,7 @@ def is_lower_sector(x, y) -> bool:
 
 def is_team_sector(team_id, x, y) -> bool:
     return is_upper_sector(x, y) if team_id == 0 else is_lower_sector(x, y)
+
 
 def astar(weights, start, goal):
     # A* algorithm
@@ -231,7 +235,6 @@ def create_weights(space):
 
     weights = np.zeros((SPACE_SIZE, SPACE_SIZE), np.float32)
     for node in space:
-
         if not node.is_walkable:
             weight = -1
         else:
@@ -295,11 +298,11 @@ def path_to_actions(path):
 
     return actions
 
+
 def show_energy_field(space, only_visible=True):
     line = " + " + " ".join([f"{x:>2}" for x in range(Global.SPACE_SIZE)]) + "  +\n"
     str_grid = line
     for y in range(Global.SPACE_SIZE):
-
         str_row = []
 
         for x in range(Global.SPACE_SIZE):
@@ -336,7 +339,6 @@ def show_map(space, fleet=None, only_visible=True):
     line = " + " + " ".join([f"{x:>2}" for x in range(Global.SPACE_SIZE)]) + "  +\n"
     str_grid = line
     for y in range(Global.SPACE_SIZE):
-
         str_row = []
 
         for x in range(Global.SPACE_SIZE):
@@ -386,7 +388,6 @@ def show_exploration_map(space):
     line = " + " + " ".join([f"{x:>2}" for x in range(Global.SPACE_SIZE)]) + "  +\n"
     str_grid = line
     for y in range(Global.SPACE_SIZE):
-
         str_row = []
 
         for x in range(Global.SPACE_SIZE):
