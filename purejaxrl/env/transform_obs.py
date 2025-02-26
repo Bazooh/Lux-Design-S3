@@ -213,6 +213,7 @@ class HybridTransformObs(TransformObs):
         vector = vector.at[12].set(obs.team_points[1-team_id])
         vector = vector.at[13].set(memory_state.points_gained)
         vector = vector.at[14:17].set(memory_state.relics_found_mask[0:3])
+        vector = vector.at[17:23].set(jnp.clip(memory_state.relics_found_positions[0:3].reshape(6), min = 0, max=23))
         rescaled_vector = (vector - self.vector_mean_values) / self.vector_std_values
         
         ############# HANDLES TIME WITH OHE ##############

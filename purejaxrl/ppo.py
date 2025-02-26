@@ -1,6 +1,6 @@
 import sys, os
 
-import flax
+import random
 import flax.linen
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from luxai_s3.env import LuxAIS3Env
@@ -87,7 +87,7 @@ def make_train(config, debug=False,):
     if config["arena_jax"] is not None:
         print("Arena jax opponent is:", config["arena_jax"]["agent"].__name__, "; arena freq is:", config["arena_jax"]["arena_freq"], "\n",'-'*150)
     if config["arena_std"] is not None:
-        print("Arena jax opponent is:", config["arena_std"]["agent"].__name__, "; arena freq is:", config["arena_std"]["arena_freq"], "\n",'-'*150)
+        print("Arena std opponent is:", config["arena_std"]["agent"].__name__, "; arena freq is:", config["arena_std"]["arena_freq"], "\n",'-'*150)
   
     checkpoint_manager = create_checkpoint_manager(config["ppo"]["save_checkpoint_path"])
 
@@ -112,18 +112,6 @@ def make_train(config, debug=False,):
         arena_std_agent = config["arena_std"]["agent"]
         rec_env_gym = RecordEpisode(LuxAIS3GymEnv(numpy_output=True), save_on_close=True, save_dir = "replays_ppo_std")
         arena_env_gym = LuxAIS3GymEnv(numpy_output=True)
-
-    def agent_jax_forward(key: chex.PRNGKey, env_state, env_params):
-        obs = env.get_obs(env_state.env_state)["player_1"]
-        mem_state = env_state.memory_state_player_1
-        action = arena_jax_agent.forward(
-            team_id=1,
-            key=key,
-            obs=obs,
-            memory_state=mem_state,
-            env_params=env_params,
-        )
-        return action[:,0].astype(jnp.int32)
 
     reward_phases = env.reward_phases
  
@@ -177,8 +165,7 @@ def make_train(config, debug=False,):
             batch_stats = start_state_dict["batch_stats"],
             tx=transform_lr,
         )
-        opp_state_dict = start_state_dict
-        prev_opp_state_dict = start_state_dict
+        selfplay_group = [start_state_dict for _ in range(config["ppo"]["selfplay_window"])]
 
         @jax.jit
         def step_and_keep_or_reset(rng, env_state, actions, env_params):
@@ -240,7 +227,7 @@ def make_train(config, debug=False,):
             ################# STEP IN THE ENVIRONMENT ADVANTAGE #################
             def _env_step(runner_state, _):
                 # GET OBS BATCHES
-                train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
+                train_state, env_state_v, last_obs_v, rng, env_params_v = runner_state
                 last_obs_batch_player_0, last_obs_batch_player_1 = get_obs_batch(last_obs_v, env.agents)
                 points_true_v = env_state_v.points_map
                 steps_v = env_state_v.steps
@@ -250,28 +237,21 @@ def make_train(config, debug=False,):
                 logits0_v, value0_v, _, points_pred_v  = model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_0) # probs is (N, 16, 6)
 
                 mask_awake0_v = last_obs_batch_player_0['mask_awake'].astype(jnp.float32) # mask is (N, 16)
-                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits0_v) # action is (N, 16)
+                action0_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits0_v, 1.0) # action is (N, 16)
                 log_prob0_v = jax.vmap(get_logprob, in_axes=(0, 0, 0))(logits0_v, mask_awake0_v, action0_v)
 
                 # SELECT ACTION: PLAYER 1
                 play_against_latest_model = (jax.random.uniform(rng) < config["ppo"]["play_against_latest_model_ratio"])
-                play_against_arena_jax = (jax.random.uniform(rng) < config["ppo"]["play_against_arena_jax_ratio"])
+                idx_opp = random.randrange(0,config["ppo"]["selfplay_window"])
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
                 logits1_v, _, _, _  = jax.lax.cond(
                     play_against_latest_model,
                     lambda _: model.apply({"params": train_state.params, "batch_stats": train_state.batch_stats}, **last_obs_batch_player_1),
-                    lambda _: model.apply(prev_opp_state_dict, **last_obs_batch_player_1),
-                    play_against_latest_model
+                    lambda _: model.apply(selfplay_group[idx_opp], **last_obs_batch_player_1),
+                    rng                    
                 )
-                action1_v_model = jax.vmap(sample_group_action, in_axes=(0, 0))(rng_v, logits1_v) # action is (N, 16)
-                action1_v_arena = jax.vmap(agent_jax_forward, in_axes=(0, 0, 0))(rng_v, env_state_v, env_params_v)
-                action1_v = jax.lax.cond(
-                    play_against_arena_jax,
-                    lambda _: action1_v_arena,
-                    lambda _: action1_v_model,
-                    play_against_arena_jax
-                )
+                action1_v = jax.vmap(sample_group_action, in_axes=(0, 0, None))(rng_v, logits1_v, 1.0) # action is (N, 16)
                 # STEP THE ENVIRONMENT
                 rng, _rng = jax.random.split(rng)
                 rng_v = jax.random.split(_rng, config["ppo"]["num_envs"])
@@ -296,30 +276,22 @@ def make_train(config, debug=False,):
                     steps_v = steps_v
                 )
 
-                runner_state = (train_state, opp_state_dict, env_state_v, obs_v, rng, env_params_v)
+                runner_state = (train_state, env_state_v, obs_v, rng, env_params_v)
                 return runner_state, transition
             
-            train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
+            train_state, selfplay_group, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             runner_state, traj_batch = jax.lax.scan(
-                _env_step, (train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v), None, config["ppo"]["num_steps"],
+                _env_step, (train_state, env_state_v, last_obs_v, rng, env_params_v), None, config["ppo"]["num_steps"],
             )
-            train_state, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v = runner_state
+            train_state, env_state_v, last_obs_v, rng, env_params_v = runner_state
 
             ################# Self-play opponent update #################
             update_condition = (update_i % config["ppo"]["selfplay_freq_update"]) == 0
-            prev_opp_state_dict = {
-                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                    train_state.params, opp_state_dict["params"]),
-                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
-            }
-            opp_state_dict = {
-                "params": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                    train_state.params, opp_state_dict["params"]),
-                "batch_stats": jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),
-                                        train_state.batch_stats, opp_state_dict["batch_stats"]),
-            }
+            selfplay_group = [
+                jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y), selfplay_group[idx_opp+1], selfplay_group[idx_opp])
+                for idx_opp in range(0, config["ppo"]["selfplay_window"]-1)
+            ] + [jax.tree.map(lambda x, y: jax.lax.select(update_condition, x, y),{"params": train_state.params, "batch_stats": train_state.batch_stats}, selfplay_group[-1])]
 
             ################# RESHAPING R & GAMMA #####################
             frac = update_i/ config["ppo"]["num_updates"]
@@ -627,7 +599,7 @@ def make_train(config, debug=False,):
                             )
                         arena_winrate = jnp.mean(arena_stats["wins"][arena_info["returned_episode"]] > 0, axis=0)
                         metrics["arena_stats/arena_jax_winrate"] = arena_winrate
-
+        
                     # if update_step % config['arena_jax']["record_freq"] == 0 and update_step > 0:
                     #     our_agent = RawPureJaxRLAgent(
                     #         player="player_0",
@@ -658,8 +630,8 @@ def make_train(config, debug=False,):
                         arena_winrate = 0
                         for _ in tqdm(range(config["arena_std"]["num_matches"])):
                             reward=run_arena_standard_agents(
-                                agent_0_instantiator=lambda: our_agent,
-                                agent_1_instantiator=lambda env_params: arena_std_agent("player_1", env_params),
+                                agent_0_instantiator=lambda env_params: our_agent,
+                                agent_1_instantiator=lambda env_params: arena_std_agent("player_1", env_params.__dict__),
                                 gym_env = arena_env_gym,
                                 use_tdqm=True
                             )
@@ -667,22 +639,22 @@ def make_train(config, debug=False,):
                         
                         metrics["arena_stats/arena_std_winrate"] = arena_winrate
 
-                    if update_step % config['arena_std']["record_freq"] == 0 and update_step > 0:
-                        our_agent = RawPureJaxRLAgent(
-                            player="player_0",
-                            model = model,
-                            transform_action=config["env_args"]["transform_action"],
-                            transform_obs=config["env_args"]["transform_obs"],
-                            state_dict=current_state_dict,
-                            memory=config["env_args"]["memory"],
-                        )
-                        run_arena_standard_agents(
-                            agent_0_instantiator=lambda: our_agent,
-                            agent_1_instantiator=lambda env_params: arena_std_agent("player_1", env_params),
-                            gym_env = rec_env_gym,
-                            use_tdqm=True
-                        )
-                        rec_env_gym.close()
+                    # if update_step % config['arena_std']["record_freq"] == 0 and update_step > 0:
+                    #     our_agent = RawPureJaxRLAgent(
+                    #         player="player_0",
+                    #         model = model,
+                    #         transform_action=config["env_args"]["transform_action"],
+                    #         transform_obs=config["env_args"]["transform_obs"],
+                    #         state_dict=current_state_dict,
+                    #         memory=config["env_args"]["memory"],
+                    #     )
+                    #     run_arena_standard_agents(
+                    #         agent_0_instantiator=lambda env_params: our_agent,
+                    #         agent_1_instantiator=lambda env_params: arena_std_agent("player_1", env_params),
+                    #         gym_env = rec_env_gym,
+                    #         use_tdqm=True
+                    #     )
+                    #     rec_env_gym.close()
 
                 
                 if config["ppo"]["use_wandb"] and metrics != {}: wandb.log(metrics, step=update_step*config["ppo"]["num_envs"]*config["ppo"]["num_steps"])
@@ -690,12 +662,12 @@ def make_train(config, debug=False,):
             if debug: 
                 jax.debug.callback(callback, game_info, loss, loss_dict, update_i, {"params": train_state.params, "batch_stats": train_state.batch_stats})
 
-            runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, last_obs_v, rng, env_params_v)
+            runner_state = (train_state, selfplay_group, env_state_v, last_obs_v, rng, env_params_v)
             
             return runner_state, game_info
 
         rng, _rng = jax.random.split(rng)
-        runner_state = (train_state, opp_state_dict, prev_opp_state_dict, env_state_v, obs_v, _rng, env_params_v)
+        runner_state = (train_state, selfplay_group, env_state_v, obs_v, _rng, env_params_v)
         runner_state, game_info = jax.lax.scan(
             _update_step, runner_state, jnp.arange(config["ppo"]["num_updates"]),
         )

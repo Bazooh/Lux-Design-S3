@@ -22,7 +22,7 @@ class Conv1x1(nn.Module):
                     kernel_init=orthogonal(jnp.sqrt(2)), 
                     bias_init=constant(0.0), 
                     use_bias = True)(x)
-        return nn.relu(x) if self.with_relu else x
+        return nn.leaky_relu(x) if self.with_relu else x
 
 class SEBlock(nn.Module):
     """
@@ -176,10 +176,8 @@ Pos-Masking |                                               |    Value Head
         B, T = time.shape
         
         fc_time = nn.Sequential([nn.Dense(self.embedding_time, kernel_init=orthogonal(jnp.sqrt(2))), nn.leaky_relu], name="fc_time")
-        
-        conv1x1_time = Conv1x1(channels=T, name="conv1x1_time") # conv 1x1 block 
-        conv1x1_vec = Conv1x1(channels=V, name="conv1x1_vec") # conv 1x1 block
-        conv1x1_time_vec = Conv1x1(channels=T+V, name="conv1x1_time_vec") # conv 1x1 block 
+        fc_vec = nn.Sequential([nn.Dense(64, kernel_init=orthogonal(jnp.sqrt(2))), nn.leaky_relu], name="fc_vec")
+        fc_time_vec = nn.Sequential([nn.Dense(64, kernel_init=orthogonal(jnp.sqrt(2))), nn.leaky_relu], name="fc_time_vec")
         conv1x1_input = Conv1x1(channels=self.n_channels, name="conv1x1_input") # conv 1x1 block
         conv1x1_logits = Conv1x1(channels=self.action_dim, with_relu = False, name="conv1x1_logits") # conv 1x1 block  
         conv1x1_points = Conv1x1(channels=1, with_relu = False, name="conv1x1_points") # conv 1x1 block  
@@ -191,19 +189,15 @@ Pos-Masking |                                               |    Value Head
         
         ########## PROCESS TIME AND VECTOR ##########
         time_embedded = fc_time(time) # (B, T) -> (B, embedding_time)
-        time_expanded = jnp.tile(time_embedded.reshape((B, 1, 1, -1)) , (1, H, W, 1))  # (B, embedding_time) -> (B, H, W, embedding_time)
-        time_expanded = conv1x1_time(time_expanded) 
-        
-        vector_expanded = jnp.tile(vector.reshape((B, 1, 1, -1)) , (1, H, W, 1)) # (B, V) -> (B, H, W, V)
-        vector_expanded = conv1x1_vec(vector_expanded)
-        
-        vector = jnp.concatenate((time_expanded, vector_expanded), axis=-1) 
-        vector = conv1x1_time_vec(vector) 
+        vector_embedded = fc_vec(vector)
+        time_and_vector = jnp.concatenate((time_embedded, vector_embedded), axis=-1) 
+        time_and_vector_embedded = fc_time_vec(time_and_vector) 
+        time_and_vector_expanded = jnp.tile(time_and_vector_embedded.reshape((B, 1, 1, -1)) , (1, H, W, 1)) # (B, V) -> (B, H, W, V)
 
         ################# COMBINE WITH IMAGE ################
         image = image.transpose(0, 2, 3, 1)  # (B, C, H, W) -> (B, H, W, C)
         
-        x = jnp.concatenate((image, vector), axis=-1)  # (B, H, W, C")
+        x = jnp.concatenate((image, time_and_vector_expanded), axis=-1)  # (B, H, W, C")
         
         x = conv1x1_input(x) # (B, H, W, n_channels)
         

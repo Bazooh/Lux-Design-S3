@@ -110,8 +110,8 @@ def parse_config(yaml_path = "purejaxrl/jax_config.yaml"):
             "anneal_lr": bool(yaml_dict["ppo"]["anneal_lr"]),
             "seed": int(yaml_dict["ppo"]["seed"]),
             "selfplay_freq_update": int(yaml_dict["ppo"]["selfplay_freq_update"]),
+            "selfplay_window": int(yaml_dict["ppo"]["selfplay_window"]),
             "play_against_latest_model_ratio": float(yaml_dict["ppo"]["play_against_latest_model_ratio"]),
-            "play_against_arena_jax_ratio": float(yaml_dict["ppo"]["play_against_arena_jax_ratio"]),
             # Log args
             "verbose": int(yaml_dict["ppo"]["verbose"]),
             "use_wandb": bool(yaml_dict["ppo"]["use_wandb"]),

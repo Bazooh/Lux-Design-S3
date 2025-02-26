@@ -449,7 +449,7 @@ class RewardObject:
         state: State_with_Stats,
         params: EnvParams,
     ) -> dict[str, float]:
-        match_end = state.steps % (params.max_steps_in_match + 1) == 0
+        match_end = (state.steps % (params.max_steps_in_match + 1) == 0) & (state.steps >0)
         done = (state.steps == ((params.max_steps_in_match + 1) * params.match_count_per_episode))
         if self.reward_type == RewardType.DENSE: 
             r =  {
@@ -462,12 +462,12 @@ class RewardObject:
             r = {
                 "player_0": jax.lax.select(
                     match_end, 
-                    sum([getattr(state.match_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    sum([getattr(state.dense_stats_player_0, stat) * weight for stat, weight in self.reward_weights.items()]),
                     0.0,
                 ),
                 "player_1": jax.lax.select(
                     match_end, 
-                    sum([getattr(state.match_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
+                    sum([getattr(state.dense_stats_player_1, stat) * weight for stat, weight in self.reward_weights.items()]),
                     0.0,
                 )
             }
@@ -490,7 +490,7 @@ def done_from_reward_phase(reward_phase: RewardObject, step: int, max_steps_in_m
     match_end = (step % (max_steps_in_match + 1) == 0) & (step > 0)
     done = (step == ((max_steps_in_match + 1) * match_count_per_episode))
     if reward_phase.reward_type == RewardType.DENSE:
-        return done
+        return match_end
     else:
         return match_end
       
