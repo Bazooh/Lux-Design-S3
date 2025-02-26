@@ -26,8 +26,7 @@ def run_arena_standard_agents(
             "player_1": agent_1.act(step=step, obs=obs["player_1"]),
         }
         obs, reward, _, _, _ = gym_env.step(action)
-    
-    return reward
+    return {"player_0": obs["player_0"]["team_wins"][0], "player_1": obs["player_0"]["team_wins"][1]}
 
 def test_c():
     from rule_based.relicbound.agent import RelicboundAgent

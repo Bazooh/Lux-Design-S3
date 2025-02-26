@@ -49,7 +49,7 @@ class RawPureJaxRLAgent(JaxAgent):
         ) 
         transformed_obs_batched = {feat: jnp.expand_dims(value, axis=0) for feat, value in transformed_obs.items()}
         logits_v, _, _, _ = self.model.apply(self.state_dict, **transformed_obs_batched, train = False) # logits is (16, 6)
-        action = sample_group_action(key = key, logits_group = logits_v[0])
+        action = sample_group_action(key = key, logits_group = logits_v[0], action_temperature = 0.3)
 
         transformed_action = self.transform_action.convert(
             team_id=team_id,

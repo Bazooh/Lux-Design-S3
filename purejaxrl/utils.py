@@ -8,8 +8,8 @@ from typing import Any
 from typing import Sequence
 from functools import partial
 
-@jax.jit
-def sample_group_action(key, logits_group: chex.Array):
+@partial(jax.jit, static_argnums=(2))
+def sample_group_action(key, logits_group: chex.Array, action_temperature: float = 1.0):
     """
     key: PRNG key for sampling.
     logits_group: Logits for the action of a group of ships. Shape: (16, action_dim).
@@ -22,7 +22,8 @@ def sample_group_action(key, logits_group: chex.Array):
         logits: Logits for the action of a single ship. Shape: (action_dim).
         action_mask: Mask for the action of a single ship. Shape: (action_dim).
         """
-        action = jax.random.categorical(key=key, logits=logits, axis=-1)
+        scaled_logits = logits / action_temperature
+        action = jax.random.categorical(key=key, logits=scaled_logits, axis=-1)
         return action
     
     # Split the PRNG key into one key per group element
