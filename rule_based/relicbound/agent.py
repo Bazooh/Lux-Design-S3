@@ -194,14 +194,12 @@ class Space:
             unknown_nodes = set()
             known_reward = 0
             for n in result["nodes"]:
-                if n.explored_for_reward and not n.reward:
+                if not n.explored_for_reward:
+                    unknown_nodes.add(n)
                     continue
 
                 if n.reward:
                     known_reward += 1
-                    continue
-
-                unknown_nodes.add(n)
 
             if not unknown_nodes:
                 # all nodes already explored, nothing to do here
@@ -228,7 +226,6 @@ class Space:
             #     )
 
     def _update_reward_results(self, obs, team_id, team_reward):
-        
         ship_nodes = set()
         for active, energy, position in zip(
             obs["units_mask"][team_id],
@@ -271,6 +268,10 @@ class Space:
             node = self.get_node(x_, y_)
             if not node.reward:
                 node._explored_for_reward = False
+                
+                for result in Global.REWARD_RESULTS:
+                    if node in result["nodes"]:
+                        result["nodes"].remove(node)
 
     def _update_relic_status(self, x, y, status=True):
         node = self.get_node(x, y)
@@ -284,6 +285,7 @@ class Space:
             self._relic_nodes.add(node)
             self._relic_nodes.add(opp_node)
             self._reset_reward_around(x, y)
+            self._reset_reward_around(*get_opposite(x, y))
 
     def _update_reward_status(self, x, y, status):
         node = self.get_node(x, y)
@@ -539,6 +541,11 @@ class RelicboundAgent:
         self.find_relics()
         self.find_rewards()
         self.harvest()
+
+        for ship in self.fleet:
+            print(f"{ship.unit_id} {ship.task} {ship.target}", file=stderr)
+            print(Global.ALL_RELICS_FOUND, self.space.relic_nodes, file=stderr)
+            print(Global.ALL_REWARDS_FOUND, self.space.reward_nodes, file=stderr)
 
         # for ship in self.fleet:
         #     print(ship, ship.task, ship.target, ship.action, file=stderr)
