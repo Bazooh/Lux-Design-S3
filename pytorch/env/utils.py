@@ -1,4 +1,4 @@
-
+from dataclasses import dataclass
 from luxai_s3.params import EnvParams, env_params_ranges
 from luxai_s3.state import EnvState, EnvObs, UnitState, MapTile
 import numpy as np
@@ -51,22 +51,23 @@ def is_enemy_in_range(x_ally, y_ally, x_enemy, y_enemy, sap_range):
     """
     If enemy is out of range or unseen (-1, -1), returns False
     """
-
-    return np.logical_and(
-        np.logical_and(np.abs(x_ally - x_enemy) <= sap_range, 
-                        np.abs(y_ally - y_enemy) <= sap_range),
-        np.logical_and(x_enemy > -1, y_enemy > -1)
-    )
+    if x_ally == -1 or y_ally == -1:
+        return False
+    if x_enemy == -1 or y_enemy == -1:
+        return False
+    return (abs(x_ally - x_enemy) <= sap_range) and (abs(y_ally - y_enemy) <= sap_range)
 
 DEFAULT_SAP_DELTAX = 0
 DEFAULT_SAP_DELTAY = 0
 
-def find_delta(x,y,enemies, sap_range) :
+def find_delta(x, y, enemies, sap_range) :
     """
     returns a delta position of an enemy in range. if none, returns DEFAULT_SAP_DELTAX, DEFAULT_SAP_DELTAY
     """
+    if x == -1 or y == -1:
+        return np.array([DEFAULT_SAP_DELTAX, DEFAULT_SAP_DELTAY], dtype=np.int16)
     mask_enemy_in_range = np.array([
-        is_enemy_in_range(x,y,enemies[i,0],enemies[:,1],sap_range)
+        is_enemy_in_range(x,y,enemies[i,0],enemies[i,1],sap_range)
         for i in range(16)
     ])
 
@@ -102,13 +103,14 @@ def get_action_masking_from_obs(team_id, obs: EnvObs, sap_range: int):
     """
     return the action_mask for a given team_id
     """
-    enemies = obs["units"]["position"][1- team_id]
+    enemies = obs.units.position[1- team_id]
+    allies = obs.units.position[team_id]
     sap_deltas = np.array([
-        find_delta(obs["units"]["position"][team_id, i, 0], obs["units"]["position"][team_id, i, 1], enemies, sap_range)
+        find_delta(allies[i, 0], allies[i, 1], enemies, sap_range)
         for i in range(16)
     ])
-    action_mask = np.ones((16, 6), dtype=np.bool_)
     can_sap_masking = (sap_deltas[:,0] != DEFAULT_SAP_DELTAX) & (sap_deltas[:,1] != DEFAULT_SAP_DELTAY)
+    action_mask = np.ones((16, 6), dtype=np.bool_)
     action_mask[:, 5] = can_sap_masking
     return action_mask
 
@@ -137,13 +139,14 @@ def manhattan_distance_to_nearest_point(source_pos, n):
     Returns:
         distances (n,n): Matrix of Manhattan distances to nearest source
     """
+    distances = np.full((n, n), np.inf)
 
-    def compute_min_distance(r, c):
-        return np.min(np.abs(source_pos[:, 0] - r) + np.abs(source_pos[:, 1] - c)) # Compute minimum distance to any point with value 1
+    # Compute Manhattan distances for each grid point
+    for i in range(n):
+        for j in range(n):
+            distances[i, j] = np.min(np.abs(source_pos[:, 0] - i) + np.abs(source_pos[:, 1] - j))
     
-    distances = np.array([[compute_min_distance(x,y) for y in range(n)] for x in range(n)])
-    
-    return np.clip(distances, 0, n//2)
+    return np.clip(distances, 0, n // 2)
 
 
 def diagonal_distances(N):
@@ -184,3 +187,87 @@ window.episode = {json.dumps(json_data)};
   </body>
 </html>
     """.strip()
+    
+    
+
+@dataclass
+class EnvParams:
+    max_steps_in_match: int = 100
+    map_type: int = 1
+    """Map generation algorithm. Can change between games"""
+    map_width: int = 24
+    map_height: int = 24
+    num_teams: int = 2
+    match_count_per_episode: int = 5
+    """number of matches to play in one episode"""
+
+    # configs for units
+    max_units: int = 16
+    init_unit_energy: int = 100
+    min_unit_energy: int = 0
+    max_unit_energy: int = 400
+    unit_move_cost: int = 2
+    spawn_rate: int = 3
+
+    unit_sap_cost: int = 10
+    """
+    The unit sap cost is the amount of energy a unit uses when it saps another unit. Can change between games.
+    """
+    unit_sap_range: int = 4
+    """
+    The unit sap range is the range of the unit's sap action.
+    """
+    unit_sap_dropoff_factor: float = 0.5
+    """
+    The unit sap dropoff factor multiplied by unit_sap_drain
+    """
+    unit_energy_void_factor: float = 0.125
+    """
+    The unit energy void factor multiplied by unit_energy
+    """
+
+    # configs for energy nodes
+    max_energy_nodes: int = 6
+    max_energy_per_tile: int = 20
+    min_energy_per_tile: int = -20
+
+    max_relic_nodes: int = 6
+    """max relic nodes in the entire map. This number should be tuned carefully as relic node spawning code is hardcoded against this number 6"""
+    relic_config_size: int = 5
+    fog_of_war: bool = True
+    """
+    whether there is fog of war or not
+    """
+    unit_sensor_range: int = 2
+    """
+    The unit sensor range is the range of the unit's sensor.
+    Units provide "vision power" over tiles in range, equal to manhattan distance to the unit.
+
+    vision power > 0 that team can see the tiles properties
+    """
+
+    # nebula tile params
+    nebula_tile_vision_reduction: int = 1
+    """
+    The nebula tile vision reduction is the amount of vision reduction a nebula tile provides.
+    A tile can be seen if the vision power over it is > 0.
+    """
+
+    nebula_tile_energy_reduction: int = 0
+    """amount of energy nebula tiles reduce from a unit"""
+
+    nebula_tile_drift_speed: float = -0.05
+    """
+    how fast nebula tiles drift in one of the diagonal directions over time. If positive, flows to the top/right, negative flows to bottom/left
+    """
+    # TODO (stao): allow other kinds of symmetric drifts?
+
+    energy_node_drift_speed: int = 0.02
+    """
+    how fast energy nodes will move around over time
+    """
+    energy_node_drift_magnitude: int = 5
+
+    @staticmethod
+    def from_dict(env_params: dict):
+        return EnvParams(**env_params)

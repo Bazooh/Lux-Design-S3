@@ -1,15 +1,16 @@
 import gymnasium as gym
-from flax import struct
 from typing import Optional, Tuple, Union, Any, Literal
 from luxai_s3.wrappers import LuxAIS3GymEnv
-from luxai_s3.state import EnvObs, EnvState, EnvParams
+from luxai_s3.state import EnvObs, EnvState
 from pytorch.env.transform_obs import TransformObs
 from pytorch.env.transform_action import TransformAction
-from flax import struct
 from typing import Any
 from pytorch.env.memory import Memory
 import numpy as np
 PlayerAction = Any
+from agents.obs import GodObs
+from dataclasses import dataclass
+from pytorch.env.utils import EnvParams
 
 class GymWrapper(object):
     def __init__(self, env):
@@ -34,19 +35,19 @@ class SimplifyTruncationWrapper(GymWrapper):
     
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         obs, params = self.env.reset(seed=seed, options=options)
-        self.env_params = params["full_params"]
-        return obs, params
+        self.env_params = EnvParams.from_dict(params["full_params"])
+        return GodObs.from_dict(obs), params
     
     def step(
         self, action: Any
     ) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
         obs, reward, terminated_dict, truncated_dict, info = self.env.step(action)
         done = truncated_dict["player_0"] | terminated_dict["player_0"]
-        return obs, reward, done, info 
+        return GodObs.from_dict(obs), reward, done, info 
 
 
 ################################## POINTS MAP WRAPPER ##################################
-@struct.dataclass
+@dataclass
 class State_With_Points_Maps:
     env_state: EnvState
     points_map: Any
@@ -74,7 +75,7 @@ class PointsMapWrapper(GymWrapper):
     
     
 ################################## MEMORY WRAPPER ##################################
-@struct.dataclass
+@dataclass
 class Env_Mem_State:
     env_state: EnvState
     memory_state_player_0: Any
@@ -100,8 +101,8 @@ class MemoryWrapper(GymWrapper):
 
     def step(self, action: Any) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
         obs, reward, done, info  = self.env.step(action)
-        memory_state_player_0 = self.memory.update(obs = obs['player_0'], team_id=0, memory_state=self.env_state.memory_state_player_0, params = self.env_params)
-        memory_state_player_1 = self.memory.update(obs = obs['player_1'], team_id=1, memory_state=self.env_state.memory_state_player_1, params = self.env_params)
+        memory_state_player_0 = self.memory.update(obs = obs.player_0, team_id=0, params = self.env_params)
+        memory_state_player_1 = self.memory.update(obs = obs.player_1, team_id=1, params = self.env_params)
         self.env_state = Env_Mem_State(
                 env_state=self.env_state.env_state, 
                 memory_state_player_0 = memory_state_player_0, 
@@ -117,9 +118,7 @@ class TransformActionWrapper(GymWrapper):
     def __init__(self, env: MemoryWrapper, transform_action: TransformAction):
         self.transform_action = transform_action
         super().__init__(env)
-    
-    def action_space(self):
-        return self.transform_action.action_space
+        self.action_space = self.transform_action.action_space
     
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         obs, params = self.env.reset(seed=seed, options=options)
@@ -129,8 +128,8 @@ class TransformActionWrapper(GymWrapper):
     def step(self, action: Any) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
         current_obs = self.prev_obs
         transform_action = {
-            "player_0": self.transform_action.convert(team_id=0, action=action["player_0"], obs = current_obs["player_0"], params = self.env_params),
-            "player_1": self.transform_action.convert(team_id=1, action=action["player_1"], obs = current_obs["player_1"], params = self.env_params),
+            "player_0": self.transform_action.convert(team_id=0, action=action["player_0"], obs = current_obs.player_0, params = self.env_params),
+            "player_1": self.transform_action.convert(team_id=1, action=action["player_1"], obs = current_obs.player_1, params = self.env_params),
         }
         obs, reward, done, info  = self.env.step(transform_action)
         self.prev_obs = obs
@@ -150,22 +149,22 @@ class TransformObsWrapper(GymWrapper):
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         obs, params = self.env.reset(seed=seed, options=options)
         transformed_obs = {
-            "player_0": self.transform_obs.convert(team_id=0, obs = obs["player_0"], params = self.env_params, memory_state=self.env_state.memory_state_player_0),
-            "player_1": self.transform_obs.convert(team_id=1, obs = obs["player_1"], params = self.env_params, memory_state=self.env_state.memory_state_player_1),
+            "player_0": self.transform_obs.convert(team_id=0, obs = obs.player_0, params = self.env_params, memory_state=self.env_state.memory_state_player_0),
+            "player_1": self.transform_obs.convert(team_id=1, obs = obs.player_1, params = self.env_params, memory_state=self.env_state.memory_state_player_1),
         }
         return transformed_obs, params
 
     def step(self, action: Any) -> tuple[Any, Any, bool, bool, dict[str, Any]]:
         obs, reward, done, info  = self.env.step(action)
         transformed_obs = {
-            "player_0": self.transform_obs.convert(team_id=0, obs = obs["player_0"], params = self.env_params, memory_state=self.env_state.memory_state_player_0),
-            "player_1": self.transform_obs.convert(team_id=1, obs = obs["player_1"], params = self.env_params, memory_state=self.env_state.memory_state_player_1),
+            "player_0": self.transform_obs.convert(team_id=0, obs = obs.player_0, params = self.env_params, memory_state=self.env_state.memory_state_player_0),
+            "player_1": self.transform_obs.convert(team_id=1, obs = obs.player_1, params = self.env_params, memory_state=self.env_state.memory_state_player_1),
         }
         return transformed_obs, reward, done, info
 
 
 ################################## LOG WRAPPER ##################################
-@struct.dataclass
+@dataclass
 class LogEnvState:
     env_state: Env_Mem_State
     episode_return_player_0: np.ndarray
