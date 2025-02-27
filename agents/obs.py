@@ -1,8 +1,7 @@
 from typing import Any
 from dataclasses import dataclass
 import numpy as np
-from luxai_s3.env import PlayerName
-
+PlayerName = Any
 
 @dataclass(frozen=True)
 class Units:

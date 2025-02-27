@@ -164,7 +164,7 @@ def run_episode_and_record(
     stack_vec = []
     points_map = []
     
-    for _ in tqdm(range(2), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
+    for _ in tqdm(range(max_steps), desc = f"Recording a match {agent_0.__class__.__name__} vs  {agent_1.__class__.__name__}", disable = not use_tdqm):
         rng, _ = jax.random.split(rng)
         
         memory_state_player_0 = env_state.memory_state_player_0

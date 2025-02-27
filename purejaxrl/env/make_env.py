@@ -53,8 +53,8 @@ if __name__ == "__main__":
         a = {"player_0": jax.vmap(env.action_space().sample)(key_a_0), "player_1": jax.vmap(env.action_space().sample)(key_a_1)}         
         obs, state, reward, done, info = env.step(key, state, a, params=params)
         print(f"info: global timestep {state.steps}, done {done}, reward {reward} ")
-        print(f"episode_stats_player_0 {info['episode_stats_player_0']}")
-        print(f"match_stats_player_1 {info['match_stats_player_1']}")
+        # print(f"episode_stats_player_0 {info['episode_stats_player_0']}")
+        # print(f"match_stats_player_1 {info['match_stats_player_1']}")
         if done:
             obs, state = env.reset(key, params)
             print("reset")

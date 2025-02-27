@@ -219,15 +219,16 @@ class Space:
                 for node in unknown_nodes:
                     self._update_reward_status(*node.coordinates, status=True)
 
-            elif reward > len(unknown_nodes):
-                # we shouldn't be here
-                print(
-                    f"Something wrong with reward result: {result}"
-                    ", this result will be ignored.",
-                    file=stderr,
-                )
+            # elif reward > len(unknown_nodes):
+            #     # we shouldn't be here
+            #     print(
+            #         f"Something wrong with reward result: {result}"
+            #         ", this result will be ignored.",
+            #         file=stderr,
+            #     )
 
     def _update_reward_results(self, obs, team_id, team_reward):
+        
         ship_nodes = set()
         for active, energy, position in zip(
             obs["units_mask"][team_id],
