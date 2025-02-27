@@ -1,6 +1,7 @@
 from sys import stderr
 from collections import defaultdict
 import heapq
+from typing import Literal
 import numpy as np
 from enum import IntEnum
 
@@ -22,7 +23,7 @@ class Global:
     UNIT_SAP_COST = 30  # OPTIONS: list(range(30, 51))
     UNIT_SAP_RANGE = 3  # OPTIONS: list(range(3, 8))
     UNIT_SENSOR_RANGE = 2  # OPTIONS: list(range(2, 5))
-    OBSTACLE_MOVEMENT_PERIOD = 20  # OPTIONS: 20, 40
+    OBSTACLE_MOVEMENT_PERIOD: Literal[20, 40] = 20  # OPTIONS: 20, 40
     OBSTACLE_MOVEMENT_DIRECTION = (0, 0)  # OPTIONS: [(1, -1), (-1, 1)]
 
     # We will NOT find the exact value of these constants during the game
@@ -30,10 +31,10 @@ class Global:
 
     # Exploration flags:
 
-    ALL_RELICS_FOUND = False
-    ALL_REWARDS_FOUND = False
-    OBSTACLE_MOVEMENT_PERIOD_FOUND = False
-    OBSTACLE_MOVEMENT_DIRECTION_FOUND = False
+    ALL_RELICS_FOUND: bool = False
+    ALL_REWARDS_FOUND: bool = False
+    OBSTACLE_MOVEMENT_PERIOD_FOUND: bool = False
+    OBSTACLE_MOVEMENT_DIRECTION_FOUND: bool = False
 
     # Game logs:
 

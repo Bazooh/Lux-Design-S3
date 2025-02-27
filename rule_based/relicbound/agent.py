@@ -1,4 +1,5 @@
-import sys, os
+import sys
+import os
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
@@ -6,8 +7,6 @@ import copy
 import numpy as np
 from sys import stderr
 from scipy.signal import convolve2d
-
-from agents.base_agent import Agent
 
 from rule_based.relicbound.utils import (
     Global,
@@ -37,7 +36,7 @@ class Node:
         self.x = x
         self.y = y
         self.type = NodeType.unknown
-        self.energy = None
+        self.energy: int | None = None
         self.is_visible = False
 
         self._relic = False
@@ -140,14 +139,26 @@ class Space:
     def update(self, step, obs, team_id, team_reward):
         self.move_obstacles(step)
         self._update_map(obs)
-        self._update_relic_map(obs, team_id, team_reward)
+        self._update_relic_map(obs, team_id, team_reward, step)
 
-    def _update_relic_map(self, obs, team_id, team_reward):
+    def _update_relic_map(self, obs, team_id, team_reward, step: int):
+        match_idx = get_match_idx(step)
+        match_step = get_match_step(step)
+
         for relic_id, (mask, xy) in enumerate(
             zip(obs["relic_nodes_mask"], obs["relic_nodes"])
         ):
             if mask:
                 self._update_relic_status(*xy, status=True)
+
+        if (
+            match_idx <= 2
+            and match_step == 50
+            and len(self._relic_nodes) != 2 * (min(match_idx, 2) + 1)
+        ):
+            for node in self:
+                if not node.relic:
+                    node._explored_for_relic = False
 
         all_relics_found = True
         all_rewards_found = True
@@ -165,7 +176,7 @@ class Space:
         Global.ALL_REWARDS_FOUND = all_rewards_found
 
         if not Global.ALL_RELICS_FOUND:
-            if len(self._relic_nodes) == Global.MAX_RELIC_NODES:
+            if len(self._relic_nodes) == 2 * (min(match_idx, 2) + 1):
                 # all relics found, mark all nodes as explored for relics
                 Global.ALL_RELICS_FOUND = True
                 for node in self:
@@ -391,11 +402,6 @@ class Space:
         for node in self:
             node.is_visible = False
 
-        if match_idx <= 2:
-            for node in self:
-                if not node.relic:
-                    node._explored_for_relic = False
-
     def move_obstacles(self, step):
         if (
             Global.OBSTACLE_MOVEMENT_PERIOD_FOUND
@@ -431,6 +437,8 @@ class Ship:
         self.action: ActionType | None = None
 
     def __repr__(self):
+        assert self.node is not None, "Ship is not on the map"
+
         return (
             f"Ship({self.unit_id}, node={self.node.coordinates}, energy={self.energy})"
         )
@@ -642,7 +650,7 @@ class RelicboundAgent:
                 if closes_ship:
                     relic_node_to_ship[relic] = closes_ship
 
-        def set_task(ship, relic_node, can_pause):
+        def set_task(ship: Ship, relic_node: Node, can_pause: bool):
             targets = []
             for x, y in nearby_positions(
                 *relic_node.coordinates, Global.RELIC_REWARD_RANGE
@@ -777,7 +785,7 @@ class RelicboundAgent:
 
     def show_visible_map(self):
         print("Visible map:", file=stderr)
-        show_map(self.space, self.fleet, self.opp_fleet)
+        show_map(self.space, self.fleet, bool(self.opp_fleet))
 
     def show_explored_map(self):
         print("Explored map:", file=stderr)

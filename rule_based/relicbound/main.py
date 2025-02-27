@@ -1,10 +1,13 @@
-import sys, os
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+import sys
+import os
+
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
 import json
 from argparse import Namespace
 from agent import RelicboundAgent
 from agents.lux.kit import from_json
+
 ### DO NOT REMOVE THE FOLLOWING CODE ###
 # store potentially multiple dictionaries as kaggle imports code directly
 agent_dict = dict()
@@ -17,7 +20,7 @@ def agent_fn(observation, configurations):
     """
     global agent_dict
     obs = observation.obs
-    if type(obs) == str:
+    if isinstance(obs, str):
         obs = json.loads(obs)
     step = observation.step
     player = observation.player
