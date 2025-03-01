@@ -1,3 +1,4 @@
+from __future__ import annotations
 import gymnasium as gym
 from typing import Optional, Tuple, Union, Any, Literal
 from luxai_s3.wrappers import LuxAIS3GymEnv
@@ -144,7 +145,10 @@ class TransformObsWrapper(GymWrapper):
     def __init__(self, env: TransformActionWrapper, transform_obs: TransformObs):
         super().__init__(env)
         self.transform_obs = transform_obs
-        self.observation_space = self.transform_obs.observation_space
+        self.observation_space = gym.spaces.Dict(
+            {"player_0": self.transform_obs.observation_space, "player_1": self.transform_obs.observation_space}
+        )
+        
     
     def reset(self, *, seed: int | None = None, options: dict[str, Any] | None = None) -> tuple[Any, dict[str, Any]]:
         obs, params = self.env.reset(seed=seed, options=options)

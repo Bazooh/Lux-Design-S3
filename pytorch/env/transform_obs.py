@@ -117,12 +117,12 @@ class HybridTransformObs(TransformObs):
         self.vector_std_values = np.array(list(self.vector_std.values()))
         self.vector_mean_values = np.array(list(self.vector_mean.values()))
         self.observation_space = gym.spaces.Dict({
-                            'image': gym.spaces.Box(low=-1, high=1, shape=(self.image_channels, 24, 24), dtype=np.int8), 
+                            'image': gym.spaces.Box(low=-1, high=1, shape=(self.image_channels, 24, 24), dtype=np.float32), 
                             'vector': gym.spaces.Box(low=-1, high=1, shape=(self.vector_size,), dtype=np.float32),
                             'time': gym.spaces.Box(low=0, high=1, shape=(self.time_size,), dtype=np.float32),
                             'position': gym.spaces.Box(low=0, high=23, shape=(16, 2), dtype=np.int8), 
                             'mask_awake': gym.spaces.Box(low=0, high=1, shape=(16,), dtype=np.int8),
-                            'action_mask': gym.spaces.Box(low=0, high=1, shape=(16, 6), dtype=np.int8),
+                            #'action_mask': gym.spaces.Box(low=0, high=1, shape=(16, 6), dtype=np.int8),
         })
 
     def convert(self, team_id, obs, memory_state, params):
@@ -199,7 +199,7 @@ class HybridTransformObs(TransformObs):
                 'time': time_vector,
                 'position': mirror_position(obs.units.position[team_id]),
                 'mask_awake': mask_awake,
-                'action_mask': get_action_masking_from_obs(team_id, obs, params.unit_sap_range),
+                #'action_mask': get_action_masking_from_obs(team_id, obs, params.unit_sap_range),
             }
         else:
             return {
@@ -208,5 +208,5 @@ class HybridTransformObs(TransformObs):
                 'time': time_vector,
                 'position': obs.units.position[team_id],
                 'mask_awake': mask_awake,
-                'action_mask': get_action_masking_from_obs(team_id, obs, params.unit_sap_range),
+                #'action_mask': get_action_masking_from_obs(team_id, obs, params.unit_sap_range),
             }

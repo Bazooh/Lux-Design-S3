@@ -44,7 +44,7 @@ def mirror_position(pos):
 def mirror_action(a):
     # a is an int
     # 0 is do nothing, 1 is move up, 2 is move right, 3 is move down, 4 is move left, 5 is sap
-    flip_map = np.array([0, 3, 1, 4, 2, 5]) 
+    flip_map = np.array([0, 2, 1, 4, 3, 5]) 
     return flip_map[a]
 
 def is_enemy_in_range(x_ally, y_ally, x_enemy, y_enemy, sap_range):

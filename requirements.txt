@@ -5,9 +5,13 @@ flax
 jax_tqdm
 distrax
 termplotlib
-torch
 numpy
 tqdm
 pygame
 colorama
 wandb
+gymnasium
+chex
+tyro
+gymnax
+tensorboard

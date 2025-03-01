@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 from pytorch.env.wrappers import *
@@ -24,8 +25,8 @@ if __name__ == "__main__":
         
     for i in tqdm(range(0, 510)):
         a = {
-            "player_0": np.array([env.action_space().sample() for i in range(16)]), 
-            "player_1": np.array([env.action_space().sample() for i in range(16)]), 
+            "player_0": np.array([env.action_space.sample() for i in range(16)]), 
+            "player_1": np.array([env.action_space.sample() for i in range(16)]), 
         }    
         # a = env.action_space.sample()
         obs, reward, done, info = env.step(a)

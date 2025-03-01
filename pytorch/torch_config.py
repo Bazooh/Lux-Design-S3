@@ -9,8 +9,9 @@ class Args:
     memory: Any = RelicPointMemory()
     transform_action: Any = SimplerActionWithSap()
     transform_obs: Any = HybridTransformObs()
+    cuda: bool = True
     # network args
-    n_resblocks: int = 0
+    n_resblocks: int = 5
     n_channels: int = 128
     embedding_time: int = 8
     normalize_logits: bool = True
