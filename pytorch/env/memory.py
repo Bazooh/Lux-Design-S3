@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-
-from attr import dataclass
-
+from typing import cast
+from dataclasses import dataclass
 from luxai_s3.env import EnvObs, EnvParams
 import numpy as np
 import scipy
@@ -38,93 +37,89 @@ class RelicPointMemoryState:
     last_step_team_points: int = 0
     points_gained: int = 0
 
-class RelicPointMemory(Memory):
-    def __init__(self):
-        pass
-
-    def reset(self) -> RelicPointMemoryState:
-        return RelicPointMemoryState()
-    
-    def update(self, obs: EnvObs, team_id: int, memory_state: RelicPointMemoryState, params: EnvParams):
-        """
-        Update rule 1:
-        - Update the relics_found_image to 1 if a relic is discovered, and the points_found_image around to max(0, points_found_image)
-        Update rule 2:
-        - If a unit is oob of relic, then set the points_found_image of the units position to -1.
-        Update rule 3:
-        - If I sit on exactly N points square (N farming units), and I win exactly N + M points, and M is the number of units that could be farming, 
-        then set the units that could be farming to points_found_image = 1 (only if obs["steps != (max_steps_in_match + 1) )
-        Update rule 4:
-        - If I sit on exactly N points square (N farming units), and I win exactly N points,
-        # then set the units the other units to points_found_image = -1  (only if obs["steps !=  (max_steps_in_match + 1) )
-        """
-        new_last_visits_timestep = memory_state.last_visits_timestep + np.ones((24,24), dtype = np.int32)
-        new_last_visits_timestep = np.where(obs["sensor_mask"] == 1, 0, new_last_visits_timestep)
-        new_relics_found_image = memory_state.relics_found_image
-        new_points_found_image = memory_state.points_found_image
-        points_gained = np.maximum(0, obs["team_points"][team_id] - memory_state.last_step_team_points)
-
-        ########## UPDATE RULE 1  ##########
-        currently_viewing_relics_image = np.zeros((24,24), dtype = np.int8)
-        currently_viewing_relics_image[[obs["relic_nodes"][:, 0], obs["relic_nodes"][:, 1]]] = 1
-        currently_viewing_relics_image[0, 0] = 0
-        currently_viewing_relics_image[23, 23] = 0
-        currently_viewing_relics_image = symmetrize(team_id, currently_viewing_relics_image)
-        
-        discovered_relics_image = (currently_viewing_relics_image == 1) & (new_relics_found_image <= 0)
-        cells_around_discovery = scipy.signal.convolve2d(discovered_relics_image,np.ones((5, 5)), mode='same')
-        cells_around_discovery = cells_around_discovery>0
-        cells_around_discovery = symmetrize(team_id, cells_around_discovery.astype(np.int8)).astype(np.bool_)
-
-        new_relics_found_image = np.where(discovered_relics_image, 1, new_relics_found_image) # I set the cells where i discovered a relic to 1
-        new_relics_found_image = np.where(obs["sensor_mask"] & ~(new_relics_found_image == 1), -1, new_relics_found_image) # I set the cells that i see and dont have relics to -1
-        new_relics_found_image = symmetrize(team_id, new_relics_found_image)
-        
-        new_relics_found_positions = np.where(obs["relic_nodes"] > 0, obs["relic_nodes"], memory_state.relics_found_positions)
-        new_relics_found_positions = mirror_relic_positions_arrays(new_relics_found_positions)
-        new_relics_found_mask = np.sum(new_relics_found_positions, axis = -1) > 0
-
-        new_points_found_image = np.where(cells_around_discovery&~(new_points_found_image == 1), 0, new_points_found_image) # I set the cells near a discovered relic to points_found_image = 0
-        
-        ########## UPDATE RULE 2  ##########
-        positions = obs["units"]["position"][team_id]
-        alive_units_image = np.zeros((24,24), dtype = np.int8)
-        alive_units_image[positions[:, 0], positions[:, 1]] = 1
-        alive_units_image = (alive_units_image == 1)
-        could_be_relic_image = (new_relics_found_image >= 0).astype(np.int8)
-        cells_in_relic_range_image = scipy.signal.convolve2d(could_be_relic_image, np.ones((5, 5)), mode='same')
-        cells_in_relic_range_image = cells_in_relic_range_image>0
-        units_out_of_range_image = (~cells_in_relic_range_image) & alive_units_image
-
-        new_points_found_image = np.where(units_out_of_range_image, -1, new_points_found_image) # I set the units that are out of range to points_found_image = -1
-
-        ########## UPDATE RULE 3 ##########
-        # If I sit on exactly N points square (N farming units), and I win exactly N + M points, and M is the number of units that could be farming, 
-        # then set the units that could be farming to points_found_image = 1
-        farming_units_image = (new_points_found_image == 1) & alive_units_image
-        unknown_farming_units_image = (new_points_found_image == 0) & cells_in_relic_range_image & alive_units_image
-        M = np.sum(unknown_farming_units_image.astype(np.int8))
-        N = np.sum(farming_units_image.astype(np.int8))
-        if (points_gained == (N + M)) and (obs["steps"] % (params["max_steps_in_match"] + 1) != 0):
-            new_points_found_image = np.where(unknown_farming_units_image > 0, 1, new_points_found_image)
-
-        ########## UPDATE RULE 4 ##########
-        # If I sit on exactly N points square (N farming units), and I win exactly N points,
-        # then set the units the other units to points_found_image = -1
-        farming_units_image = (new_points_found_image == 1) & alive_units_image
-        if (points_gained == N) & (obs["steps"] % (params["max_steps_in_match"] + 1) != 0):
-            new_points_found_image = np.where((farming_units_image==0) & (alive_units_image >0), -1, new_points_found_image)
-
-        ########## SYMMETRIZE  ##########
-        
-        new_points_found_image = symmetrize(team_id, new_points_found_image)
-
+class RelicPointMemory:
+    def reset(self):
+        self.discovered_relics_id: set[int] = set()
+        self.relic_nodes_mask = np.zeros(6, dtype=np.bool_)
+        self.discovered_all_relics = False
+        self.discovered_this_frame_id: set[int] = set()
+        self.relic_tensor = np.zeros((24, 24), dtype=np.float32)
+        self.relic_points = np.zeros((6, 2), dtype=np.int32)
+        self.last_team_points: int = 0
+        self.unknown_relics_tensor = np.zeros((24, 24), dtype=np.float32)
+        self.unknown_points_tensor = np.zeros((24, 24), dtype=np.float32)
+        self.discovered_all_points = False
         return RelicPointMemoryState(
-            relics_found_image=new_relics_found_image,
-            relics_found_mask=new_relics_found_mask,
-            relics_found_positions=new_relics_found_positions,
-            points_found_image=new_points_found_image,
-            last_step_team_points=obs["team_points"][team_id],
+            relics_found_image=self.unknown_relics_tensor,
+            relics_found_mask=(self.relic_points).sum(axis=1) > 0,
+            relics_found_positions=self.relic_points,
+            points_found_image=self.unknown_points_tensor,
+            last_step_team_points=0,
+            points_gained=0,
+            last_visits_timestep=self.unknown_points_tensor
+        )
+        
+    def update(self, obs: EnvObs, team_id: int, params:EnvParams):
+        if self.discovered_all_points:
+            return
+        self.unknown_relics_tensor += (
+            (self.unknown_relics_tensor == 0)
+            * obs.sensor_mask   
+            * (2 * self.relic_tensor - 1)
+        )
+
+        team_points = cast(int, obs.team_points[team_id].item())
+        points_gained = team_points - self.last_team_points
+        self.last_team_points = team_points
+
+        alive_units_id = obs.units_mask[team_id]
+        if not alive_units_id.any():
+            return
+
+        # Cases surrounded by no relics -> no points
+        unit_positions = np.array(obs.units.position[team_id])
+        for unit_id in obs.get_available_units(team_id):
+            unit_pos = unit_positions[unit_id]
+            x, y = unit_pos[0].item(), unit_pos[1].item()
+
+            if self.unknown_points_tensor[x, y] != 0:
+                continue
+
+            min_x = max(0, x - 2)
+            max_x = min(24, x + 3)
+            min_y = max(0, y - 2)
+            max_y = min(24, y + 3)
+
+            # If we are sure there are no relics around the unit, then this case earns no points
+            if (self.unknown_relics_tensor[min_x:max_x, min_y:max_y] == -1).all():
+                self.unknown_points_tensor[x, y] = -1
+
+        alive_units_pos = obs.units.position[team_id][alive_units_id]
+        unknown_points_mask = self.unknown_points_tensor[
+            alive_units_pos[:, 0], alive_units_pos[:, 1]
+        ]
+        points_gained -= (unknown_points_mask == 1).sum()
+
+        if points_gained == 0:
+            self.unknown_points_tensor[
+                alive_units_pos[:, 0], alive_units_pos[:, 1]
+            ] -= (unknown_points_mask == 0).astype(np.int32)
+        else:
+            unknown_points_mask_is_unknown = (unknown_points_mask == 0).astype(np.int32)
+            if unknown_points_mask_is_unknown.sum().item() == points_gained:
+                self.unknown_points_tensor[
+                    alive_units_pos[:, 0], alive_units_pos[:, 1]
+                ] += unknown_points_mask_is_unknown
+
+        if (self.unknown_points_tensor != 0).all():
+            self.discovered_all_points = True
+        
+        return RelicPointMemoryState(
+            relics_found_image=self.unknown_relics_tensor,
+            relics_found_mask=(self.relic_points).sum(axis=1) > 0,
+            relics_found_positions=self.relic_points,
+            points_found_image=self.unknown_points_tensor,
+            last_step_team_points=obs.team_points[team_id],
             points_gained=points_gained,
-            last_visits_timestep=new_last_visits_timestep
+            last_visits_timestep=self.unknown_points_tensor
         )
