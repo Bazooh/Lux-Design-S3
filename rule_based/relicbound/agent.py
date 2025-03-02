@@ -1,5 +1,6 @@
 import sys
 import os
+from typing import Iterable
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 
@@ -268,7 +269,7 @@ class Space:
             node = self.get_node(x_, y_)
             if not node.reward:
                 node._explored_for_reward = False
-                
+
                 for result in Global.REWARD_RESULTS:
                     if node in result["nodes"]:
                         result["nodes"].remove(node)
@@ -539,8 +540,14 @@ class RelicboundAgent:
         # self.show_visible_map()
 
         self.find_relics()
-        self.find_rewards()
         self.harvest()
+        self.find_rewards()
+
+        if match_idx == 0 and self.player == "player_0":
+            for ship in self.fleet:
+                print(f"{ship.unit_id} {ship.task} {ship.target}", file=stderr)
+                print(Global.ALL_RELICS_FOUND, self.space.relic_nodes, file=stderr)
+                print(Global.ALL_REWARDS_FOUND, self.space.reward_nodes, file=stderr)
 
         # for ship in self.fleet:
         #     print(ship, ship.task, ship.target, ship.action, file=stderr)
@@ -619,86 +626,71 @@ class RelicboundAgent:
 
         unexplored_relics = self.get_unexplored_relics()
 
-        relic_node_to_ship = {}
-        for ship in self.fleet:
-            if ship.task == "find_rewards":
-                if ship.target is None:
-                    ship.task = None
-                    continue
+        if len(unexplored_relics) == 0:
+            return
 
-                if (
-                    ship.target in unexplored_relics
-                    and ship.energy > Global.UNIT_MOVE_COST * 5
-                ):
-                    relic_node_to_ship[ship.target] = ship
-                else:
-                    ship.task = None
-                    ship.target = None
-
-        for relic in unexplored_relics:
-            if relic not in relic_node_to_ship:
-                # find the closest ship to the relic node
-                min_distance, closes_ship = float("inf"), None
-                for ship in self.fleet:
-                    if ship.task and ship.task != "find_rewards":
-                        continue
-
-                    if ship.energy < Global.UNIT_MOVE_COST * 5:
-                        continue
-
-                    distance = manhattan_distance(ship.coordinates, relic.coordinates)
-                    if distance < min_distance:
-                        min_distance, closes_ship = distance, ship
-
-                if closes_ship:
-                    relic_node_to_ship[relic] = closes_ship
-
-        def set_task(ship: Ship, relic_node: Node, can_pause: bool):
-            targets = []
-            for x, y in nearby_positions(
-                *relic_node.coordinates, Global.RELIC_REWARD_RANGE
-            ):
-                node = self.space.get_node(x, y)
-                if not node.explored_for_reward and node.is_walkable:
-                    targets.append((x, y))
-
-            target, _ = find_closest_target(ship.coordinates, targets)
-
-            if target == ship.coordinates and not can_pause:
-                target, _ = find_closest_target(
-                    ship.coordinates,
-                    [
-                        n.coordinates
-                        for n in self.space
-                        if n.explored_for_reward and n.is_walkable
-                    ],
-                )
-
-            if not target:
-                return
-
-            path = astar(create_weights(self.space), ship.coordinates, target)
+        def set_task(ship: Ship, target: Node):
+            path = astar(create_weights(self.space), ship.coordinates, target.coordinates)
             energy = estimate_energy_cost(self.space, path)
             actions = path_to_actions(path)
 
             if actions and ship.energy >= energy:
                 ship.task = "find_rewards"
-                ship.target = self.space.get_node(*target)
+                ship.target = target
                 ship.action = actions[0]
 
-        can_pause = True
-        for n, s in sorted(
-            list(relic_node_to_ship.items()), key=lambda _: _[1].unit_id
-        ):
-            if set_task(s, n, can_pause):
-                if s.target == s.node:
-                    # If one ship is stationary, we will move all the other ships.
-                    # This will help generate more useful data in Global.REWARD_RESULTS.
-                    can_pause = False
-            else:
-                if s.task == "find_rewards":
-                    s.task = None
-                    s.target = None
+        def nearest_node(node: Node, nodes: Iterable[Node]) -> Node:
+            nearest = None
+            min_distance = float("inf")
+            for n in nodes:
+                d = node.manhattan_distance(n)
+                if d < min_distance:
+                    min_distance = d
+                    nearest = n
+
+            assert nearest is not None, (
+                f"nodes list is empty or as inf distance, nodes = {nodes}"
+            )
+
+            return nearest
+
+        unexplored_points: set[Node] = set()
+        for relic in unexplored_relics:
+            for x, y in nearby_positions(*relic.coordinates, Global.RELIC_REWARD_RANGE):
+                node = self.space.get_node(x, y)
+                if not node.explored_for_reward and node.is_walkable:
+                    unexplored_points.add(node)
+
+        rewards_ship = {
+            ship
+            for ship in self.fleet
+            if ship.node and not ship.task or ship.task == "find_rewards"
+        }
+
+        ship_points_distance: dict[tuple[Ship, Node], int] = {}
+
+        for ship in rewards_ship:
+            if not ship.node:
+                continue
+
+            for node in unexplored_points:
+                ship_points_distance[(ship, node)] = manhattan_distance(
+                    ship.node.coordinates, node.coordinates
+                )
+
+        while ship_points_distance:
+            ship, node = min(
+                ship_points_distance, key=lambda x: ship_points_distance[x]
+            )
+            del ship_points_distance[(ship, node)]
+
+            set_task(ship, node)
+
+            for ship_points in ship_points_distance.copy():
+                if ship_points[0] == ship:
+                    del ship_points_distance[ship_points]
+                if ship_points[1] == node:
+                    del ship_points_distance[ship_points]
 
     def get_unexplored_relics(self) -> list[Node]:
         relic_nodes = []
@@ -723,7 +715,7 @@ class RelicboundAgent:
         return relic_nodes
 
     def harvest(self):
-        def set_task(ship, target_node):
+        def set_task(ship: Ship, target_node: Node):
             if ship.node == target_node:
                 ship.task = "harvest"
                 ship.target = target_node
@@ -777,6 +769,9 @@ class RelicboundAgent:
             else:
                 ship.task = None
                 ship.target = None
+
+            if not targets:
+                break
 
     def show_visible_energy_field(self):
         print("Visible energy field:", file=stderr)
