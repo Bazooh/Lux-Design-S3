@@ -543,11 +543,11 @@ class RelicboundAgent:
         self.harvest()
         self.find_rewards()
 
-        if match_idx == 0 and self.player == "player_0":
-            for ship in self.fleet:
-                print(f"{ship.unit_id} {ship.task} {ship.target}", file=stderr)
-                print(Global.ALL_RELICS_FOUND, self.space.relic_nodes, file=stderr)
-                print(Global.ALL_REWARDS_FOUND, self.space.reward_nodes, file=stderr)
+        # if match_idx == 0 and self.player == "player_0":
+        #     for ship in self.fleet:
+        #         print(f"{ship.unit_id} {ship.task} {ship.target}", file=stderr)
+        #         print(Global.ALL_RELICS_FOUND, self.space.relic_nodes, file=stderr)
+        #         print(Global.ALL_REWARDS_FOUND, self.space.reward_nodes, file=stderr)
 
         # for ship in self.fleet:
         #     print(ship, ship.task, ship.target, ship.action, file=stderr)
